@@ -4,154 +4,74 @@
 
 mod commands;
 mod client;
+mod cli;
 mod credentials;
 mod display;
+mod mcp;
+mod order_types;
 mod routes;
+mod service;
+mod signer;
 mod tokens;
+mod x402;
 
-use clap::{Parser, Subcommand};
-
-#[derive(Parser)]
-#[command(
-    name = "agentswap",
-    version,
-    about = "AgentSwap CLI — AI-agent-optimized DEX aggregator"
-)]
-struct Cli {
-    /// Output raw JSON instead of formatted tables
-    #[arg(short, long, global = true)]
-    json: bool,
-
-    /// AgentSwap service URL
-    #[arg(
-        short,
-        long,
-        global = true,
-        env = "AGENTSWAP_URL",
-        default_value = "https://api.agentswap.co"
-    )]
-    url: String,
-
-    /// API key for authenticated endpoints
-    #[arg(short = 'k', long, global = true, env = "SR_API_KEY")]
-    api_key: Option<String>,
-
-    #[command(subcommand)]
-    command: Commands,
-}
-
-#[derive(Subcommand)]
-enum Commands {
-    /// Get quotes for multiple token pairs at once
-    BatchQuote {
-        /// Chain name or ID
-        #[arg(short, long)]
-        chain: String,
-        /// Token pairs as FROM/TO (e.g. USDC/WETH WETH/DAI)
-        #[arg(required = true)]
-        pairs: Vec<String>,
-        /// Amount in human-readable units (applied to each pair)
-        #[arg(short, long)]
-        amount: String,
-    },
-    /// List supported chains and DEX info
-    Chains,
-    /// Show wallet call instructions for buying API quota
-    BuyQuota {
-        /// Chain name or ID
-        #[arg(short, long)]
-        chain: String,
-        /// Payment token (symbol or address)
-        #[arg(short, long)]
-        token: String,
-        /// Amount in human-readable units
-        #[arg(short, long)]
-        amount: String,
-    },
-    /// Get a swap quote
-    Quote {
-        /// Chain name or ID (ethereum, base, arbitrum, 1, 8453, 42161)
-        #[arg(short, long)]
-        chain: String,
-        /// Input token (symbol or address): USDC, WETH, 0x833589f...
-        #[arg(short, long)]
-        from: String,
-        /// Output token (symbol or address)
-        #[arg(short, long)]
-        to: String,
-        /// Amount in human-readable units (e.g. "1000") or raw with "raw:" prefix
-        #[arg(short, long)]
-        amount: String,
-        /// Slippage tolerance in basis points (default: 50 = 0.5%)
-        #[arg(short, long)]
-        slippage: Option<u16>,
-        /// Verify quote on-chain via eth_call dry-run
-        #[arg(long)]
-        verify: bool,
-    },
-    /// Check service health
-    Health,
-    /// Show API key status, quota, and usage
-    KeyInfo,
-    /// List supported tokens
-    Tokens {
-        /// Filter by chain name or ID
-        #[arg(short, long)]
-        chain: Option<String>,
-    },
-    /// Inspect a specific pool
-    Pools {
-        /// Chain name or ID
-        #[arg(short, long)]
-        chain: String,
-        /// Pool contract address
-        #[arg(short, long)]
-        address: String,
-    },
-    /// Register a new API key via wallet signature (EIP-191)
-    Register {
-        /// Wallet address (0x...)
-        #[arg(long)]
-        address: String,
-        /// Private key for automated signing (omit for interactive mode) (deprecated: use --key-file instead)
-        #[arg(long)]
-        private_key: Option<String>,
-        /// Path to file containing private key (safer than --private-key)
-        #[arg(long)]
-        key_file: Option<String>,
-    },
-    /// Show quote pricing + quota purchase contract mapping
-    Pricing,
-    /// Claim purchased API quote quota using an on-chain tx hash
-    QuotaClaim {
-        /// Chain name or ID where the quota purchase tx was sent
-        #[arg(short, long)]
-        chain: String,
-        /// Purchase transaction hash (0x...)
-        #[arg(long)]
-        tx_hash: String,
-    },
-    /// Explain a saved quote route by hash
-    RouteExplain {
-        /// Quote hash (0x...)
-        #[arg(long)]
-        hash: String,
-    },
-}
+use clap::Parser;
+use cli::{Cli, Commands};
+use eyre::Result;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() {
     let _ = client::Client::status;
-    let _ = (routes::X402_VERIFY, routes::X402_SETTLE, routes::X402_DISCOVERY);
 
     let cli = Cli::parse();
+    let result = run_cli(cli).await;
+
+    if let Err(e) = result {
+        let msg = format!("{e}");
+        eprintln!("Error: {msg}");
+        if msg.contains("401") {
+            eprintln!();
+            eprintln!("No API key found. To get started:");
+            eprintln!("  agentswap register --address <YOUR_WALLET> --key-file <PRIVATE_KEY_FILE>");
+            eprintln!("  (or set SR_API_KEY if you already have a key)");
+        }
+        std::process::exit(1);
+    }
+}
+
+async fn run_cli(cli: Cli) -> Result<()> {
+    let _ = (routes::X402_VERIFY, routes::X402_SETTLE, routes::X402_DISCOVERY);
     let api_key = cli
         .api_key
+        .clone()
         .filter(|k| !k.is_empty())
         .or_else(credentials::load_api_key);
-    let client = client::Client::new(&cli.url, api_key);
+    let signer = signer_from_file(cli.key_file.as_deref())?;
+    let x402_signer = signer_from_file(cli.x402_key_file.as_deref().or(cli.key_file.as_deref()))?;
+    let client = client::Client::new(&cli.url, api_key).with_x402(
+        x402::Config {
+            enabled: cli.x402,
+            prefer_x402: cli.prefer_x402,
+            chain_id: cli.x402_chain,
+            max_amount: cli.x402_max_amount.clone(),
+            asset: cli.x402_asset.clone(),
+        },
+        x402_signer,
+    );
+    let gateway_url = cli.gateway_url.clone().unwrap_or_else(|| cli.url.clone());
+    let relay_client = client::Client::new(&gateway_url, cli.api_key.clone()).with_x402(
+        x402::Config {
+            enabled: cli.x402,
+            prefer_x402: cli.prefer_x402,
+            chain_id: cli.x402_chain,
+            max_amount: cli.x402_max_amount,
+            asset: cli.x402_asset,
+        },
+        signer.clone(),
+    );
 
-    let result = match cli.command {
+    match cli.command {
         Commands::BatchQuote {
             chain,
             pairs,
@@ -261,17 +181,66 @@ async fn main() {
             )
             .await
         }
-    };
-
-    if let Err(e) = result {
-        let msg = format!("{e}");
-        eprintln!("Error: {msg}");
-        if msg.contains("401") {
-            eprintln!();
-            eprintln!("No API key found. To get started:");
-            eprintln!("  agentswap register --address <YOUR_WALLET> --key-file <PRIVATE_KEY_FILE>");
-            eprintln!("  (or set SR_API_KEY if you already have a key)");
+        Commands::Mcp => {
+            mcp::serve_stdio(mcp::Config {
+                client,
+                signer,
+                allow_trade: cli.allow_trade,
+            })
+            .await
         }
-        std::process::exit(1);
+        Commands::Trade {
+            chain,
+            from,
+            to,
+            amount,
+            slippage,
+            min_out,
+            mode,
+            proxy,
+            nonce,
+            deadline_secs,
+            dry_run,
+            relay,
+            self_submit,
+            key_file,
+        } => {
+            let signer = signer_from_file(key_file.as_deref())?
+                .or(signer)
+                .ok_or_else(|| eyre::eyre!("trade requires --key-file or AGENTSWAP_KEY_FILE"))?;
+            commands::trade::run(
+                &client,
+                &relay_client,
+                signer,
+                commands::trade::Args {
+                    chain,
+                    from,
+                    to,
+                    amount,
+                    slippage,
+                    min_out,
+                    mode,
+                    proxy,
+                    nonce,
+                    deadline_secs: Some(deadline_secs),
+                    dry_run: dry_run || !cli.allow_trade,
+                    relay,
+                    self_submit,
+                    json: cli.json,
+                },
+                cli.allow_trade,
+            )
+            .await
+        }
+    }
+}
+
+fn signer_from_file(path: Option<&str>) -> Result<Option<Arc<dyn signer::Signer>>> {
+    match path {
+        Some(path) => {
+            let key = signer::local::LocalKey::from_key_file(path)?;
+            Ok(Some(Arc::new(key)))
+        }
+        None => Ok(None),
     }
 }

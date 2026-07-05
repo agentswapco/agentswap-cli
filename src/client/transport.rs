@@ -18,6 +18,11 @@ impl Client {
             req = req.header("x-api-key", key);
         }
         let resp = req.send().await.map_err(|e| eyre!("request failed: {e}"))?;
+        let resp = if resp.status() == reqwest::StatusCode::PAYMENT_REQUIRED {
+            self.retry_get_with_payment(url, resp).await?
+        } else {
+            resp
+        };
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
@@ -40,6 +45,11 @@ impl Client {
             req = req.header("x-api-key", key);
         }
         let resp = req.send().await.map_err(|e| eyre!("request failed: {e}"))?;
+        let resp = if resp.status() == reqwest::StatusCode::PAYMENT_REQUIRED {
+            self.retry_post_with_payment(&url, body, resp).await?
+        } else {
+            resp
+        };
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
@@ -49,5 +59,47 @@ impl Client {
             return Err(eyre!("HTTP {status}: {body}"));
         }
         resp.json().await.map_err(|e| eyre!("parse failed: {e}"))
+    }
+
+    async fn retry_get_with_payment(
+        &self,
+        url: &str,
+        resp: reqwest::Response,
+    ) -> Result<reqwest::Response> {
+        let payment = self.payment_header(resp).await?;
+        self.http
+            .get(url)
+            .header("X-PAYMENT", payment)
+            .send()
+            .await
+            .map_err(|e| eyre!("x402 retry failed: {e}"))
+    }
+
+    async fn retry_post_with_payment(
+        &self,
+        url: &str,
+        body: &serde_json::Value,
+        resp: reqwest::Response,
+    ) -> Result<reqwest::Response> {
+        let payment = self.payment_header(resp).await?;
+        self.http
+            .post(url)
+            .header("X-PAYMENT", payment)
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| eyre!("x402 retry failed: {e}"))
+    }
+
+    async fn payment_header(&self, resp: reqwest::Response) -> Result<String> {
+        let body = resp.text().await.unwrap_or_default();
+        if !self.x402.enabled || (self.api_key.is_some() && !self.x402.prefer_x402) {
+            return Err(eyre!("HTTP 402 Payment Required: {body}"));
+        }
+        let signer = self
+            .x402_signer
+            .clone()
+            .ok_or_else(|| eyre!("HTTP 402 Payment Required but no x402 signer configured"))?;
+        crate::x402::payment_header(&body, &self.x402, signer).await
     }
 }

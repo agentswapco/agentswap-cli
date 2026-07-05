@@ -1,15 +1,19 @@
 // HTTP client module for AgentSwap API calls.
 // Exports: Client.
-// Deps: reqwest, serde_json, eyre, crate::routes.
+// Deps: reqwest, serde_json, eyre, crate::{routes, signer, x402}.
 mod transport;
 
 use eyre::Result;
+use std::sync::Arc;
 
 /// Thin HTTP client for the sr-service API.
+#[derive(Clone)]
 pub struct Client {
     http: reqwest::Client,
     base_url: String,
     api_key: Option<String>,
+    x402: crate::x402::Config,
+    x402_signer: Option<Arc<dyn crate::signer::Signer>>,
 }
 
 impl Client {
@@ -18,7 +22,19 @@ impl Client {
             http: reqwest::Client::new(),
             base_url: base_url.trim_end_matches('/').to_string(),
             api_key,
+            x402: crate::x402::Config::disabled(),
+            x402_signer: None,
         }
+    }
+
+    pub fn with_x402(
+        mut self,
+        config: crate::x402::Config,
+        signer: Option<Arc<dyn crate::signer::Signer>>,
+    ) -> Self {
+        self.x402 = config;
+        self.x402_signer = signer;
+        self
     }
 
     // --- Consumer endpoints ---
@@ -92,5 +108,9 @@ impl Client {
     pub async fn quote_lookup(&self, hash: &str) -> Result<serde_json::Value> {
         self.get(&crate::routes::QUOTE_LOOKUP.replace(":hash", hash))
             .await
+    }
+
+    pub async fn submit_intent(&self, body: &serde_json::Value) -> Result<serde_json::Value> {
+        self.post(crate::routes::INTENTS, body).await
     }
 }

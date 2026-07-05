@@ -5,10 +5,11 @@
 use comfy_table::{presets::UTF8_FULL_CONDENSED, Table};
 use eyre::Result;
 use crate::client::Client;
+use crate::service::market;
 use crate::tokens::{chain_id_to_short, chain_name_to_id};
 
 pub async fn run(client: &Client, json: bool, chain: Option<&str>) -> Result<()> {
-    let resp = client.tokens().await?;
+    let resp = market::tokens(client).await?;
 
     if json {
         println!("{}", serde_json::to_string_pretty(&resp)?);
