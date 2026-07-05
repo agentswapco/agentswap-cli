@@ -186,6 +186,7 @@ async fn run_cli(cli: Cli) -> Result<()> {
                 client,
                 signer,
                 allow_trade: cli.allow_trade,
+                trade_max_amount: cli.trade_max_amount.clone(),
             })
             .await
         }
@@ -227,6 +228,7 @@ async fn run_cli(cli: Cli) -> Result<()> {
                     relay,
                     self_submit,
                     json: cli.json,
+                    max_amount: cli.trade_max_amount.clone(),
                 },
                 cli.allow_trade,
             )

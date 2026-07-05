@@ -42,6 +42,17 @@ pub async fn sign_payment(
         .max_amount_required
         .as_deref()
         .ok_or_else(|| eyre!("selected x402 accept missing maxAmountRequired"))?;
+    // Fail closed: the EIP-712 domain below is hardcoded to Circle USDC
+    // ("USD Coin"/"2"). Only sign if the asset is the known USDC address for
+    // this chain, so the hardcoded domain cannot be applied to a foreign token.
+    let expected_usdc = crate::tokens::resolve_token("USDC", chain_id)
+        .map(|(addr, _, _)| addr)
+        .ok_or_else(|| eyre!("no known USDC asset for chain {chain_id}; refusing to sign x402 payment"))?;
+    if !asset.eq_ignore_ascii_case(expected_usdc) {
+        return Err(eyre!(
+            "x402 asset {asset} is not the known USDC address {expected_usdc} for chain {chain_id}; refusing to sign with the hardcoded USD Coin/2 EIP-712 domain"
+        ));
+    }
     let authorization = authorization(signer.address(), pay_to, value)?;
     let typed = typed_transfer(&authorization)?;
     let domain = eip712_domain! {
