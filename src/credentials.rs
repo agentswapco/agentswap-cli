@@ -1,14 +1,14 @@
 // Credential caching helpers for the standalone AgentSwap CLI.
 // Exports: credentials_path, load_api_key, save_api_key.
-// Deps: dirs, std::fs, std::path, eyre.
+// Deps: std::env, std::fs, std::path, eyre.
 
 use eyre::Result;
 use std::path::PathBuf;
 
 /// Returns the ~/.agentswap/credentials path, using $HOME if available.
 pub fn credentials_path() -> Option<PathBuf> {
-    let home = dirs::home_dir()?;
-    Some(home.join(".agentswap").join("credentials"))
+    let home = std::env::var_os("HOME").filter(|value| !value.is_empty())?;
+    Some(PathBuf::from(home).join(".agentswap").join("credentials"))
 }
 
 /// Loads the cached API key, trimming whitespace and ignoring empty files.

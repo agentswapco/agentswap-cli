@@ -5,6 +5,7 @@
 use comfy_table::{presets::UTF8_FULL_CONDENSED, Table};
 use eyre::{eyre, Result};
 use crate::client::Client;
+use crate::service::market;
 use crate::tokens::chain_name_to_id;
 
 pub struct Args {
@@ -17,7 +18,7 @@ pub async fn run(client: &Client, args: Args) -> Result<()> {
     let chain_id =
         chain_name_to_id(&args.chain).ok_or_else(|| eyre!("unknown chain: {}", args.chain))?;
 
-    let resp = client.pool(chain_id, &args.address).await?;
+    let resp = market::pool(client, &args.chain, &args.address).await?;
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&resp)?);
