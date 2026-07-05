@@ -65,6 +65,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub allow_trade: bool,
 
+    /// Per-trade notional cap on amountIn (raw token units); refuses to sign/relay above it. Also bounds MCP trades.
+    #[arg(long = "max-amount", global = true, env = "AGENTSWAP_TRADE_MAX_AMOUNT")]
+    pub trade_max_amount: Option<String>,
+
     #[command(subcommand)]
     pub command: Commands,
 }

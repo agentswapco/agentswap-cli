@@ -21,6 +21,8 @@ pub struct Config {
     pub client: Client,
     pub signer: Option<Arc<dyn Signer>>,
     pub allow_trade: bool,
+    /// Operator-set per-trade notional cap; bounds any client-supplied cap.
+    pub trade_max_amount: Option<String>,
 }
 
 #[derive(Clone)]
@@ -29,6 +31,7 @@ struct AgentSwapMcp {
     client: Client,
     signer: Option<Arc<dyn Signer>>,
     allow_trade: bool,
+    trade_max_amount: Option<String>,
 }
 
 impl AgentSwapMcp {
@@ -38,6 +41,7 @@ impl AgentSwapMcp {
             client: config.client,
             signer: config.signer,
             allow_trade: config.allow_trade,
+            trade_max_amount: config.trade_max_amount,
         }
     }
 }
@@ -95,6 +99,18 @@ impl AgentSwapMcp {
     ) -> std::result::Result<Json<trade::TradeOutcome>, String> {
         if !self.allow_trade {
             input.dry_run = true;
+        }
+        // Bound the client-supplied per-trade cap by the operator's server cap, if set.
+        if let Some(server_cap) = &self.trade_max_amount {
+            let tighter = match &input.max_amount {
+                Some(client_cap) => {
+                    let c = client_cap.parse::<u128>().unwrap_or(u128::MAX);
+                    let s = server_cap.parse::<u128>().unwrap_or(u128::MAX);
+                    if s < c { server_cap.clone() } else { client_cap.clone() }
+                }
+                None => server_cap.clone(),
+            };
+            input.max_amount = Some(tighter);
         }
         let Some(signer) = self.signer.clone() else {
             return Err("trade requires --key-file".to_string());

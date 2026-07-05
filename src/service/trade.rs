@@ -21,6 +21,9 @@ pub struct TradeInput {
     pub amount: String,
     pub slippage: Option<u16>,
     pub min_out: Option<String>,
+    /// Per-trade notional ceiling on amountIn (raw token units). None = no cap.
+    #[serde(default)]
+    pub max_amount: Option<String>,
     #[serde(default = "agent_order_mode")]
     pub mode: String,
     pub proxy: String,
@@ -68,6 +71,7 @@ pub async fn execute_trade(
     }
     let quote_out = quote::quote(client, quote_input(&input)).await?;
     let order = build_order(&input, signer.address(), &quote_out)?;
+    enforce_notional_cap(&order, input.max_amount.as_deref())?;
     let proxy = order_types::parse_address(&input.proxy)?;
     let digest = order_types::signing_hash(&order, quote_out.request.chain_id, proxy);
     let sig = signer.sign_hash(digest).await?;
@@ -119,7 +123,16 @@ fn build_order(input: &TradeInput, agent: Address, quote: &QuoteOutput) -> Resul
         .ok_or_else(|| eyre!("quote response missing execution target/router"))?;
     let min_out = match &input.min_out {
         Some(value) => order_types::parse_u256(value)?,
-        None => slippage_min_out(&quote.response, input.slippage.unwrap_or(50))?,
+        None => {
+            // Fund-moving trades must not derive their protection floor from the
+            // untrusted quote server's output. Only dry-run previews may.
+            if !input.dry_run {
+                return Err(eyre!(
+                    "refusing to trade without an explicit --min-out floor; the quote server's output cannot be trusted as the protection floor"
+                ));
+            }
+            slippage_min_out(&quote.response, input.slippage.unwrap_or(50))?
+        }
     };
     Ok(UserProxyV3::AgentOrder {
         agent,
@@ -161,11 +174,30 @@ fn self_submit_preview(
 }
 
 fn slippage_min_out(response: &serde_json::Value, bps: u16) -> Result<U256> {
+    if bps > 10_000 {
+        return Err(eyre!("slippage {bps} bps exceeds 100% (max 10000)"));
+    }
     let output = response["output"]
         .as_str()
         .ok_or_else(|| eyre!("quote response missing output"))?;
     let quoted = order_types::parse_u256(output)?;
     Ok((quoted * U256::from(10_000u64 - u64::from(bps))) / U256::from(10_000u64))
+}
+
+/// Refuse to sign/relay an order whose amountIn exceeds the configured cap.
+fn enforce_notional_cap(order: &UserProxyV3::AgentOrder, cap: Option<&str>) -> Result<()> {
+    let Some(cap) = cap else {
+        return Ok(());
+    };
+    let cap = order_types::parse_u256(cap)?;
+    if order.amountIn > cap {
+        return Err(eyre!(
+            "order amountIn {} exceeds trade max-amount cap {}; refusing to sign/relay",
+            order.amountIn,
+            cap
+        ));
+    }
+    Ok(())
 }
 
 fn next_nonce(explicit: Option<&str>) -> Result<U256> {
@@ -205,4 +237,81 @@ fn agent_order_mode() -> String {
 
 fn default_true() -> bool {
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::service::quote::QuoteContext;
+
+    fn quote_output() -> QuoteOutput {
+        QuoteOutput {
+            request: QuoteContext {
+                chain_id: 8453,
+                token_in: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913".to_string(),
+                token_in_symbol: "USDC".to_string(),
+                token_in_decimals: 6,
+                token_out: "0x4200000000000000000000000000000000000006".to_string(),
+                token_out_symbol: "WETH".to_string(),
+                token_out_decimals: 18,
+                amount_in: "1000000".to_string(),
+            },
+            response: serde_json::json!({
+                "router": "0x1111111111111111111111111111111111111111",
+                "output": "500000000000000000",
+            }),
+        }
+    }
+
+    fn trade_input(min_out: Option<String>, dry_run: bool) -> TradeInput {
+        TradeInput {
+            chain: "base".to_string(),
+            from: "USDC".to_string(),
+            to: "WETH".to_string(),
+            amount: "1".to_string(),
+            slippage: Some(50),
+            min_out,
+            max_amount: None,
+            mode: "agent-order".to_string(),
+            proxy: "0x2222222222222222222222222222222222222222".to_string(),
+            nonce: Some("1".to_string()),
+            deadline_secs: Some(120),
+            dry_run,
+            relay: false,
+            self_submit: false,
+        }
+    }
+
+    #[test]
+    fn refuses_fund_moving_trade_without_min_out() {
+        let agent = Address::ZERO;
+        let err = build_order(&trade_input(None, false), agent, &quote_output())
+            .expect_err("must refuse missing min_out on fund-moving trade");
+        assert!(format!("{err}").contains("explicit --min-out floor"), "{err}");
+    }
+
+    #[test]
+    fn allows_dry_run_without_min_out() {
+        let agent = Address::ZERO;
+        build_order(&trade_input(None, true), agent, &quote_output())
+            .expect("dry-run may derive min_out");
+    }
+
+    #[test]
+    fn rejects_slippage_over_10000_bps() {
+        let response = serde_json::json!({ "output": "1000000" });
+        assert!(slippage_min_out(&response, 10_001).is_err());
+        assert!(slippage_min_out(&response, 10_000).is_ok());
+    }
+
+    #[test]
+    fn enforces_notional_cap() {
+        let agent = Address::ZERO;
+        let order = build_order(&trade_input(Some("1".to_string()), false), agent, &quote_output())
+            .expect("build order");
+        // amountIn is 1_000_000; a cap of 500_000 must be rejected.
+        assert!(enforce_notional_cap(&order, Some("500000")).is_err());
+        assert!(enforce_notional_cap(&order, Some("1000000")).is_ok());
+        assert!(enforce_notional_cap(&order, None).is_ok());
+    }
 }
