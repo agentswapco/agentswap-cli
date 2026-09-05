@@ -264,27 +264,31 @@ mod tests {
 
     #[tokio::test]
     async fn malformed_mcp_trade_cap_rejects_before_signing() {
-        let signer = Arc::new(CountingSigner { calls: AtomicUsize::new(0) });
-        let server = AgentSwapMcp::new(Config {
-            client: Client::new("http://127.0.0.1:1", None),
-            intent_client: Client::new("http://127.0.0.1:1", None),
-            signer: Some(signer.clone()),
-            allow_trade: true,
-            trade_max_amount: Some("not-an-amount".to_string()),
-        });
-        let result = server.trade(Parameters(trade::TradeInput {
-            chain: "base".to_string(), from: "USDC".to_string(), to: "WETH".to_string(),
-            amount: "1".to_string(), slippage: None, min_out: Some("1".to_string()),
-            max_amount: None, mode: "agent-order".to_string(),
-            proxy: "0x2222222222222222222222222222222222222222".to_string(),
-            nonce: Some("1".to_string()), deadline_secs: Some(120), dry_run: true,
-            relay: false, self_submit: false,
-        })).await;
-        let error = match result {
-            Ok(_) => panic!("malformed operator cap must fail"),
-            Err(error) => error,
-        };
-        assert!(error.contains("invalid uint"), "{error}");
-        assert_eq!(signer.calls.load(Ordering::SeqCst), 0);
+        // "" is the one that bites: from_str_radix("") is 0, so it used to become a zero cap only
+        // after a quote and an RPC round trip. Every malformed shape must error before either.
+        for cap in ["not-an-amount", "12abc", "", "  "] {
+            let signer = Arc::new(CountingSigner { calls: AtomicUsize::new(0) });
+            let server = AgentSwapMcp::new(Config {
+                client: Client::new("http://127.0.0.1:1", None),
+                intent_client: Client::new("http://127.0.0.1:1", None),
+                signer: Some(signer.clone()),
+                allow_trade: true,
+                trade_max_amount: Some(cap.to_string()),
+            });
+            let result = server.trade(Parameters(trade::TradeInput {
+                chain: "base".to_string(), from: "USDC".to_string(), to: "WETH".to_string(),
+                amount: "1".to_string(), slippage: None, min_out: Some("1".to_string()),
+                max_amount: None, mode: "agent-order".to_string(),
+                proxy: "0x2222222222222222222222222222222222222222".to_string(),
+                nonce: Some("1".to_string()), deadline_secs: Some(120), dry_run: true,
+                relay: false, self_submit: false,
+            })).await;
+            let error = match result {
+                Ok(_) => panic!("malformed operator cap {cap:?} must fail"),
+                Err(error) => error,
+            };
+            assert!(error.contains("invalid uint"), "cap {cap:?}: {error}");
+            assert_eq!(signer.calls.load(Ordering::SeqCst), 0, "cap {cap:?} signed");
+        }
     }
 }

@@ -254,6 +254,11 @@ pub fn parse_address(value: &str) -> Result<Address> {
 }
 
 pub fn parse_u256(value: &str) -> Result<U256> {
+    // `from_str_radix("")` is 0, which would turn an empty cap into a silent zero cap after a
+    // quote or RPC round trip. Empty is malformed, not zero.
+    if value.trim().is_empty() {
+        return Err(eyre!("invalid uint '{value}': empty"));
+    }
     U256::from_str_radix(value, 10).map_err(|e| eyre!("invalid uint '{value}': {e}"))
 }
 
