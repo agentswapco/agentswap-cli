@@ -96,7 +96,7 @@ impl AgentSwapMcp {
             .map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "Quote and sign an AgentOrder; dry-run defaults to true")]
+    #[tool(description = "Quote and sign an AgentOrder; dry-run defaults to true and requires a reachable RPC and deployed V5 proxy to verify policy and order hashes before signing")]
     async fn trade(
         &self,
         Parameters(mut input): Parameters<trade::TradeInput>,
@@ -106,15 +106,7 @@ impl AgentSwapMcp {
         }
         // Bound the client-supplied per-trade cap by the operator's server cap, if set.
         if let Some(server_cap) = &self.trade_max_amount {
-            let tighter = match &input.max_amount {
-                Some(client_cap) => {
-                    let c = client_cap.parse::<u128>().unwrap_or(u128::MAX);
-                    let s = server_cap.parse::<u128>().unwrap_or(u128::MAX);
-                    if s < c { server_cap.clone() } else { client_cap.clone() }
-                }
-                None => server_cap.clone(),
-            };
-            input.max_amount = Some(tighter);
+            bound_trade_cap(&mut input, server_cap)?;
         }
         let Some(signer) = self.signer.clone() else {
             return Err("trade requires --key-file".to_string());
@@ -181,6 +173,13 @@ fn bound_intent_cap(input: &mut intent::PlaceInput, server_cap: Option<&str>) ->
     Ok(())
 }
 
+fn bound_trade_cap(input: &mut trade::TradeInput, server_cap: &str) -> std::result::Result<(), String> {
+    let server = crate::order_types::parse_u256(server_cap).map_err(|e| format!("{e}"))?;
+    let client = input.max_amount.as_deref().map(crate::order_types::parse_u256).transpose().map_err(|e| format!("{e}"))?;
+    input.max_amount = Some(client.map_or_else(|| server_cap.to_string(), |value| value.min(server).to_string()));
+    Ok(())
+}
+
 #[derive(Debug, Deserialize, JsonSchema)]
 struct BatchQuoteInput {
     chain: String,
@@ -236,4 +235,56 @@ fn filter_tokens(tokens: serde_json::Value, chain: Option<&str>) -> std::result:
         .map(|(addr, token)| (addr.clone(), token.clone()))
         .collect();
     Ok(serde_json::Value::Object(filtered))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::primitives::{Address, B256, Signature};
+    use async_trait::async_trait;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct CountingSigner {
+        calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl Signer for CountingSigner {
+        fn address(&self) -> Address { Address::ZERO }
+
+        async fn sign_message(&self, _: &[u8]) -> Result<Signature> {
+            Err(eyre::eyre!("unexpected signature"))
+        }
+
+        async fn sign_hash(&self, _: B256) -> Result<Signature> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Err(eyre::eyre!("unexpected signature"))
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_mcp_trade_cap_rejects_before_signing() {
+        let signer = Arc::new(CountingSigner { calls: AtomicUsize::new(0) });
+        let server = AgentSwapMcp::new(Config {
+            client: Client::new("http://127.0.0.1:1", None),
+            intent_client: Client::new("http://127.0.0.1:1", None),
+            signer: Some(signer.clone()),
+            allow_trade: true,
+            trade_max_amount: Some("not-an-amount".to_string()),
+        });
+        let result = server.trade(Parameters(trade::TradeInput {
+            chain: "base".to_string(), from: "USDC".to_string(), to: "WETH".to_string(),
+            amount: "1".to_string(), slippage: None, min_out: Some("1".to_string()),
+            max_amount: None, mode: "agent-order".to_string(),
+            proxy: "0x2222222222222222222222222222222222222222".to_string(),
+            nonce: Some("1".to_string()), deadline_secs: Some(120), dry_run: true,
+            relay: false, self_submit: false,
+        })).await;
+        let error = match result {
+            Ok(_) => panic!("malformed operator cap must fail"),
+            Err(error) => error,
+        };
+        assert!(error.contains("invalid uint"), "{error}");
+        assert_eq!(signer.calls.load(Ordering::SeqCst), 0);
+    }
 }

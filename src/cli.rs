@@ -166,8 +166,10 @@ pub enum Commands {
         agent: String,
         #[arg(long)]
         lookback_blocks: Option<u64>,
+        #[arg(long = "token")]
+        tokens: Vec<String>,
     },
-    /// Quote, sign, and optionally relay an agent order
+    /// Quote, sign, and optionally relay an agent order; dry-run requires a reachable RPC and deployed V5 proxy to verify policy and order hashes before signing
     Trade {
         #[arg(short, long)]
         chain: String,

@@ -228,8 +228,8 @@ async fn run_cli(cli: Cli) -> Result<()> {
                 commands::intent::run_status(service::intent::StatusInput { chain, id, lookback_blocks }, cli.json).await
             }
         },
-        Commands::Policy { chain, owner, agent, lookback_blocks } => {
-            commands::intent::run_policy(service::intent::PolicyInput { chain, owner, agent, lookback_blocks }, cli.json).await
+        Commands::Policy { chain, owner, agent, lookback_blocks, tokens } => {
+            commands::intent::run_policy(service::intent::PolicyInput { chain, owner, agent, lookback_blocks, tokens }, cli.json).await
         }
         Commands::Trade {
             chain,
