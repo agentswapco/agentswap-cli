@@ -84,6 +84,9 @@ fn print_outcome(outcome: trade::TradeOutcome, json: bool) -> Result<()> {
     if let Some(preview) = &outcome.self_submit {
         table.add_row(vec!["Self Submit To", preview.to.as_str()]);
         table.add_row(vec!["Self Submit Calldata", preview.calldata.as_str()]);
+        if let Some(hash) = &preview.tx_hash {
+            table.add_row(vec!["Self Submit Tx", hash.as_str()]);
+        }
     }
     println!("{table}");
     Ok(())

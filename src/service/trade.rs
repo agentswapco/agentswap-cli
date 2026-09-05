@@ -3,10 +3,13 @@
 // Deps: quote service, order_types, signer trait.
 
 use crate::client::Client;
-use crate::order_types::{self, AgentOrderDto, UserProxyV3};
+use crate::evm;
+use crate::order_types::{self, AgentOrderDto, UserProxyV5};
 use crate::service::quote::{self, QuoteInput, QuoteOutput};
 use crate::signer::Signer;
 use alloy::primitives::{Address, Bytes, U256};
+use alloy::network::TransactionBuilder;
+use alloy::providers::Provider;
 use alloy::sol_types::SolCall;
 use eyre::{eyre, Result};
 use serde::{Deserialize, Serialize};
@@ -57,6 +60,7 @@ pub struct SelfSubmitPreview {
     pub calldata: String,
     pub spender: String,
     pub router_data: String,
+    pub tx_hash: Option<String>,
 }
 
 pub async fn execute_trade(
@@ -66,22 +70,36 @@ pub async fn execute_trade(
     input: TradeInput,
     allow_trade: bool,
 ) -> Result<TradeOutcome> {
+    let mut input = input;
     if input.mode != "agent-order" {
         return Err(eyre!("only agent-order mode is implemented in this release"));
     }
+    input.dry_run |= !allow_trade;
+    if input.relay && input.self_submit && !input.dry_run {
+        return Err(eyre!("choose exactly one of --relay or --self-submit"));
+    }
     let quote_out = quote::quote(client, quote_input(&input)).await?;
-    let order = build_order(&input, signer.address(), &quote_out)?;
+    let config = evm::chain_config(&input.chain)?;
+    let provider = evm::read_provider(&evm::rpc_url(config))?;
+    let proxy_address = order_types::parse_address(&input.proxy)?;
+    let proxy = UserProxyV5::new(proxy_address, provider.clone());
+    let policy = proxy.policyOf(signer.address()).call().await?;
+    let generation = policy.generation;
+    let order = build_order(&input, signer.address(), generation, &quote_out)?;
     enforce_notional_cap(&order, input.max_amount.as_deref())?;
-    let proxy = order_types::parse_address(&input.proxy)?;
-    let digest = order_types::signing_hash(&order, quote_out.request.chain_id, proxy);
+    let digest = order_types::signing_hash(
+        &order,
+        &order_types::proxy_domain(quote_out.request.chain_id, proxy_address),
+    );
+    let chain_digest = proxy.hashAgentOrder(order.clone()).call().await?;
+    if digest != chain_digest {
+        return Err(eyre!("local AgentOrder digest does not match proxy.hashAgentOrder"));
+    }
     let sig = signer.sign_hash(digest).await?;
     let sig_hex = format!("0x{}", hex::encode(sig.as_bytes()));
-    let self_submit = self_submit_preview(proxy, &order, &sig_hex, &quote_out)?;
+    let mut self_submit = self_submit_preview(proxy_address, &order, &sig_hex, &quote_out)?;
     let order_dto = order_types::dto_from_agent_order(&order);
     let relay = if input.relay && !input.dry_run {
-        if !allow_trade {
-            return Err(eyre!("trade execution requires --allow-trade"));
-        }
         Some(relay_client.submit_intent(&serde_json::json!({
             "swap": {
                 "order": order_dto,
@@ -92,7 +110,23 @@ pub async fn execute_trade(
         None
     };
     if input.self_submit && !input.dry_run {
-        return Err(eyre!("self-submit broadcasting is deferred; dry-run returns calldata"));
+        let wallet = evm::wallet_provider(&evm::rpc_url(config), signer.clone())?;
+        let preview = self_submit.as_mut().ok_or_else(|| eyre!("missing self-submit calldata"))?;
+        let call = UserProxyV5::executeAsAgentCall {
+            o: order,
+            agentSig: hex_bytes(&sig_hex)?,
+            spender: order_types::parse_address(&preview.spender)?,
+            routerData: hex_bytes(&preview.router_data)?,
+        };
+        let pending = wallet.send_transaction(
+            alloy::rpc::types::TransactionRequest::default()
+                .with_from(signer.address())
+                .with_kind(alloy::primitives::TxKind::Call(proxy_address))
+                .with_input(call.abi_encode()),
+        ).await?;
+        let hash = *pending.tx_hash();
+        pending.get_receipt().await?;
+        preview.tx_hash = Some(format!("{hash:?}"));
     }
     Ok(TradeOutcome {
         dry_run: input.dry_run,
@@ -117,7 +151,7 @@ fn quote_input(input: &TradeInput) -> QuoteInput {
     }
 }
 
-fn build_order(input: &TradeInput, agent: Address, quote: &QuoteOutput) -> Result<UserProxyV3::AgentOrder> {
+fn build_order(input: &TradeInput, agent: Address, generation: u64, quote: &QuoteOutput) -> Result<UserProxyV5::AgentOrder> {
     let router = field(&quote.response, &["execution", "target"])
         .or_else(|| field(&quote.response, &["router"]))
         .ok_or_else(|| eyre!("quote response missing execution target/router"))?;
@@ -134,8 +168,9 @@ fn build_order(input: &TradeInput, agent: Address, quote: &QuoteOutput) -> Resul
             slippage_min_out(&quote.response, input.slippage.unwrap_or(50))?
         }
     };
-    Ok(UserProxyV3::AgentOrder {
+    Ok(UserProxyV5::AgentOrder {
         agent,
+        generation,
         router: order_types::parse_address(router)?,
         tokenIn: order_types::parse_address(&quote.request.token_in)?,
         amountIn: order_types::parse_u256(&quote.request.amount_in)?,
@@ -148,7 +183,7 @@ fn build_order(input: &TradeInput, agent: Address, quote: &QuoteOutput) -> Resul
 
 fn self_submit_preview(
     proxy: Address,
-    order: &UserProxyV3::AgentOrder,
+    order: &UserProxyV5::AgentOrder,
     sig_hex: &str,
     quote: &QuoteOutput,
 ) -> Result<Option<SelfSubmitPreview>> {
@@ -158,7 +193,7 @@ fn self_submit_preview(
     let spender_value = field(&quote.response, &["execution", "spender"])
         .map(String::from)
         .unwrap_or_else(|| format!("{:?}", order.router));
-    let call = UserProxyV3::executeAsAgentCall {
+    let call = UserProxyV5::executeAsAgentCall {
         o: order.clone(),
         agentSig: hex_bytes(sig_hex)?,
         spender: order_types::parse_address(&spender_value)?,
@@ -170,6 +205,7 @@ fn self_submit_preview(
         calldata: format!("0x{}", hex::encode(call.abi_encode())),
         spender: spender_value,
         router_data: router_data.to_string(),
+        tx_hash: None,
     }))
 }
 
@@ -185,7 +221,7 @@ fn slippage_min_out(response: &serde_json::Value, bps: u16) -> Result<U256> {
 }
 
 /// Refuse to sign/relay an order whose amountIn exceeds the configured cap.
-fn enforce_notional_cap(order: &UserProxyV3::AgentOrder, cap: Option<&str>) -> Result<()> {
+fn enforce_notional_cap(order: &UserProxyV5::AgentOrder, cap: Option<&str>) -> Result<()> {
     let Some(cap) = cap else {
         return Ok(());
     };
@@ -240,78 +276,4 @@ fn default_true() -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::service::quote::QuoteContext;
-
-    fn quote_output() -> QuoteOutput {
-        QuoteOutput {
-            request: QuoteContext {
-                chain_id: 8453,
-                token_in: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913".to_string(),
-                token_in_symbol: "USDC".to_string(),
-                token_in_decimals: 6,
-                token_out: "0x4200000000000000000000000000000000000006".to_string(),
-                token_out_symbol: "WETH".to_string(),
-                token_out_decimals: 18,
-                amount_in: "1000000".to_string(),
-            },
-            response: serde_json::json!({
-                "router": "0x1111111111111111111111111111111111111111",
-                "output": "500000000000000000",
-            }),
-        }
-    }
-
-    fn trade_input(min_out: Option<String>, dry_run: bool) -> TradeInput {
-        TradeInput {
-            chain: "base".to_string(),
-            from: "USDC".to_string(),
-            to: "WETH".to_string(),
-            amount: "1".to_string(),
-            slippage: Some(50),
-            min_out,
-            max_amount: None,
-            mode: "agent-order".to_string(),
-            proxy: "0x2222222222222222222222222222222222222222".to_string(),
-            nonce: Some("1".to_string()),
-            deadline_secs: Some(120),
-            dry_run,
-            relay: false,
-            self_submit: false,
-        }
-    }
-
-    #[test]
-    fn refuses_fund_moving_trade_without_min_out() {
-        let agent = Address::ZERO;
-        let err = build_order(&trade_input(None, false), agent, &quote_output())
-            .expect_err("must refuse missing min_out on fund-moving trade");
-        assert!(format!("{err}").contains("explicit --min-out floor"), "{err}");
-    }
-
-    #[test]
-    fn allows_dry_run_without_min_out() {
-        let agent = Address::ZERO;
-        build_order(&trade_input(None, true), agent, &quote_output())
-            .expect("dry-run may derive min_out");
-    }
-
-    #[test]
-    fn rejects_slippage_over_10000_bps() {
-        let response = serde_json::json!({ "output": "1000000" });
-        assert!(slippage_min_out(&response, 10_001).is_err());
-        assert!(slippage_min_out(&response, 10_000).is_ok());
-    }
-
-    #[test]
-    fn enforces_notional_cap() {
-        let agent = Address::ZERO;
-        let order = build_order(&trade_input(Some("1".to_string()), false), agent, &quote_output())
-            .expect("build order");
-        // amountIn is 1_000_000; a cap of 500_000 must be rejected.
-        assert!(enforce_notional_cap(&order, Some("500000")).is_err());
-        assert!(enforce_notional_cap(&order, Some("1000000")).is_ok());
-        assert!(enforce_notional_cap(&order, None).is_ok());
-    }
-}
+mod tests;

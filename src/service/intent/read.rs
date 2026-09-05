@@ -1,0 +1,119 @@
+// V5 intent discovery, status, and policy reads with RPC-compatible log windows.
+// Exports: list, status, policy.
+// Deps: parent intent models, crate::{evm, order_types}, alloy providers.
+
+use super::*;
+use crate::evm::{self, ChainConfig};
+use crate::order_types::{
+    self, IntentAbiCodec, IntentLensV2, IntentSettlerV2, Order, UserProxyV5,
+};
+use alloy::providers::Provider;
+use alloy::sol_types::SolType;
+use std::collections::BTreeSet;
+
+pub async fn list(input: ListInput) -> Result<Vec<IntentRecord>> {
+    let config = evm::chain_config(&input.chain)?;
+    let owner = input.owner.as_deref().map(order_types::parse_address).transpose()?;
+    let agent = input.agent.as_deref().map(order_types::parse_address).transpose()?;
+    let provider = evm::read_provider(&evm::rpc_url(config))?;
+    let settler = IntentSettlerV2::new(config.settler, provider.clone());
+    let first_block = evm::event_start_block(&provider, config.settler).await?;
+    let latest = provider.get_block_number().await?;
+    let mut out = Vec::new();
+    let mut block = first_block;
+    while block <= latest {
+        let end = block.saturating_add(9_999).min(latest);
+        let mut filter = settler.IntentAnnounced_filter();
+        if let Some(owner) = owner { filter.filter = filter.filter.topic2(owner); }
+        filter.filter = filter.filter.from_block(block).to_block(end);
+        for (event, _) in filter.query().await? {
+            let (order, auth_agent) = decode_event(&event)?;
+            if agent.is_some() && auth_agent != agent { continue; }
+            out.push(record(&provider, config, order, auth_agent).await?);
+        }
+        if end == latest { break; }
+        block = end.saturating_add(1);
+    }
+    Ok(out)
+}
+
+pub async fn status(input: StatusInput) -> Result<IntentRecord> {
+    let config = evm::chain_config(&input.chain)?;
+    let id = parse_b256(&input.id)?;
+    let provider = evm::read_provider(&evm::rpc_url(config))?;
+    let settler = IntentSettlerV2::new(config.settler, provider.clone());
+    let first_block = evm::event_start_block(&provider, config.settler).await?;
+    let latest = provider.get_block_number().await?;
+    let mut block = first_block;
+    while block <= latest {
+        let end = block.saturating_add(9_999).min(latest);
+        let mut filter = settler.IntentAnnounced_filter();
+        filter.filter = filter.filter.topic1(id).from_block(block).to_block(end);
+        if let Some((event, _)) = filter.query().await?.into_iter().next() {
+            let (order, auth_agent) = decode_event(&event)?;
+            return record(&provider, config, order, auth_agent).await;
+        }
+        if end == latest { break; }
+        block = end.saturating_add(1);
+    }
+    Err(eyre!("intent {id:?} was not found in IntentAnnounced logs"))
+}
+
+pub async fn policy(input: PolicyInput) -> Result<PolicyOutput> {
+    let config = evm::chain_config(&input.chain)?;
+    let owner = order_types::parse_address(&input.owner)?;
+    let agent = order_types::parse_address(&input.agent)?;
+    let provider = evm::read_provider(&evm::rpc_url(config))?;
+    let proxy_address = super::proxy_for(&provider, config, owner).await?;
+    let proxy = UserProxyV5::new(proxy_address, provider.clone());
+    let policy = proxy.policyOf(agent).call().await?;
+    let generation = policy.generation;
+    let mut tokens = BTreeSet::new();
+    let first_block = evm::event_start_block(&provider, proxy_address).await?;
+    let latest = provider.get_block_number().await?;
+    let mut block = first_block;
+    while block <= latest {
+        let end = block.saturating_add(9_999).min(latest);
+        let mut event_filter = proxy.AgentCapSet_filter();
+        event_filter.filter = event_filter.filter.topic1(agent).from_block(block).to_block(end);
+        for (event, _) in event_filter.query().await? {
+            if event.generation == generation { tokens.insert(event.token); }
+        }
+        if end == latest { break; }
+        block = end.saturating_add(1);
+    }
+    let mut token_out = Vec::new();
+    for token in tokens {
+        let info = proxy.agentTokenInfo(agent, token).call().await?;
+        token_out.push(TokenPolicy { token: format!("{token:?}"), allowed: info.allowed, cap: info.cap.to_string(), used: info.used.to_string(), epoch_start: info.epochStart.to_string() });
+    }
+    Ok(PolicyOutput { owner: format!("{owner:?}"), agent: format!("{agent:?}"), proxy: format!("{proxy_address:?}"), expiry: policy.expiry.to_string(), epoch_len: policy.epochLen.to_string(), action_mask: policy.actionMask.to_string(), generation: generation.to_string(), tokens: token_out })
+}
+
+async fn record(provider: &alloy::providers::DynProvider, config: ChainConfig, order: Order, agent: Option<Address>) -> Result<IntentRecord> {
+    let view = IntentLensV2::new(config.lens, provider.clone()).preview(order.clone()).call().await?;
+    let (status, reason) = status_word(&view, agent.is_none(), &order);
+    Ok(IntentRecord { id: format!("{:?}", view.id), placed_by: agent.map(|a| format!("{a:?}")).unwrap_or_else(|| format!("{:?}", order.owner)), owner: format!("{:?}", order.owner), agent: agent.map(|a| format!("{a:?}")), pair: format!("{:?}/{:?}", order.tokenIn, order.tokenOut), amount_in: order.amountIn.to_string(), start_out: order.startAmountOut.to_string(), end_out: order.endAmountOut.to_string(), window: format!("{}..{}", order.startTime, order.endTime), status, reason })
+}
+
+fn status_word(view: &IntentLensV2::IntentView, owner_order: bool, order: &Order) -> (String, String) {
+    if view.filled { return ("filled".into(), "settler marked filled".into()); }
+    if view.cancelled { return ("cancelled".into(), "settler cancellation".into()); }
+    if !view.proxyDeployed { return ("dead".into(), "proxy not deployed".into()); }
+    if view.killedByOwner { return ("dead".into(), "killed by owner".into()); }
+    if owner_order && view.nonceSpent { return ("dead".into(), "owner nonce spent".into()); }
+    if view.observedAt > order.endTime { return ("expired".into(), "order window closed".into()); }
+    ("open".into(), "within announced feed".into())
+}
+
+fn decode_event(event: &IntentSettlerV2::IntentAnnounced) -> Result<(Order, Option<Address>)> {
+    let order = Order::abi_decode(&event.order)?;
+    let outer = IntentAbiCodec::encodeEnvelopeCall::abi_decode_raw(&event.ownerSig)?;
+    if outer.kind != 1 { return Ok((order, None)); }
+    let inner = IntentAbiCodec::encodeAuthorizationCall::abi_decode_raw(&outer.payload)?;
+    Ok((order, Some(inner.agent)))
+}
+
+fn parse_b256(value: &str) -> Result<B256> {
+    value.parse().map_err(|e| eyre!("invalid bytes32 '{value}': {e}"))
+}

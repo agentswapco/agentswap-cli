@@ -3,7 +3,7 @@
 // Deps: rmcp, crate::{client, service, signer}.
 
 use crate::client::Client;
-use crate::service::{market, quote, trade};
+use crate::service::{intent, market, quote, trade};
 use crate::signer::Signer;
 use crate::tokens::chain_name_to_id;
 use eyre::Result;
@@ -19,6 +19,7 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct Config {
     pub client: Client,
+    pub intent_client: Client,
     pub signer: Option<Arc<dyn Signer>>,
     pub allow_trade: bool,
     /// Operator-set per-trade notional cap; bounds any client-supplied cap.
@@ -29,6 +30,7 @@ pub struct Config {
 struct AgentSwapMcp {
     tool_router: ToolRouter<Self>,
     client: Client,
+    intent_client: Client,
     signer: Option<Arc<dyn Signer>>,
     allow_trade: bool,
     trade_max_amount: Option<String>,
@@ -39,6 +41,7 @@ impl AgentSwapMcp {
         Self {
             tool_router: Self::tool_router(),
             client: config.client,
+            intent_client: config.intent_client,
             signer: config.signer,
             allow_trade: config.allow_trade,
             trade_max_amount: config.trade_max_amount,
@@ -120,14 +123,58 @@ impl AgentSwapMcp {
             .map(Json)
             .map_err(|e| format!("{e}"))
     }
+
+    #[tool(description = "Sign and announce a V5 open intent; dry-run is forced without allow_trade")]
+    async fn intent_place(
+        &self,
+        Parameters(mut input): Parameters<intent::PlaceInput>,
+    ) -> std::result::Result<Json<intent::PlaceOutcome>, String> {
+        if !self.allow_trade { input.dry_run = true; }
+        bound_intent_cap(&mut input, self.trade_max_amount.as_deref())?;
+        let Some(signer) = self.signer.clone() else { return Err("intent_place requires --key-file".to_string()); };
+        intent::place(&self.intent_client, input, signer, self.allow_trade)
+            .await.map(Json).map_err(|e| format!("{e}"))
+    }
+
+    #[tool(description = "List announced V5 intents by owner or agent")]
+    async fn intent_list(
+        &self,
+        Parameters(input): Parameters<intent::ListInput>,
+    ) -> std::result::Result<Json<Vec<intent::IntentRecord>>, String> {
+        intent::list(input).await.map(Json).map_err(|e| format!("{e}"))
+    }
+
+    #[tool(description = "Inspect one V5 intent by bytes32 id")]
+    async fn intent_status(
+        &self,
+        Parameters(input): Parameters<intent::StatusInput>,
+    ) -> std::result::Result<Json<intent::IntentRecord>, String> {
+        intent::status(input).await.map(Json).map_err(|e| format!("{e}"))
+    }
+
+    #[tool(description = "Read a V5 agent policy and per-token cap/usage")]
+    async fn policy(
+        &self,
+        Parameters(input): Parameters<intent::PolicyInput>,
+    ) -> std::result::Result<Json<intent::PolicyOutput>, String> {
+        intent::policy(input).await.map(Json).map_err(|e| format!("{e}"))
+    }
 }
 
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for AgentSwapMcp {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_instructions("AgentSwap tools: quote, batch_quote, tokens, pools, trade.")
+            .with_instructions("AgentSwap tools: quote, batch_quote, tokens, pools, trade, intent_place, intent_list, intent_status, policy.")
     }
+}
+
+fn bound_intent_cap(input: &mut intent::PlaceInput, server_cap: Option<&str>) -> std::result::Result<(), String> {
+    let Some(server_cap) = server_cap else { return Ok(()); };
+    let server = crate::order_types::parse_u256(server_cap).map_err(|e| format!("{e}"))?;
+    let client = input.max_amount.as_deref().map(crate::order_types::parse_u256).transpose().map_err(|e| format!("{e}"))?;
+    input.max_amount = Some(client.map_or_else(|| server_cap.to_string(), |value| value.min(server).to_string()));
+    Ok(())
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]

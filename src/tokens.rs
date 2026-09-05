@@ -8,6 +8,8 @@ pub fn chain_name_to_id(name: &str) -> Option<u64> {
     match name.to_lowercase().as_str() {
         "base" => Some(8453),
         "arbitrum" | "arb" => Some(42161),
+        "bsc" | "bnb" | "binance" => Some(56),
+        "robinhood" | "robinhood-chain" | "rh" => Some(4663),
         "ethereum" | "eth" | "mainnet" => Some(1),
         "optimism" | "op" => Some(10),
         _ => name.parse::<u64>().ok(),
@@ -21,6 +23,8 @@ pub fn chain_id_to_name(chain_id: u64) -> &'static str {
         10 => "Optimism",
         8453 => "Base",
         42161 => "Arbitrum",
+        56 => "BNB Smart Chain",
+        4663 => "Robinhood Chain",
         _ => "Unknown",
     }
 }
@@ -32,6 +36,8 @@ pub fn chain_id_to_short(chain_id: u64) -> &'static str {
         10 => "Op",
         8453 => "Base",
         42161 => "Arb",
+        56 => "BSC",
+        4663 => "Robinhood",
         _ => "?",
     }
 }
@@ -155,6 +161,8 @@ mod tests {
         assert_eq!(chain_name_to_id("Ethereum"), Some(1));
         assert_eq!(chain_name_to_id("mainnet"), Some(1));
         assert_eq!(chain_name_to_id("op"), Some(10));
+        assert_eq!(chain_name_to_id("bsc"), Some(56));
+        assert_eq!(chain_name_to_id("robinhood"), Some(4663));
         assert_eq!(chain_name_to_id("10"), Some(10));
         assert_eq!(chain_name_to_id("999"), Some(999));
         assert_eq!(chain_name_to_id("unknown"), None);
@@ -166,12 +174,16 @@ mod tests {
         assert_eq!(chain_id_to_name(10), "Optimism");
         assert_eq!(chain_id_to_name(8453), "Base");
         assert_eq!(chain_id_to_name(42161), "Arbitrum");
+        assert_eq!(chain_id_to_name(56), "BNB Smart Chain");
+        assert_eq!(chain_id_to_name(4663), "Robinhood Chain");
         assert_eq!(chain_id_to_name(999), "Unknown");
 
         assert_eq!(chain_id_to_short(1), "Eth");
         assert_eq!(chain_id_to_short(10), "Op");
         assert_eq!(chain_id_to_short(8453), "Base");
         assert_eq!(chain_id_to_short(42161), "Arb");
+        assert_eq!(chain_id_to_short(56), "BSC");
+        assert_eq!(chain_id_to_short(4663), "Robinhood");
         assert_eq!(chain_id_to_short(999), "?");
     }
 

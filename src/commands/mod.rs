@@ -6,6 +6,7 @@ pub mod batch_quote;
 pub mod buy_quota;
 pub mod chains;
 pub mod health;
+pub mod intent;
 pub mod key_info;
 pub mod pools;
 pub mod pricing;

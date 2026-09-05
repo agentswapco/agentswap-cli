@@ -151,6 +151,20 @@ pub enum Commands {
     },
     /// Run an MCP server over stdio
     Mcp,
+    /// Place, list, or inspect V5 open intents
+    Intent {
+        #[command(subcommand)]
+        command: IntentCommands,
+    },
+    /// Show the V5 policy and token budgets for an agent
+    Policy {
+        #[arg(short, long)]
+        chain: String,
+        #[arg(long)]
+        owner: String,
+        #[arg(long)]
+        agent: String,
+    },
     /// Quote, sign, and optionally relay an agent order
     Trade {
         #[arg(short, long)]
@@ -181,5 +195,54 @@ pub enum Commands {
         self_submit: bool,
         #[arg(long)]
         key_file: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum IntentCommands {
+    /// Sign and announce an agent-placed open intent
+    Place {
+        #[arg(short, long)]
+        chain: String,
+        #[arg(long)]
+        proxy_owner: String,
+        #[arg(short, long)]
+        from: String,
+        #[arg(short, long)]
+        to: String,
+        #[arg(short, long)]
+        amount: String,
+        #[arg(long)]
+        start_out: String,
+        #[arg(long)]
+        end_out: String,
+        #[arg(long)]
+        decay_secs: Option<u64>,
+        #[arg(long)]
+        duration_secs: Option<u64>,
+        #[arg(long)]
+        deadline_secs: Option<u64>,
+        #[arg(long)]
+        relay: bool,
+        #[arg(long)]
+        self_submit: bool,
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// List announced intents by owner or agent
+    List {
+        #[arg(short, long)]
+        chain: String,
+        #[arg(long, conflicts_with = "agent", required_unless_present = "agent")]
+        owner: Option<String>,
+        #[arg(long, conflicts_with = "owner", required_unless_present = "owner")]
+        agent: Option<String>,
+    },
+    /// Inspect an announced intent by bytes32 id
+    Status {
+        #[arg(short, long)]
+        chain: String,
+        #[arg(long)]
+        id: String,
     },
 }
