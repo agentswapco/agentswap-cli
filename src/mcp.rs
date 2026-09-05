@@ -96,7 +96,7 @@ impl AgentSwapMcp {
             .map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "Quote and sign an AgentOrder; dry-run defaults to true")]
+    #[tool(description = "Quote and sign an AgentOrder; dry-run defaults to true and requires a reachable RPC and deployed V5 proxy to verify policy and order hashes before signing")]
     async fn trade(
         &self,
         Parameters(mut input): Parameters<trade::TradeInput>,
