@@ -221,15 +221,15 @@ async fn run_cli(cli: Cli) -> Result<()> {
                     }, signer, cli.allow_trade, cli.json,
                 ).await
             }
-            IntentCommands::List { chain, owner, agent } => {
-                commands::intent::run_list(service::intent::ListInput { chain, owner, agent }, cli.json).await
+            IntentCommands::List { chain, owner, agent, lookback_blocks } => {
+                commands::intent::run_list(service::intent::ListInput { chain, owner, agent, lookback_blocks }, cli.json).await
             }
-            IntentCommands::Status { chain, id } => {
-                commands::intent::run_status(service::intent::StatusInput { chain, id }, cli.json).await
+            IntentCommands::Status { chain, id, lookback_blocks } => {
+                commands::intent::run_status(service::intent::StatusInput { chain, id, lookback_blocks }, cli.json).await
             }
         },
-        Commands::Policy { chain, owner, agent } => {
-            commands::intent::run_policy(service::intent::PolicyInput { chain, owner, agent }, cli.json).await
+        Commands::Policy { chain, owner, agent, lookback_blocks } => {
+            commands::intent::run_policy(service::intent::PolicyInput { chain, owner, agent, lookback_blocks }, cli.json).await
         }
         Commands::Trade {
             chain,

@@ -41,6 +41,10 @@ Dry-runs may sign locally but never broadcast or relay. `agentswap mcp` exposes 
 intent place/list/status, and policy tools with the same safety model; intent listing requires
 an owner or agent filter.
 
+Intent and policy reads inspect the latest 200,000 blocks on Base, Arbitrum, and Robinhood Chain.
+BSC uses 9,000 blocks with the built-in public RPC; set `AGENTSWAP_RPC_URL_56` or
+`AGENTSWAP_RPC_URL` for a keyed endpoint to use the full lookback, or pass `--lookback-blocks`.
+
 ## Authenticated Flows
 
 ```bash

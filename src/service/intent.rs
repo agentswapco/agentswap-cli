@@ -61,12 +61,16 @@ pub struct ListInput {
     pub chain: String,
     pub owner: Option<String>,
     pub agent: Option<String>,
+    #[serde(default)]
+    pub lookback_blocks: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct StatusInput {
     pub chain: String,
     pub id: String,
+    #[serde(default)]
+    pub lookback_blocks: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -74,6 +78,8 @@ pub struct PolicyInput {
     pub chain: String,
     pub owner: String,
     pub agent: String,
+    #[serde(default)]
+    pub lookback_blocks: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]

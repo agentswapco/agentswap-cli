@@ -17,7 +17,8 @@ pub async fn list(input: ListInput) -> Result<Vec<IntentRecord>> {
     let agent = input.agent.as_deref().map(order_types::parse_address).transpose()?;
     let provider = evm::read_provider(&evm::rpc_url(config))?;
     let settler = IntentSettlerV2::new(config.settler, provider.clone());
-    let first_block = evm::event_start_block(&provider, config.settler).await?;
+    let lookback = evm::event_lookback_blocks(config, input.lookback_blocks);
+    let first_block = evm::event_start_block(&provider, lookback).await?;
     let latest = provider.get_block_number().await?;
     let mut out = Vec::new();
     let mut block = first_block;
@@ -26,7 +27,11 @@ pub async fn list(input: ListInput) -> Result<Vec<IntentRecord>> {
         let mut filter = settler.IntentAnnounced_filter();
         if let Some(owner) = owner { filter.filter = filter.filter.topic2(owner); }
         filter.filter = filter.filter.from_block(block).to_block(end);
-        for (event, _) in filter.query().await? {
+        for (event, _) in filter
+            .query()
+            .await
+            .map_err(|error| evm::event_query_error(config, block, end, error))?
+        {
             let (order, auth_agent) = decode_event(&event)?;
             if agent.is_some() && auth_agent != agent { continue; }
             out.push(record(&provider, config, order, auth_agent).await?);
@@ -42,14 +47,21 @@ pub async fn status(input: StatusInput) -> Result<IntentRecord> {
     let id = parse_b256(&input.id)?;
     let provider = evm::read_provider(&evm::rpc_url(config))?;
     let settler = IntentSettlerV2::new(config.settler, provider.clone());
-    let first_block = evm::event_start_block(&provider, config.settler).await?;
+    let lookback = evm::event_lookback_blocks(config, input.lookback_blocks);
+    let first_block = evm::event_start_block(&provider, lookback).await?;
     let latest = provider.get_block_number().await?;
     let mut block = first_block;
     while block <= latest {
         let end = block.saturating_add(evm::EVENT_CHUNK_SIZE - 1).min(latest);
         let mut filter = settler.IntentAnnounced_filter();
         filter.filter = filter.filter.topic1(id).from_block(block).to_block(end);
-        if let Some((event, _)) = filter.query().await?.into_iter().next() {
+        if let Some((event, _)) = filter
+            .query()
+            .await
+            .map_err(|error| evm::event_query_error(config, block, end, error))?
+            .into_iter()
+            .next()
+        {
             let (order, auth_agent) = decode_event(&event)?;
             return record(&provider, config, order, auth_agent).await;
         }
@@ -69,14 +81,19 @@ pub async fn policy(input: PolicyInput) -> Result<PolicyOutput> {
     let policy = proxy.policyOf(agent).call().await?;
     let generation = policy.generation;
     let mut tokens = BTreeSet::new();
-    let first_block = evm::event_start_block(&provider, proxy_address).await?;
+    let lookback = evm::event_lookback_blocks(config, input.lookback_blocks);
+    let first_block = evm::event_start_block(&provider, lookback).await?;
     let latest = provider.get_block_number().await?;
     let mut block = first_block;
     while block <= latest {
         let end = block.saturating_add(evm::EVENT_CHUNK_SIZE - 1).min(latest);
         let mut event_filter = proxy.AgentCapSet_filter();
         event_filter.filter = event_filter.filter.topic1(agent).from_block(block).to_block(end);
-        for (event, _) in event_filter.query().await? {
+        for (event, _) in event_filter
+            .query()
+            .await
+            .map_err(|error| evm::event_query_error(config, block, end, error))?
+        {
             if event.generation == generation { tokens.insert(event.token); }
         }
         if end == latest { break; }

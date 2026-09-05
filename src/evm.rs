@@ -23,6 +23,7 @@ const FACTORY: Address = alloy::primitives::address!("0x1b1086b82b7a3935cc4158ab
 const SETTLER: Address = alloy::primitives::address!("0xc0b66ee5345170dfd4855cfda917bf316d8058e2");
 const LENS: Address = alloy::primitives::address!("0x805fe607e265477227ab5492963f6f0bef1f3860");
 const EVENT_LOOKBACK_BLOCKS: u64 = 200_000;
+const BSC_DEFAULT_EVENT_LOOKBACK_BLOCKS: u64 = 9_000;
 pub const EVENT_CHUNK_SIZE: u64 = 5_000;
 
 pub fn chain_config(chain: &str) -> Result<ChainConfig> {
@@ -50,9 +51,44 @@ pub fn read_provider(url: &str) -> Result<DynProvider> {
     Ok(ProviderBuilder::new().connect_http(url).erased())
 }
 
-pub async fn event_start_block(provider: &DynProvider, _address: Address) -> Result<u64> {
+pub fn event_lookback_blocks(config: ChainConfig, override_blocks: Option<u64>) -> u64 {
+    if let Some(blocks) = override_blocks {
+        return blocks;
+    }
+    if config.id == 56 && !has_rpc_override(config.id) {
+        return BSC_DEFAULT_EVENT_LOOKBACK_BLOCKS;
+    }
+    EVENT_LOOKBACK_BLOCKS
+}
+
+pub async fn event_start_block(provider: &DynProvider, lookback_blocks: u64) -> Result<u64> {
     let latest = provider.get_block_number().await?;
-    Ok(latest.saturating_sub(EVENT_LOOKBACK_BLOCKS))
+    Ok(latest.saturating_sub(lookback_blocks))
+}
+
+pub fn event_query_error(
+    config: ChainConfig,
+    from_block: u64,
+    to_block: u64,
+    error: impl std::fmt::Display,
+) -> eyre::Report {
+    let message = error.to_string();
+    let lower = message.to_ascii_lowercase();
+    if lower.contains("limit exceeded") || lower.contains("archive") {
+        return eyre!(
+            "eth_getLogs refused on {} for block span {}..={}; set AGENTSWAP_RPC_URL_{} (or AGENTSWAP_RPC_URL) to a keyed RPC endpoint",
+            crate::tokens::chain_id_to_name(config.id),
+            from_block,
+            to_block,
+            config.id
+        );
+    }
+    eyre!("{message}")
+}
+
+fn has_rpc_override(chain_id: u64) -> bool {
+    let chain_key = format!("AGENTSWAP_RPC_URL_{chain_id}");
+    std::env::var_os(chain_key).is_some() || std::env::var_os("AGENTSWAP_RPC_URL").is_some()
 }
 
 pub fn wallet_provider(url: &str, signer: Arc<dyn Signer>) -> Result<DynProvider> {

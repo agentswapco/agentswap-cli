@@ -164,6 +164,8 @@ pub enum Commands {
         owner: String,
         #[arg(long)]
         agent: String,
+        #[arg(long)]
+        lookback_blocks: Option<u64>,
     },
     /// Quote, sign, and optionally relay an agent order
     Trade {
@@ -237,6 +239,8 @@ pub enum IntentCommands {
         owner: Option<String>,
         #[arg(long, conflicts_with = "owner", required_unless_present = "owner")]
         agent: Option<String>,
+        #[arg(long)]
+        lookback_blocks: Option<u64>,
     },
     /// Inspect an announced intent by bytes32 id
     Status {
@@ -244,5 +248,7 @@ pub enum IntentCommands {
         chain: String,
         #[arg(long)]
         id: String,
+        #[arg(long)]
+        lookback_blocks: Option<u64>,
     },
 }
