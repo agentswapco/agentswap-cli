@@ -7,6 +7,7 @@ mod client;
 mod cli;
 mod credentials;
 mod display;
+mod evm;
 mod mcp;
 mod order_types;
 mod routes;
@@ -16,7 +17,7 @@ mod tokens;
 mod x402;
 
 use clap::Parser;
-use cli::{Cli, Commands};
+use cli::{Cli, Commands, IntentCommands};
 use eyre::Result;
 use std::sync::Arc;
 
@@ -49,7 +50,32 @@ async fn run_cli(cli: Cli) -> Result<()> {
         .or_else(credentials::load_api_key);
     let signer = signer_from_file(cli.key_file.as_deref())?;
     let x402_signer = signer_from_file(cli.x402_key_file.as_deref().or(cli.key_file.as_deref()))?;
-    let client = client::Client::new(&cli.url, api_key).with_x402(
+    let client = client::Client::new(&cli.url, api_key.clone()).with_x402(
+        x402::Config {
+            enabled: cli.x402,
+            prefer_x402: cli.prefer_x402,
+            chain_id: cli.x402_chain,
+            max_amount: cli.x402_max_amount.clone(),
+            asset: cli.x402_asset.clone(),
+        },
+        x402_signer.clone(),
+    );
+    let gateway_url = cli.gateway_url.clone().unwrap_or_else(|| cli.url.clone());
+    let relay_client = client::Client::new(&gateway_url, cli.api_key.clone()).with_x402(
+        x402::Config {
+            enabled: cli.x402,
+            prefer_x402: cli.prefer_x402,
+            chain_id: cli.x402_chain,
+            max_amount: cli.x402_max_amount.clone(),
+            asset: cli.x402_asset.clone(),
+        },
+        signer.clone(),
+    );
+    let intent_gateway_url = cli
+        .gateway_url
+        .clone()
+        .unwrap_or_else(|| "https://app.agentswap.co".to_string());
+    let intent_relay_client = client::Client::new(&intent_gateway_url, api_key).with_x402(
         x402::Config {
             enabled: cli.x402,
             prefer_x402: cli.prefer_x402,
@@ -58,17 +84,6 @@ async fn run_cli(cli: Cli) -> Result<()> {
             asset: cli.x402_asset.clone(),
         },
         x402_signer,
-    );
-    let gateway_url = cli.gateway_url.clone().unwrap_or_else(|| cli.url.clone());
-    let relay_client = client::Client::new(&gateway_url, cli.api_key.clone()).with_x402(
-        x402::Config {
-            enabled: cli.x402,
-            prefer_x402: cli.prefer_x402,
-            chain_id: cli.x402_chain,
-            max_amount: cli.x402_max_amount,
-            asset: cli.x402_asset,
-        },
-        signer.clone(),
     );
 
     match cli.command {
@@ -184,11 +199,37 @@ async fn run_cli(cli: Cli) -> Result<()> {
         Commands::Mcp => {
             mcp::serve_stdio(mcp::Config {
                 client,
+                intent_client: intent_relay_client,
                 signer,
                 allow_trade: cli.allow_trade,
                 trade_max_amount: cli.trade_max_amount.clone(),
             })
             .await
+        }
+        Commands::Intent { command } => match command {
+            IntentCommands::Place {
+                chain, proxy_owner, from, to, amount, start_out, end_out,
+                decay_secs, duration_secs, deadline_secs, relay, self_submit, dry_run,
+            } => {
+                let signer = signer.ok_or_else(|| eyre::eyre!("intent place requires --key-file or AGENTSWAP_KEY_FILE"))?;
+                commands::intent::run_place(
+                    &intent_relay_client,
+                    service::intent::PlaceInput {
+                        chain, proxy_owner, from, to, amount, start_out, end_out,
+                        decay_secs, duration_secs, deadline_secs, relay, self_submit, dry_run,
+                        max_amount: cli.trade_max_amount.clone(),
+                    }, signer, cli.allow_trade, cli.json,
+                ).await
+            }
+            IntentCommands::List { chain, owner, agent, lookback_blocks } => {
+                commands::intent::run_list(service::intent::ListInput { chain, owner, agent, lookback_blocks }, cli.json).await
+            }
+            IntentCommands::Status { chain, id, lookback_blocks } => {
+                commands::intent::run_status(service::intent::StatusInput { chain, id, lookback_blocks }, cli.json).await
+            }
+        },
+        Commands::Policy { chain, owner, agent, lookback_blocks } => {
+            commands::intent::run_policy(service::intent::PolicyInput { chain, owner, agent, lookback_blocks }, cli.json).await
         }
         Commands::Trade {
             chain,

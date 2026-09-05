@@ -8,6 +8,7 @@ pub const CHAINS: &str = "/api/chains";
 pub const TOKENS: &str = "/api/tokens";
 pub const STATUS: &str = "/api/status";
 pub const INTENTS: &str = "/intents";
+pub const INTENT_ANNOUNCE: &str = "/api/intents";
 
 // Auth routes
 pub const AUTH_CHALLENGE: &str = "/auth/challenge";
@@ -39,6 +40,7 @@ mod tests {
         assert_eq!(TOKENS, "/api/tokens");
         assert_eq!(STATUS, "/api/status");
         assert_eq!(INTENTS, "/intents");
+        assert_eq!(INTENT_ANNOUNCE, "/api/intents");
         assert_eq!(AUTH_CHALLENGE, "/auth/challenge");
         assert_eq!(AUTH_REGISTER, "/auth/register");
         assert_eq!(AUTH_KEY_INFO, "/auth/key-info");
