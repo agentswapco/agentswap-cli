@@ -4,11 +4,11 @@
 
 use crate::client::Client;
 use crate::evm::{self, ChainConfig};
-use crate::order_types::{self, IntentAuthorization, IntentSettlerV2, Order, UserProxyFactoryV5, UserProxyV5};
+use crate::order_types::{self, Erc20Metadata, IntentAuthorization, IntentSettlerV2, Order, UserProxyFactoryV5, UserProxyV5, UserProxyV5Errors};
 use crate::signer::Signer;
 use crate::tokens::{resolve_token, scale_amount};
 use alloy::primitives::{Address, B256, Bytes, U256};
-use alloy::sol_types::{SolCall, SolError};
+use alloy::sol_types::{SolCall, SolInterface};
 use eyre::{eyre, Result};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -122,10 +122,15 @@ pub async fn place(
     let owner = order_types::parse_address(&input.proxy_owner)?;
     let agent = signer.address();
     let provider = evm::read_provider(&evm::rpc_url(config))?;
+    if input.relay && input.self_submit
+        || allow_trade && !input.dry_run && !input.relay && !input.self_submit
+    {
+        return Err(eyre!("choose exactly one of --relay or --self-submit"));
+    }
+    let order = build_order(&input, owner, config.id, &provider).await?;
     let proxy_address = proxy_for(&provider, config, owner).await?;
     let proxy = UserProxyV5::new(proxy_address, provider.clone());
     let policy = proxy.policyOf(agent).call().await?;
-    let order = build_order(&input, owner, config.id)?;
     enforce_cap(&order, input.max_amount.as_deref())?;
     let auth = IntentAuthorization {
         orderHash: order_types::order_id(&order),
@@ -154,8 +159,6 @@ pub async fn place(
     let dry_run = input.dry_run || !allow_trade;
     let (relay, tx_hash) = if dry_run {
         (None, None)
-    } else if input.relay == input.self_submit {
-        return Err(eyre!("choose exactly one of --relay or --self-submit"));
     } else if input.relay {
         let result = relay_client.announce_intent(&serde_json::json!({
             "chainId": config.id,
@@ -186,11 +189,14 @@ async fn proxy_for(provider: &alloy::providers::DynProvider, config: ChainConfig
     Ok(proxy)
 }
 
-fn build_order(input: &PlaceInput, owner: Address, chain_id: u64) -> Result<Order> {
-    let (token_in, _, in_decimals) = resolve_token(&input.from, chain_id)
-        .ok_or_else(|| eyre!("unknown token '{}'", input.from))?;
-    let (token_out, _, out_decimals) = resolve_token(&input.to, chain_id)
-        .ok_or_else(|| eyre!("unknown token '{}'", input.to))?;
+async fn build_order(
+    input: &PlaceInput,
+    owner: Address,
+    chain_id: u64,
+    provider: &alloy::providers::DynProvider,
+) -> Result<Order> {
+    let (token_in, in_decimals) = resolve_order_token(&input.from, chain_id, provider).await?;
+    let (token_out, out_decimals) = resolve_order_token(&input.to, chain_id, provider).await?;
     let amount = parse_amount(&input.amount, in_decimals)?;
     let start = parse_amount(&input.start_out, out_decimals)?;
     let end = parse_amount(&input.end_out, out_decimals)?;
@@ -203,7 +209,23 @@ fn build_order(input: &PlaceInput, owner: Address, chain_id: u64) -> Result<Orde
     if decay == 0 { return Err(eyre!("decay-secs must be greater than zero")); }
     let decay_end = start_time.checked_add(decay).ok_or_else(|| eyre!("decay time overflow"))?;
     let end_time = start_time.checked_add(duration).ok_or_else(|| eyre!("end time overflow"))?;
-    Ok(Order { owner, recipient: owner, tokenIn: order_types::parse_address(token_in)?, amountIn: amount, tokenOut: order_types::parse_address(token_out)?, startAmountOut: start, endAmountOut: end, startTime: U256::from(start_time), decayEndTime: U256::from(decay_end), endTime: U256::from(end_time), appData: B256::ZERO, nonce: U256::from(random_nonce()?), })
+    Ok(Order { owner, recipient: owner, tokenIn: token_in, amountIn: amount, tokenOut: token_out, startAmountOut: start, endAmountOut: end, startTime: U256::from(start_time), decayEndTime: U256::from(decay_end), endTime: U256::from(end_time), appData: B256::ZERO, nonce: U256::from(random_nonce()?), })
+}
+
+async fn resolve_order_token(
+    input: &str,
+    chain_id: u64,
+    provider: &alloy::providers::DynProvider,
+) -> Result<(Address, u8)> {
+    if let Some((address, _, decimals)) = resolve_token(input, chain_id) {
+        return Ok((order_types::parse_address(address)?, decimals));
+    }
+    if !input.starts_with("0x") && !input.starts_with("0X") {
+        return Err(eyre!("unknown token '{input}'"));
+    }
+    let address = order_types::parse_address(input)?;
+    let decimals = Erc20Metadata::new(address, provider.clone()).decimals().call().await?;
+    Ok((address, decimals))
 }
 
 fn enforce_cap(order: &Order, cap: Option<&str>) -> Result<()> {
@@ -229,13 +251,15 @@ fn parse_amount(value: &str, decimals: u8) -> Result<U256> {
     order_types::parse_u256(&raw)
 }
 
-fn authorization_error(error: impl std::fmt::Display) -> eyre::Report {
-    let message = error.to_string();
-    let selector = format!("0x{}", hex::encode(UserProxyV5::PolicyInactive::SELECTOR));
-    if message.contains(&selector) {
-        return eyre!("intent authorization rejected: PolicyInactive ({message})");
-    }
-    eyre!("intent authorization rejected: {message}")
+fn authorization_error(error: alloy::contract::Error) -> eyre::Report {
+    let Some(data) = error.as_revert_data() else {
+        return eyre!("intent authorization transport failed: {error}");
+    };
+    let reason = match UserProxyV5Errors::UserProxyV5ErrorsErrors::abi_decode(&data) {
+        Ok(decoded) => format!("{decoded:?}"),
+        Err(_) => format!("unknown revert 0x{}", hex::encode(data)),
+    };
+    eyre!("intent authorization rejected: {reason}")
 }
 
 fn now() -> Result<u64> { Ok(SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| eyre!("clock before unix epoch: {e}"))?.as_secs()) }

@@ -23,6 +23,7 @@ const FACTORY: Address = alloy::primitives::address!("0x1b1086b82b7a3935cc4158ab
 const SETTLER: Address = alloy::primitives::address!("0xc0b66ee5345170dfd4855cfda917bf316d8058e2");
 const LENS: Address = alloy::primitives::address!("0x805fe607e265477227ab5492963f6f0bef1f3860");
 const EVENT_LOOKBACK_BLOCKS: u64 = 200_000;
+pub const EVENT_CHUNK_SIZE: u64 = 5_000;
 
 pub fn chain_config(chain: &str) -> Result<ChainConfig> {
     let id = crate::tokens::chain_name_to_id(chain)

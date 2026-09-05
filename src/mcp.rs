@@ -13,7 +13,7 @@ use rmcp::{
     tool, tool_handler, tool_router, Json, ServerHandler, ServiceExt,
 };
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -66,10 +66,10 @@ impl AgentSwapMcp {
     async fn batch_quote(
         &self,
         Parameters(input): Parameters<BatchQuoteInput>,
-    ) -> std::result::Result<Json<Vec<quote::BatchQuoteResult>>, String> {
+    ) -> std::result::Result<Json<BatchQuoteOutput>, String> {
         quote::batch_quote(&self.client, &input.chain, &input.pairs, &input.amount)
             .await
-            .map(Json)
+            .map(|results| Json(BatchQuoteOutput { results }))
             .map_err(|e| format!("{e}"))
     }
 
@@ -77,9 +77,10 @@ impl AgentSwapMcp {
     async fn tokens(
         &self,
         Parameters(input): Parameters<TokensInput>,
-    ) -> std::result::Result<Json<serde_json::Value>, String> {
+    ) -> std::result::Result<Json<ValueOutput>, String> {
         match market::tokens(&self.client).await {
-            Ok(tokens) => filter_tokens(tokens, input.chain.as_deref()).map(Json),
+            Ok(tokens) => filter_tokens(tokens, input.chain.as_deref())
+                .map(|value| Json(ValueOutput { value })),
             Err(e) => Err(format!("{e}")),
         }
     }
@@ -88,10 +89,10 @@ impl AgentSwapMcp {
     async fn pools(
         &self,
         Parameters(input): Parameters<PoolsInput>,
-    ) -> std::result::Result<Json<serde_json::Value>, String> {
+    ) -> std::result::Result<Json<ValueOutput>, String> {
         market::pool(&self.client, &input.chain, &input.address)
             .await
-            .map(Json)
+            .map(|value| Json(ValueOutput { value }))
             .map_err(|e| format!("{e}"))
     }
 
@@ -140,8 +141,11 @@ impl AgentSwapMcp {
     async fn intent_list(
         &self,
         Parameters(input): Parameters<intent::ListInput>,
-    ) -> std::result::Result<Json<Vec<intent::IntentRecord>>, String> {
-        intent::list(input).await.map(Json).map_err(|e| format!("{e}"))
+    ) -> std::result::Result<Json<IntentListOutput>, String> {
+        if input.owner.is_none() && input.agent.is_none() {
+            return Err("intent_list requires owner or agent".to_string());
+        }
+        intent::list(input).await.map(|intents| Json(IntentListOutput { intents })).map_err(|e| format!("{e}"))
     }
 
     #[tool(description = "Inspect one V5 intent by bytes32 id")]
@@ -182,6 +186,21 @@ struct BatchQuoteInput {
     chain: String,
     pairs: Vec<String>,
     amount: String,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+struct BatchQuoteOutput {
+    results: Vec<quote::BatchQuoteResult>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+struct IntentListOutput {
+    intents: Vec<intent::IntentRecord>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+struct ValueOutput {
+    value: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]

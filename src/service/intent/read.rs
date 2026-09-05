@@ -22,7 +22,7 @@ pub async fn list(input: ListInput) -> Result<Vec<IntentRecord>> {
     let mut out = Vec::new();
     let mut block = first_block;
     while block <= latest {
-        let end = block.saturating_add(9_999).min(latest);
+        let end = block.saturating_add(evm::EVENT_CHUNK_SIZE - 1).min(latest);
         let mut filter = settler.IntentAnnounced_filter();
         if let Some(owner) = owner { filter.filter = filter.filter.topic2(owner); }
         filter.filter = filter.filter.from_block(block).to_block(end);
@@ -46,7 +46,7 @@ pub async fn status(input: StatusInput) -> Result<IntentRecord> {
     let latest = provider.get_block_number().await?;
     let mut block = first_block;
     while block <= latest {
-        let end = block.saturating_add(9_999).min(latest);
+        let end = block.saturating_add(evm::EVENT_CHUNK_SIZE - 1).min(latest);
         let mut filter = settler.IntentAnnounced_filter();
         filter.filter = filter.filter.topic1(id).from_block(block).to_block(end);
         if let Some((event, _)) = filter.query().await?.into_iter().next() {
@@ -73,7 +73,7 @@ pub async fn policy(input: PolicyInput) -> Result<PolicyOutput> {
     let latest = provider.get_block_number().await?;
     let mut block = first_block;
     while block <= latest {
-        let end = block.saturating_add(9_999).min(latest);
+        let end = block.saturating_add(evm::EVENT_CHUNK_SIZE - 1).min(latest);
         let mut event_filter = proxy.AgentCapSet_filter();
         event_filter.filter = event_filter.filter.topic1(agent).from_block(block).to_block(end);
         for (event, _) in event_filter.query().await? {

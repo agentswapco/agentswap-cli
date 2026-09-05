@@ -8,6 +8,9 @@ use alloy::sol_types::{eip712_domain, Eip712Domain, SolCall, SolStruct, SolType}
 use eyre::{eyre, Result};
 use serde::{Deserialize, Serialize};
 
+mod errors;
+pub use errors::UserProxyV5Errors;
+
 sol! {
     #[derive(Debug)]
     struct Order {
@@ -61,7 +64,11 @@ sol! {
         function owner() external view returns (address);
 
         event AgentCapSet(address indexed agent, uint64 generation, address indexed token, uint256 cap);
-        error PolicyInactive();
+    }
+
+    #[sol(rpc)]
+    contract Erc20Metadata {
+        function decimals() external view returns (uint8);
     }
 
     #[sol(rpc)]
