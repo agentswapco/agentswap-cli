@@ -45,6 +45,7 @@ pub async fn run_policy(input: intent::PolicyInput, json: bool) -> Result<()> {
         table.add_row(vec!["Epoch Length", result.epoch_len.as_str()]);
         table.add_row(vec!["Action Mask", result.action_mask.as_str()]);
         table.add_row(vec!["Generation", result.generation.as_str()]);
+        if let Some(note) = &result.note { table.add_row(vec!["Note", note]); }
         for token in &result.tokens { table.add_row(vec!["Token", &format!("{} cap={} used={} allowed={}", token.token, token.cap, token.used, token.allowed)]); }
         println!("{table}");
     }

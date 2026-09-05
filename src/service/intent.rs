@@ -80,6 +80,8 @@ pub struct PolicyInput {
     pub agent: String,
     #[serde(default)]
     pub lookback_blocks: Option<u64>,
+    #[serde(default)]
+    pub tokens: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -107,6 +109,7 @@ pub struct PolicyOutput {
     pub action_mask: String,
     pub generation: String,
     pub tokens: Vec<TokenPolicy>,
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]

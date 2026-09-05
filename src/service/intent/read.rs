@@ -80,7 +80,9 @@ pub async fn policy(input: PolicyInput) -> Result<PolicyOutput> {
     let proxy = UserProxyV5::new(proxy_address, provider.clone());
     let policy = proxy.policyOf(agent).call().await?;
     let generation = policy.generation;
-    let mut tokens = BTreeSet::new();
+    let explicit_tokens = !input.tokens.is_empty();
+    let mut tokens = input.tokens.iter().map(|token| order_types::parse_address(token)).collect::<Result<BTreeSet<_>>>()?;
+    let mut event_tokens = BTreeSet::new();
     let lookback = evm::event_lookback_blocks(config, input.lookback_blocks);
     let first_block = evm::event_start_block(&provider, lookback).await?;
     let latest = provider.get_block_number().await?;
@@ -94,7 +96,10 @@ pub async fn policy(input: PolicyInput) -> Result<PolicyOutput> {
             .await
             .map_err(|error| evm::event_query_error(config, block, end, error))?
         {
-            if event.generation == generation { tokens.insert(event.token); }
+            if event.generation == generation {
+                event_tokens.insert(event.token);
+                tokens.insert(event.token);
+            }
         }
         if end == latest { break; }
         block = end.saturating_add(1);
@@ -104,7 +109,12 @@ pub async fn policy(input: PolicyInput) -> Result<PolicyOutput> {
         let info = proxy.agentTokenInfo(agent, token).call().await?;
         token_out.push(TokenPolicy { token: format!("{token:?}"), allowed: info.allowed, cap: info.cap.to_string(), used: info.used.to_string(), epoch_start: info.epochStart.to_string() });
     }
-    Ok(PolicyOutput { owner: format!("{owner:?}"), agent: format!("{agent:?}"), proxy: format!("{proxy_address:?}"), expiry: policy.expiry.to_string(), epoch_len: policy.epochLen.to_string(), action_mask: policy.actionMask.to_string(), generation: generation.to_string(), tokens: token_out })
+    let note = if event_tokens.is_empty() && !explicit_tokens && generation != 0 && policy.expiry > super::now()? {
+        Some(format!("no cap events within {lookback} blocks; pass --token to read specific budgets"))
+    } else {
+        None
+    };
+    Ok(PolicyOutput { owner: format!("{owner:?}"), agent: format!("{agent:?}"), proxy: format!("{proxy_address:?}"), expiry: policy.expiry.to_string(), epoch_len: policy.epochLen.to_string(), action_mask: policy.actionMask.to_string(), generation: generation.to_string(), tokens: token_out, note })
 }
 
 async fn record(provider: &alloy::providers::DynProvider, config: ChainConfig, order: Order, agent: Option<Address>) -> Result<IntentRecord> {

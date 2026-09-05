@@ -166,6 +166,8 @@ pub enum Commands {
         agent: String,
         #[arg(long)]
         lookback_blocks: Option<u64>,
+        #[arg(long = "token")]
+        tokens: Vec<String>,
     },
     /// Quote, sign, and optionally relay an agent order
     Trade {
