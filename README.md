@@ -40,8 +40,8 @@ agentswap intent status --chain base --id 0xIntentId
 agentswap policy --chain base --owner 0xOwner --agent 0xAgent
 ```
 
-`trade` and intent announce/relay/self-submit operations are forced to dry-run unless
-`--allow-trade` is set. `--max-amount` bounds the raw input amount before signing or sending.
+`trade` and `intent place` operations are forced to dry-run unless `--allow-trade` is set.
+Intent placement supports `--relay` or `--self-submit`. `--max-amount` bounds the raw input amount before signing or sending.
 Trade dry-runs require a reachable RPC and deployed V6 proxy to verify policy and order hashes before signing. Dry-runs may sign locally but never broadcast or relay. `agentswap mcp` exposes quote, trade,
 intent place/list/status, and policy tools with the same safety model; intent listing requires
 an owner or agent filter.

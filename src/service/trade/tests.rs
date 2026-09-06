@@ -30,7 +30,7 @@ fn trade_input(min_out: Option<String>, dry_run: bool) -> TradeInput {
         amount: "1".to_string(), slippage: Some(50), min_out, max_amount: None,
         mode: "agent-order".to_string(),
         proxy: "0x2222222222222222222222222222222222222222".to_string(), nonce: Some("1".to_string()),
-        deadline_secs: Some(120), dry_run, relay: false, self_submit: false,
+        deadline_secs: Some(120), dry_run, self_submit: false,
     }
 }
 

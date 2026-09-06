@@ -110,10 +110,6 @@ impl Client {
             .await
     }
 
-    pub async fn submit_intent(&self, body: &serde_json::Value) -> Result<serde_json::Value> {
-        self.post(crate::routes::INTENTS, body).await
-    }
-
     pub async fn announce_intent(&self, body: &serde_json::Value) -> Result<serde_json::Value> {
         self.post(crate::routes::INTENT_ANNOUNCE, body).await
     }

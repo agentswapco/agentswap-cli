@@ -15,6 +15,8 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod read;
+#[cfg(test)]
+mod tests;
 pub use read::{list, policy, status};
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -175,10 +177,7 @@ pub async fn place(
     let (relay, tx_hash) = if dry_run {
         (None, None)
     } else if input.relay {
-        let result = relay_client.announce_intent(&serde_json::json!({
-            "chainId": config.id,
-            "announce": {"order": order_types::dto_from_order(&order), "auth": hex_bytes(&envelope)},
-        })).await?;
+        let result = relay_client.announce_intent(&announce_body(config, &order, &envelope)).await?;
         (Some(result), None)
     } else {
         let wallet = evm::wallet_provider(&evm::rpc_url(config), signer)?;
@@ -195,6 +194,14 @@ pub async fn place(
         authorization: order_types::dto_from_authorization(&auth),
         envelope: hex_bytes(&envelope), digest: format!("{digest:?}"),
         signature: format!("0x{}", hex::encode(sig.as_bytes())), relay, tx_hash,
+    })
+}
+
+fn announce_body(config: ChainConfig, order: &Order, envelope: &Bytes) -> serde_json::Value {
+    serde_json::json!({
+        "chainId": config.id,
+        "generation": config.generation,
+        "announce": {"order": order_types::dto_from_order(order), "auth": hex_bytes(envelope)},
     })
 }
 

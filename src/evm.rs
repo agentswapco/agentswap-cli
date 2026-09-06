@@ -16,6 +16,7 @@ pub struct ChainConfig {
     pub rpc: &'static str,
     pub factory: Address,
     pub settler: Address,
+    pub generation: &'static str,
     pub lens: Address,
 }
 
@@ -24,6 +25,7 @@ pub struct ChainConfig {
 // PREVIEW_LAYOUT()==3 redeploy, not the first V6 lens 0x7E62d98d…1b87.
 const FACTORY: Address = alloy::primitives::address!("0xc1660e4BbC825f8367dA92b60dccc17E4E10bc26");
 const SETTLER: Address = alloy::primitives::address!("0x2dd81c4fD1FC38b009Ab10D5C9b1f01Ca51cE462");
+const INTENT_GENERATION: &str = "v6";
 const LENS: Address = alloy::primitives::address!("0x3AFfAafAF3Ec0A8A535723CBf0891482680F30C3");
 const EVENT_LOOKBACK_BLOCKS: u64 = 200_000;
 const BSC_DEFAULT_EVENT_LOOKBACK_BLOCKS: u64 = 9_000;
@@ -39,7 +41,7 @@ pub fn chain_config(chain: &str) -> Result<ChainConfig> {
         4663 => "https://rpc.mainnet.chain.robinhood.com",
         _ => return Err(eyre!("V6 intent protocol is unavailable on chain {id}")),
     };
-    Ok(ChainConfig { id, rpc, factory: FACTORY, settler: SETTLER, lens: LENS })
+    Ok(ChainConfig { id, rpc, factory: FACTORY, settler: SETTLER, generation: INTENT_GENERATION, lens: LENS })
 }
 
 pub fn rpc_url(config: ChainConfig) -> String {
