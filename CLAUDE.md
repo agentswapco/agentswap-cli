@@ -13,6 +13,12 @@
 - `IntentFilled` carries `fee` after `requiredOut`; `requiredOut` is gross (floor + fee), never
   user proceeds.
 
+## Identity
+- Every commit, tag, issue, PR and release on this repository is made by the project identity
+  `agentswapco <274458467+agentswapco@users.noreply.github.com>`, never by an individual. Do not
+  add `authors` to `Cargo.toml`, and do not put a person's name, email or machine path in any file.
+- Agents never push; the maintainer pushes from the project account.
+
 ## Amounts
 - Every amount in signatures, calldata and machine output is a raw-unit integer string. Amount
   parsing (`parse_amount`, `scale_amount`, the `raw:` prefix) is owned by issue #2 — do not touch it.
