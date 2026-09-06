@@ -6,7 +6,12 @@ AgentSwap CLI for requesting quotes, inspecting tokens and pools, managing V6 in
 
 ```bash
 cargo install agentswap
+# Or install the prebuilt binary for this platform.
+curl -fsSL https://agentswap.co/install.sh | sh
 ```
+
+The installer downloads release assets named
+`agentswap-v<version>-<target>.tar.gz` for the supported targets.
 
 ## Usage
 
