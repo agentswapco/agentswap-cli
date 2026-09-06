@@ -117,6 +117,7 @@ jobs:
       - name: Create or update the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           cd dist
           cat agentswap-*.tar.gz.sha256 | sort > SHA256SUMS
