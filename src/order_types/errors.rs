@@ -1,12 +1,12 @@
-// ABI-derived V5 proxy reverts for authorization diagnostics.
-// Exports: UserProxyV5Errors.
+// ABI-derived V6 proxy reverts for authorization diagnostics.
+// Exports: UserProxyV6Errors.
 // Deps: alloy sol-types.
 
 use alloy::sol;
 
 sol! {
     #[derive(Debug)]
-    interface UserProxyV5Errors {
+    interface UserProxyV6Errors {
         error AlreadyInitialized();
         error NotOwner();
         error Reentrancy();
@@ -22,10 +22,9 @@ sol! {
         error DebitExceedsSignedAmount(uint256 debit, uint256 signed);
         error EmptyNonceMask();
         error EmptyOrderList();
+        error ZeroDigest();
         error AgentOrderExpired();
         error AuthorizationExpired(uint64 deadline);
-        error AuthorizationExpiresBeforeOrderOpens(uint64 deadline, uint256 startTime);
-        error PolicyExpiresBeforeOrderOpens(uint64 expiry, uint256 startTime);
         error AuthOrderMismatch();
         error InvalidAgent();
         error InvalidToken();
@@ -48,5 +47,6 @@ sol! {
         error AmountInZero();
         error SpenderNotAllowed();
         error NotSettler(address caller, address expected);
+        error BadSettler(address settlerAddr);
     }
 }

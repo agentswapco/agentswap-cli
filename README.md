@@ -1,6 +1,6 @@
 # agentswap
 
-AgentSwap CLI for requesting quotes, inspecting tokens and pools, managing V5 intents, and registering an API key against the AgentSwap service.
+AgentSwap CLI for requesting quotes, inspecting tokens and pools, managing V6 intents, and registering an API key against the AgentSwap service.
 
 ## Install
 
@@ -22,7 +22,7 @@ agentswap trade --chain base --from USDC --to WETH --amount 100 --dry-run
 
 ## Intents and policy
 
-V5 open intents are signed against the owner proxy and can be inspected before they are
+V6 open intents are signed against the owner proxy and can be inspected before they are
 announced. Use `intent place` with `--dry-run`, `--relay`, or `--self-submit`, then use
 `intent list --owner <address>` and `intent status --id <bytes32>` to inspect them. Raw token
 addresses are accepted on supported chains; their decimals are read from the token contract.
@@ -37,7 +37,7 @@ agentswap policy --chain base --owner 0xOwner --agent 0xAgent
 
 `trade` and intent announce/relay/self-submit operations are forced to dry-run unless
 `--allow-trade` is set. `--max-amount` bounds the raw input amount before signing or sending.
-Trade dry-runs require a reachable RPC and deployed V5 proxy to verify policy and order hashes before signing. Dry-runs may sign locally but never broadcast or relay. `agentswap mcp` exposes quote, trade,
+Trade dry-runs require a reachable RPC and deployed V6 proxy to verify policy and order hashes before signing. Dry-runs may sign locally but never broadcast or relay. `agentswap mcp` exposes quote, trade,
 intent place/list/status, and policy tools with the same safety model; intent listing requires
 an owner or agent filter.
 
@@ -55,4 +55,4 @@ agentswap quota-claim --chain base --tx-hash 0xYourPurchaseTx
 ```
 
 Set `AGENTSWAP_URL` to target a non-default service endpoint and `SR_API_KEY` to override the cached API key.
-Set `AGENTSWAP_RPC_URL_<chainId>` or `AGENTSWAP_RPC_URL` to override the V5 RPC endpoint.
+Set `AGENTSWAP_RPC_URL_<chainId>` or `AGENTSWAP_RPC_URL` to override the V6 RPC endpoint.

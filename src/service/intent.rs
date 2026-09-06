@@ -1,10 +1,10 @@
-// V5 intent placement, discovery, status, and policy service operations.
+// V6 intent placement, discovery, status, and policy service operations.
 // Exports: place, list, status, policy and their typed request/response models.
 // Deps: crate::{evm, order_types, signer, tokens}, alloy RPC bindings, Client.
 
 use crate::client::Client;
 use crate::evm::{self, ChainConfig};
-use crate::order_types::{self, Erc20Metadata, IntentAuthorization, IntentSettlerV2, Order, UserProxyFactoryV5, UserProxyV5, UserProxyV5Errors};
+use crate::order_types::{self, Erc20Metadata, IntentAuthorization, IntentSettlerV3, Order, UserProxyFactoryV6, UserProxyV6, UserProxyV6Errors};
 use crate::signer::Signer;
 use crate::tokens::{resolve_token, scale_amount};
 use alloy::primitives::{Address, B256, Bytes, U256};
@@ -95,6 +95,12 @@ pub struct IntentRecord {
     pub start_out: String,
     pub end_out: String,
     pub window: String,
+    pub exclusive_window: bool,
+    pub floor_now: String,
+    pub fee_now: String,
+    pub required_now: String,
+    pub floor_for_outsider: String,
+    pub required_for_outsider: String,
     pub status: String,
     pub reason: String,
 }
@@ -138,7 +144,7 @@ pub async fn place(
     }
     let order = build_order(&input, owner, config.id, &provider).await?;
     let proxy_address = proxy_for(&provider, config, owner).await?;
-    let proxy = UserProxyV5::new(proxy_address, provider.clone());
+    let proxy = UserProxyV6::new(proxy_address, provider.clone());
     let policy = proxy.policyOf(agent).call().await?;
     enforce_cap(&order, input.max_amount.as_deref())?;
     let auth = IntentAuthorization {
@@ -148,7 +154,7 @@ pub async fn place(
         nonce: fresh_agent_nonce(&proxy, agent).await?,
         deadline: now()?.saturating_add(input.deadline_secs.unwrap_or(120)),
     };
-    let settler = IntentSettlerV2::new(config.settler, provider.clone());
+    let settler = IntentSettlerV3::new(config.settler, provider.clone());
     let chain_id = settler.orderHash(order.clone()).call().await?;
     if chain_id != auth.orderHash {
         return Err(eyre!("local intent id does not match settler.orderHash"));
@@ -176,7 +182,7 @@ pub async fn place(
         (Some(result), None)
     } else {
         let wallet = evm::wallet_provider(&evm::rpc_url(config), signer)?;
-        let pending = IntentSettlerV2::new(config.settler, wallet.clone())
+        let pending = IntentSettlerV3::new(config.settler, wallet.clone())
             .announce(order.clone(), envelope.clone())
             .send().await?;
         let hash = *pending.tx_hash();
@@ -193,7 +199,7 @@ pub async fn place(
 }
 
 async fn proxy_for(provider: &alloy::providers::DynProvider, config: ChainConfig, owner: Address) -> Result<Address> {
-    let proxy = UserProxyFactoryV5::new(config.factory, provider.clone()).proxyOf(owner).call().await?;
+    let proxy = UserProxyFactoryV6::new(config.factory, provider.clone()).proxyOf(owner).call().await?;
     if proxy == Address::ZERO { return Err(eyre!("proxy is not deployed for owner {owner:?}")); }
     Ok(proxy)
 }
@@ -244,7 +250,7 @@ fn enforce_cap(order: &Order, cap: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-async fn fresh_agent_nonce(proxy: &UserProxyV5::UserProxyV5Instance<alloy::providers::DynProvider>, agent: Address) -> Result<U256> {
+async fn fresh_agent_nonce(proxy: &UserProxyV6::UserProxyV6Instance<alloy::providers::DynProvider>, agent: Address) -> Result<U256> {
     for _ in 0..8 {
         let nonce = U256::from(random_nonce()?);
         if !proxy.isAgentNonceUsed(agent, nonce).call().await? {
@@ -264,7 +270,7 @@ fn authorization_error(error: alloy::contract::Error) -> eyre::Report {
     let Some(data) = error.as_revert_data() else {
         return eyre!("intent authorization transport failed: {error}");
     };
-    let reason = match UserProxyV5Errors::UserProxyV5ErrorsErrors::abi_decode(&data) {
+    let reason = match UserProxyV6Errors::UserProxyV6ErrorsErrors::abi_decode(&data) {
         Ok(decoded) => format!("{decoded:?}"),
         Err(_) => format!("unknown revert 0x{}", hex::encode(data)),
     };

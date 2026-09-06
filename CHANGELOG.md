@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.4.0 — unreleased
+
+The CLI is now a client for the V6 protocol generation, live since 2026-09-06 at one address set
+on Base, Arbitrum, BNB Smart Chain and Robinhood Chain: `UserProxyFactoryV6`
+`0xc1660e4BbC825f8367dA92b60dccc17E4E10bc26`, `IntentSettlerV3`
+`0x2dd81c4fD1FC38b009Ab10D5C9b1f01Ca51cE462`, `IntentLensV3`
+`0x3AFfAafAF3Ec0A8A535723CBf0891482680F30C3`. The contracts 0.3.0 spoke to are not the V6
+set; every proxy is new under V6, so an owner re-onboards (new proxy, new `approve` per
+token) before an agent can place or trade for them.
+
+### Changed
+
+- `intent place`, `trade` and `policy` resolve the owner's proxy through `UserProxyFactoryV6` and
+  announce on `IntentSettlerV3`. The `Order` struct and the agent's EIP-712 domain
+  (`AgentSwap UserProxy`, version `5`, the V6 proxy as verifying contract) are unchanged; digest
+  parity against the deployed settler and a live V6 proxy was re-run on all four chains before
+  release.
+- `intent list` and `intent status` read `IntentLensV3`'s nineteen-word preview and refuse to
+  decode unless the lens reports `PREVIEW_LAYOUT() == 3`. Each record now carries
+  `exclusive_window`, `floor_now`, `fee_now`, `required_now`, `floor_for_outsider` and
+  `required_for_outsider`, all raw token units. Inside the exclusive window (before `startTime`)
+  the status reason says that only the system filler fills at the floor and an outsider pays
+  floor + 25 bps; `required_*` amounts include the 3 bps protocol fee the filler pays on top.
+  An order is `expired` when the lens reports it outside its window, not by comparing timestamps
+  locally.
+- `IntentFilled` decoding carries the new `fee` field; `requiredOut` is the gross the filler owes
+  (floor + fee), never the recipient's proceeds.
+- Revert diagnostics are regenerated from the V6 proxy sources.
+
+### Notes
+
+- No V6 fill is possible on chain until the solver in open-intent-filler ships and is allowlisted
+  on the system filler gate. `list` and `status` were validated against the published lens
+  captures and the live lens, not against a filled V6 order.
+
 ## 0.3.0 — 2026-09-05
 
 The CLI is now a client for the protocol on Base, Arbitrum, BNB Smart Chain and Robinhood Chain.
