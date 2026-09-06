@@ -9,12 +9,15 @@ use alloy::primitives::{address, Address, B256, U256};
 #[tokio::test]
 async fn deployed_digest_parity() {
     let Ok(rpc) = std::env::var("AGENTSWAP_INTENT_PARITY_RPC_URL") else {
+        eprintln!("deployed_digest_parity skipped: AGENTSWAP_INTENT_PARITY_RPC_URL is not set");
         return;
     };
     let Some(owner_raw) = std::env::var("AGENTSWAP_INTENT_PARITY_OWNER").ok() else {
+        eprintln!("deployed_digest_parity skipped: AGENTSWAP_INTENT_PARITY_OWNER is not set");
         return;
     };
     let Some(proxy_raw) = std::env::var("AGENTSWAP_INTENT_PARITY_PROXY").ok() else {
+        eprintln!("deployed_digest_parity skipped: AGENTSWAP_INTENT_PARITY_PROXY is not set");
         return;
     };
     let chain_id = std::env::var("AGENTSWAP_INTENT_PARITY_CHAIN_ID")
