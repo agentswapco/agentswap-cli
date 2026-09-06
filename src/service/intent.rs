@@ -237,7 +237,7 @@ async fn build_order(
 
 fn resolve_order_token(input: &str, chain_id: u64) -> Result<Address> {
     if let Some((address, _, _)) = resolve_token(input, chain_id) {
-        return Ok(order_types::parse_address(address)?);
+        return order_types::parse_address(address);
     }
     if !input.starts_with("0x") && !input.starts_with("0X") {
         return Err(eyre!("unknown token '{input}'"));

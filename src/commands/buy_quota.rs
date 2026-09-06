@@ -111,9 +111,8 @@ fn print_usdc(
         return Ok(());
     }
     println!(
-        "Buy {} quotes for {} via buyWithUSDC",
+        "Buy {} quotes for {amount_in} ({amount_display} {token_sym}) via buyWithUSDC",
         format_amount(&quotes.to_string(), 0),
-        format!("{} ({})", amount_in, amount_display),
     );
     println!("To: {quota_contract}");
     println!("Call: buyWithUSDC({amount_in})");

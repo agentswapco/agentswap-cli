@@ -67,11 +67,6 @@ sol! {
     }
 
     #[sol(rpc)]
-    contract Erc20Metadata {
-        function decimals() external view returns (uint8);
-    }
-
-    #[sol(rpc)]
     contract IntentAbiCodec {
         function encodeEnvelope(uint8 kind, bytes payload) external;
         function encodeAuthorization(

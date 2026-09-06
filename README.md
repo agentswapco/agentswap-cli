@@ -30,8 +30,8 @@ agentswap trade --chain base --from USDC --to WETH --amount 1000000 --dry-run
 V6 open intents are signed against the owner proxy and can be inspected before they are
 announced. Use `intent place` with `--dry-run`, `--relay`, or `--self-submit`, then use
 `intent list --owner <address>` and `intent status --id <bytes32>` to inspect them. Raw token
-Raw token addresses are accepted on supported chains; amounts are still supplied in their
-smallest units.
+addresses are accepted on supported chains, and every amount is given in the token's smallest
+unit.
 
 ```bash
 agentswap intent place --chain base --proxy-owner 0xOwner --from USDC --to WETH \
