@@ -1,0 +1,28 @@
+# Publishes the crate to crates.io when a version tag is pushed. Authentication is crates.io
+# Trusted Publishing (OIDC); no registry token is stored in this repository.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: The tag must name the version in Cargo.toml
+        run: |
+          version=$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          [ "$GITHUB_REF" = "refs/tags/v$version" ] || { echo "tag $GITHUB_REF does not match Cargo.toml version $version"; exit 1; }
+      - run: cargo test --locked
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
