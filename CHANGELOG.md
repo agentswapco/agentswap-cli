@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 — unreleased
+## 0.4.0 — 2026-09-06
 
 The CLI is now a client for the V6 protocol generation, live since 2026-09-06 at one address set
 on Base, Arbitrum, BNB Smart Chain and Robinhood Chain: `UserProxyFactoryV6`
