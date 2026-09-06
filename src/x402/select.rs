@@ -101,6 +101,43 @@ mod tests {
     }
 
     #[test]
+    fn rejects_non_decimal_cap_and_server_amount() {
+        // The cap comes from the operator, the required amount from the paying server. Both are
+        // monetary inputs, so both take digits only: `1_000` was read as 1000 by the old parser.
+        let body = format!(
+            r#"{{"accepts":[{{"scheme":"exact","network":"base","asset":"{USDC_BASE}","payTo":"0xpay","maxAmountRequired":"20"}}]}}"#
+        );
+        let required = PaymentRequired::parse(&body).expect("parse payment required");
+        for cap in ["", " ", "1_000", "1.5", "1e6", "raw:25", "-1"] {
+            let config = Config {
+                enabled: true,
+                prefer_x402: false,
+                chain_id: 8453,
+                max_amount: cap.to_string(),
+                asset: "USDC".to_string(),
+            };
+            let error = select_accept(&required.accepts, &config)
+                .expect_err("malformed cap must not select a payment");
+            assert!(format!("{error}").contains("x402 payment cap"), "{cap}: {error}");
+        }
+
+        let hostile = format!(
+            r#"{{"accepts":[{{"scheme":"exact","network":"base","asset":"{USDC_BASE}","payTo":"0xpay","maxAmountRequired":"1_000"}}]}}"#
+        );
+        let required = PaymentRequired::parse(&hostile).expect("parse payment required");
+        let config = Config {
+            enabled: true,
+            prefer_x402: false,
+            chain_id: 8453,
+            max_amount: "25".to_string(),
+            asset: "USDC".to_string(),
+        };
+        let error = select_accept(&required.accepts, &config)
+            .expect_err("a server amount that is not digits must not be selected");
+        assert!(format!("{error}").contains("x402 required amount"), "{error}");
+    }
+
+    #[test]
     fn rejects_payment_over_cap() {
         let body = format!(
             r#"{{"accepts":[{{"scheme":"exact","network":"base","asset":"{USDC_BASE}","payTo":"0xpay","maxAmountRequired":"20"}}]}}"#
