@@ -43,6 +43,10 @@ async fn main() {
 
 async fn run_cli(cli: Cli) -> Result<()> {
     let _ = (routes::X402_VERIFY, routes::X402_SETTLE, routes::X402_DISCOVERY);
+    if let Some(max_amount) = &cli.trade_max_amount {
+        order_types::parse_raw_amount("trade max-amount", max_amount)?;
+    }
+    order_types::parse_raw_amount("x402 payment cap", &cli.x402_max_amount)?;
     let api_key = cli
         .api_key
         .clone()

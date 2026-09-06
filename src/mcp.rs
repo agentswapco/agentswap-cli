@@ -16,6 +16,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone)]
 pub struct Config {
     pub client: Client,
@@ -51,7 +54,7 @@ impl AgentSwapMcp {
 
 #[tool_router(router = tool_router)]
 impl AgentSwapMcp {
-    #[tool(description = "Get a swap quote")]
+    #[tool(description = "Get a swap quote. Amount is an unsigned decimal integer in the input token's smallest unit.")]
     async fn quote(
         &self,
         Parameters(input): Parameters<quote::QuoteInput>,
@@ -62,7 +65,7 @@ impl AgentSwapMcp {
             .map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "Get quotes for multiple FROM/TO pairs")]
+    #[tool(description = "Get quotes for multiple FROM/TO pairs. Amount is an unsigned decimal integer in the input token's smallest unit.")]
     async fn batch_quote(
         &self,
         Parameters(input): Parameters<BatchQuoteInput>,
@@ -96,7 +99,7 @@ impl AgentSwapMcp {
             .map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "Quote and sign an AgentOrder; dry-run defaults to true and requires a reachable RPC and deployed V6 proxy to verify policy and order hashes before signing")]
+    #[tool(description = "Quote and sign an AgentOrder; amount, min_out, and max_amount are unsigned decimal integers in raw token units. Dry-run defaults to true and requires a reachable RPC and deployed V6 proxy to verify policy and order hashes before signing")]
     async fn trade(
         &self,
         Parameters(mut input): Parameters<trade::TradeInput>,
@@ -117,7 +120,7 @@ impl AgentSwapMcp {
             .map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "Sign and announce a V6 open intent; dry-run is forced without allow_trade")]
+    #[tool(description = "Sign and announce a V6 open intent; amount, start_out, end_out, and max_amount are unsigned decimal integers in raw token units. Dry-run is forced without allow_trade")]
     async fn intent_place(
         &self,
         Parameters(mut input): Parameters<intent::PlaceInput>,
@@ -167,15 +170,15 @@ impl ServerHandler for AgentSwapMcp {
 
 fn bound_intent_cap(input: &mut intent::PlaceInput, server_cap: Option<&str>) -> std::result::Result<(), String> {
     let Some(server_cap) = server_cap else { return Ok(()); };
-    let server = crate::order_types::parse_u256(server_cap).map_err(|e| format!("{e}"))?;
-    let client = input.max_amount.as_deref().map(crate::order_types::parse_u256).transpose().map_err(|e| format!("{e}"))?;
+    let server = crate::order_types::parse_raw_amount("MCP intent max-amount", server_cap).map_err(|e| format!("{e}"))?;
+    let client = input.max_amount.as_deref().map(|value| crate::order_types::parse_raw_amount("MCP intent max-amount", value)).transpose().map_err(|e| format!("{e}"))?;
     input.max_amount = Some(client.map_or_else(|| server_cap.to_string(), |value| value.min(server).to_string()));
     Ok(())
 }
 
 fn bound_trade_cap(input: &mut trade::TradeInput, server_cap: &str) -> std::result::Result<(), String> {
-    let server = crate::order_types::parse_u256(server_cap).map_err(|e| format!("{e}"))?;
-    let client = input.max_amount.as_deref().map(crate::order_types::parse_u256).transpose().map_err(|e| format!("{e}"))?;
+    let server = crate::order_types::parse_raw_amount("MCP trade max-amount", server_cap).map_err(|e| format!("{e}"))?;
+    let client = input.max_amount.as_deref().map(|value| crate::order_types::parse_raw_amount("MCP trade max-amount", value)).transpose().map_err(|e| format!("{e}"))?;
     input.max_amount = Some(client.map_or_else(|| server_cap.to_string(), |value| value.min(server).to_string()));
     Ok(())
 }
@@ -184,6 +187,7 @@ fn bound_trade_cap(input: &mut trade::TradeInput, server_cap: &str) -> std::resu
 struct BatchQuoteInput {
     chain: String,
     pairs: Vec<String>,
+    /// Unsigned decimal amount in the input token's smallest unit.
     amount: String,
 }
 
@@ -235,60 +239,4 @@ fn filter_tokens(tokens: serde_json::Value, chain: Option<&str>) -> std::result:
         .map(|(addr, token)| (addr.clone(), token.clone()))
         .collect();
     Ok(serde_json::Value::Object(filtered))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use alloy::primitives::{Address, B256, Signature};
-    use async_trait::async_trait;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    struct CountingSigner {
-        calls: AtomicUsize,
-    }
-
-    #[async_trait]
-    impl Signer for CountingSigner {
-        fn address(&self) -> Address { Address::ZERO }
-
-        async fn sign_message(&self, _: &[u8]) -> Result<Signature> {
-            Err(eyre::eyre!("unexpected signature"))
-        }
-
-        async fn sign_hash(&self, _: B256) -> Result<Signature> {
-            self.calls.fetch_add(1, Ordering::SeqCst);
-            Err(eyre::eyre!("unexpected signature"))
-        }
-    }
-
-    #[tokio::test]
-    async fn malformed_mcp_trade_cap_rejects_before_signing() {
-        // "" is the one that bites: from_str_radix("") is 0, so it used to become a zero cap only
-        // after a quote and an RPC round trip. Every malformed shape must error before either.
-        for cap in ["not-an-amount", "12abc", "", "  "] {
-            let signer = Arc::new(CountingSigner { calls: AtomicUsize::new(0) });
-            let server = AgentSwapMcp::new(Config {
-                client: Client::new("http://127.0.0.1:1", None),
-                intent_client: Client::new("http://127.0.0.1:1", None),
-                signer: Some(signer.clone()),
-                allow_trade: true,
-                trade_max_amount: Some(cap.to_string()),
-            });
-            let result = server.trade(Parameters(trade::TradeInput {
-                chain: "base".to_string(), from: "USDC".to_string(), to: "WETH".to_string(),
-                amount: "1".to_string(), slippage: None, min_out: Some("1".to_string()),
-                max_amount: None, mode: "agent-order".to_string(),
-                proxy: "0x2222222222222222222222222222222222222222".to_string(),
-                nonce: Some("1".to_string()), deadline_secs: Some(120), dry_run: true,
-                self_submit: false,
-            })).await;
-            let error = match result {
-                Ok(_) => panic!("malformed operator cap {cap:?} must fail"),
-                Err(error) => error,
-            };
-            assert!(error.contains("invalid uint"), "cap {cap:?}: {error}");
-            assert_eq!(signer.calls.load(Ordering::SeqCst), 0, "cap {cap:?} signed");
-        }
-    }
 }

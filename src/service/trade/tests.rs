@@ -62,3 +62,13 @@ fn enforces_notional_cap() {
     assert!(enforce_notional_cap(&order, Some("1000000")).is_ok());
     assert!(enforce_notional_cap(&order, None).is_ok());
 }
+
+#[test]
+fn trade_amount_validation_rejects_before_quote_or_signing() {
+    for value in ["", " ", "1.5", "1e6", "raw:1000000", "-1", "0x10", "1_000"] {
+        let mut input = trade_input(Some("1".to_string()), true);
+        input.amount = value.to_string();
+        let error = validate_input_amounts(&input).expect_err("invalid amount");
+        assert!(format!("{error}").contains("trade amount"));
+    }
+}

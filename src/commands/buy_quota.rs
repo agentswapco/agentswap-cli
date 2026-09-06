@@ -4,10 +4,10 @@
 
 use alloy::primitives::U256;
 use eyre::{eyre, Result};
-use std::str::FromStr;
 
 use crate::client::Client;
-use crate::tokens::{chain_id_to_name, chain_name_to_id, format_amount, resolve_token, scale_amount};
+use crate::order_types::parse_raw_amount;
+use crate::tokens::{chain_id_to_name, chain_name_to_id, format_amount, resolve_token};
 
 pub struct Args {
     pub chain: String,
@@ -17,16 +17,19 @@ pub struct Args {
 }
 
 pub async fn run(client: &Client, args: Args) -> Result<()> {
+    // Quota purchase amounts retain their existing zero-accepted policy.
+    parse_raw_amount("quota purchase amount", &args.amount)?;
     let chain_id = chain_name_to_id(&args.chain)
         .ok_or_else(|| eyre!("unknown chain: {}. Use: base, arbitrum", args.chain))?;
     let (quota_contract, usdc_address) = quota_config(chain_id)
         .ok_or_else(|| eyre!("quota purchase is only supported on Base and Arbitrum"))?;
     let (token_addr, token_sym, token_dec) = resolve_token(&args.token, chain_id)
         .ok_or_else(|| eyre!("unknown token '{}' on chain {}", args.token, args.chain))?;
-    let amount_in = scale_amount(&args.amount, token_dec);
+    let amount_in = args.amount.clone();
 
     if token_addr.eq_ignore_ascii_case(usdc_address) {
-        return print_usdc(chain_id, quota_contract, token_addr, token_sym, &args.amount, &amount_in, args.json);
+        let display = format_amount(&args.amount, token_dec);
+        return print_usdc(chain_id, quota_contract, token_addr, token_sym, &display, &amount_in, args.json);
     }
 
     let resp = client
@@ -35,12 +38,11 @@ pub async fn run(client: &Client, args: Args) -> Result<()> {
             "token_in": token_addr,
             "token_out": usdc_address,
             "amount_in": amount_in,
-            "amount_usd": args.amount.parse::<f64>().unwrap_or(0.0),
         }))
         .await?;
     let usdc_out = field(&resp, &["output"]).unwrap_or("0");
-    let min_usdc_out = (parse_u256(usdc_out, "quote output")? * U256::from(95u64)) / U256::from(100u64);
-    let estimated_quotes = parse_u256(usdc_out, "quote output")? / U256::from(100u64);
+    let min_usdc_out = (parse_raw_amount("quota quote output", usdc_out)? * U256::from(95u64)) / U256::from(100u64);
+    let estimated_quotes = parse_raw_amount("quota quote output", usdc_out)? / U256::from(100u64);
     let swap_calldata = field(&resp, &["execution", "calldata"])
         .or_else(|| field(&resp, &["calldata"]))
         .ok_or_else(|| eyre!("quote response missing swap calldata"))?;
@@ -53,7 +55,7 @@ pub async fn run(client: &Client, args: Args) -> Result<()> {
         "chain_id": chain_id,
         "quota_contract": quota_contract,
         "payment_token": {"address": token_addr, "symbol": token_sym, "decimals": token_dec},
-        "amount": {"human": args.amount, "raw": amount_in},
+        "amount": {"raw": amount_in, "display": format_amount(&args.amount, token_dec)},
         "estimated_usdc_out": usdc_out,
         "estimated_quotes": estimated_quotes.to_string(),
         "min_usdc_out": min_usdc_out.to_string(),
@@ -72,7 +74,7 @@ pub async fn run(client: &Client, args: Args) -> Result<()> {
     println!(
         "Buy ~{} quotes for {} {} via buyWithToken",
         format_amount(&estimated_quotes.to_string(), 0),
-        output["amount"]["human"].as_str().unwrap_or("?"),
+        output["amount"]["display"].as_str().unwrap_or("?"),
         token_sym
     );
     println!("To: {quota_contract}");
@@ -90,33 +92,47 @@ fn print_usdc(
     quota_contract: &str,
     token_addr: &str,
     token_sym: &str,
-    amount_human: &str,
+    amount_display: &str,
     amount_in: &str,
     json: bool,
 ) -> Result<()> {
-    let quotes = parse_u256(amount_in, "amount")? / U256::from(100u64);
-    let output = serde_json::json!({
-        "chain": chain_id_to_name(chain_id),
-        "chain_id": chain_id,
-        "quota_contract": quota_contract,
-        "payment_token": {"address": token_addr, "symbol": token_sym, "decimals": 6},
-        "amount": {"human": amount_human, "raw": amount_in},
-        "estimated_quotes": quotes.to_string(),
-        "steps": [{"to": quota_contract, "function": "buyWithUSDC(uint256)", "args": [amount_in]}]
-    });
+    let quotes = parse_raw_amount("quota purchase amount", amount_in)? / U256::from(100u64);
+    let output = usdc_purchase_json(
+        chain_id, quota_contract, token_addr, token_sym, amount_display, amount_in, quotes,
+    );
     if json {
         println!("{}", serde_json::to_string_pretty(&output)?);
         return Ok(());
     }
     println!(
-        "Buy {} quotes for {} {} via buyWithUSDC",
+        "Buy {} quotes for {amount_in} ({amount_display} {token_sym}) via buyWithUSDC",
         format_amount(&quotes.to_string(), 0),
-        amount_human,
-        token_sym
     );
     println!("To: {quota_contract}");
     println!("Call: buyWithUSDC({amount_in})");
     Ok(())
+}
+
+/// The USDC purchase call, as the JSON the command prints. `amount_in` is the caller's digits and
+/// reaches `buyWithUSDC` unchanged; the display value is beside it, never in the call.
+fn usdc_purchase_json(
+    chain_id: u64,
+    quota_contract: &str,
+    token_addr: &str,
+    token_sym: &str,
+    amount_display: &str,
+    amount_in: &str,
+    quotes: U256,
+) -> serde_json::Value {
+    serde_json::json!({
+        "chain": chain_id_to_name(chain_id),
+        "chain_id": chain_id,
+        "quota_contract": quota_contract,
+        "payment_token": {"address": token_addr, "symbol": token_sym, "decimals": 6},
+        "amount": {"raw": amount_in, "display": amount_display},
+        "estimated_quotes": quotes.to_string(),
+        "steps": [{"to": quota_contract, "function": "buyWithUSDC(uint256)", "args": [amount_in]}]
+    })
 }
 
 fn quota_config(chain_id: u64) -> Option<(&'static str, &'static str)> {
@@ -127,14 +143,56 @@ fn quota_config(chain_id: u64) -> Option<(&'static str, &'static str)> {
     }
 }
 
-fn parse_u256(value: &str, label: &str) -> Result<U256> {
-    U256::from_str(value).map_err(|_| eyre!("invalid {label}: {value}"))
-}
-
 fn field<'a>(value: &'a serde_json::Value, path: &[&str]) -> Option<&'a str> {
     let mut current = value;
     for key in path {
         current = current.get(*key)?;
     }
     current.as_str()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The client points at a closed port, so a rejection proves the amount was refused before the
+    /// quote request went out. `1_000` is the shape the previous parser read as one thousand.
+    #[tokio::test]
+    async fn malformed_quota_amount_is_refused_before_the_quote_request() {
+        for amount in ["", " ", "1_000", "1.5", "1e6", "raw:10000000", "-1", "0x10"] {
+            let error = run(
+                &Client::new("http://127.0.0.1:1", None),
+                Args {
+                    chain: "base".to_string(),
+                    token: "USDC".to_string(),
+                    amount: amount.to_string(),
+                    json: true,
+                },
+            )
+            .await
+            .expect_err("malformed quota amount must fail");
+            assert!(
+                format!("{error}").contains("quota purchase amount"),
+                "{amount}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn buy_with_usdc_is_called_with_the_digits_given() {
+        let json = usdc_purchase_json(
+            8453,
+            "0xquota",
+            "0xusdc",
+            "USDC",
+            "10.00",
+            "10000000",
+            U256::from(100_000u64),
+        );
+        assert_eq!(json["amount"]["raw"], "10000000");
+        assert_eq!(json["steps"][0]["args"][0], "10000000");
+        assert_eq!(json["steps"][0]["function"], "buyWithUSDC(uint256)");
+        // The display value is present but is not what the call carries.
+        assert_eq!(json["amount"]["display"], "10.00");
+    }
 }

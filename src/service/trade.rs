@@ -21,10 +21,12 @@ pub struct TradeInput {
     pub chain: String,
     pub from: String,
     pub to: String,
+    /// Unsigned decimal input amount in the token's smallest unit.
     pub amount: String,
     pub slippage: Option<u16>,
+    /// Optional unsigned decimal minimum output in raw token units.
     pub min_out: Option<String>,
-    /// Per-trade notional ceiling on amountIn (raw token units). None = no cap.
+    /// Optional unsigned decimal per-trade cap in raw input units.
     #[serde(default)]
     pub max_amount: Option<String>,
     #[serde(default = "agent_order_mode")]
@@ -67,6 +69,7 @@ pub async fn execute_trade(
     allow_trade: bool,
 ) -> Result<TradeOutcome> {
     let mut input = input;
+    validate_input_amounts(&input)?;
     if input.mode != "agent-order" {
         return Err(eyre!("only agent-order mode is implemented in this release"));
     }
@@ -138,7 +141,7 @@ fn build_order(input: &TradeInput, agent: Address, generation: u64, quote: &Quot
         .or_else(|| field(&quote.response, &["router"]))
         .ok_or_else(|| eyre!("quote response missing execution target/router"))?;
     let min_out = match &input.min_out {
-        Some(value) => order_types::parse_u256(value)?,
+        Some(value) => order_types::parse_raw_amount("trade min-out", value)?,
         None => {
             // Fund-moving trades must not derive their protection floor from the
             // untrusted quote server's output. Only dry-run previews may.
@@ -155,7 +158,7 @@ fn build_order(input: &TradeInput, agent: Address, generation: u64, quote: &Quot
         generation,
         router: order_types::parse_address(router)?,
         tokenIn: order_types::parse_address(&quote.request.token_in)?,
-        amountIn: order_types::parse_u256(&quote.request.amount_in)?,
+        amountIn: order_types::parse_raw_amount("quoted trade amount", &quote.request.amount_in)?,
         tokenOut: order_types::parse_address(&quote.request.token_out)?,
         minOut: min_out,
         nonce: next_nonce(input.nonce.as_deref())?,
@@ -207,7 +210,7 @@ fn enforce_notional_cap(order: &UserProxyV6::AgentOrder, cap: Option<&str>) -> R
     let Some(cap) = cap else {
         return Ok(());
     };
-    let cap = order_types::parse_u256(cap)?;
+    let cap = order_types::parse_raw_amount("trade max-amount", cap)?;
     if order.amountIn > cap {
         return Err(eyre!(
             "order amountIn {} exceeds trade max-amount cap {}; refusing to sign/self-submit",
@@ -225,6 +228,18 @@ fn next_nonce(explicit: Option<&str>) -> Result<U256> {
     let mut bytes = [0u8; 8];
     getrandom::fill(&mut bytes).map_err(|e| eyre!("failed to generate nonce: {e}"))?;
     Ok(U256::from(u64::from_be_bytes(bytes)))
+}
+
+fn validate_input_amounts(input: &TradeInput) -> Result<()> {
+    // Trade input, min-out, and cap retain their existing zero-accepted policies.
+    order_types::parse_raw_amount("trade amount", &input.amount)?;
+    if let Some(min_out) = &input.min_out {
+        order_types::parse_raw_amount("trade min-out", min_out)?;
+    }
+    if let Some(max_amount) = &input.max_amount {
+        order_types::parse_raw_amount("trade max-amount", max_amount)?;
+    }
+    Ok(())
 }
 
 fn deadline(secs: u64) -> Result<U256> {

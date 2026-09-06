@@ -6,128 +6,24 @@ use crate::client::Client;
 use crate::evm::{self, ChainConfig};
 use crate::order_types::{self, Erc20Metadata, IntentAuthorization, IntentSettlerV3, Order, UserProxyFactoryV6, UserProxyV6, UserProxyV6Errors};
 use crate::signer::Signer;
-use crate::tokens::{resolve_token, scale_amount};
+use crate::order_types::parse_raw_amount;
+use crate::tokens::resolve_token;
 use alloy::primitives::{Address, B256, Bytes, U256};
 use alloy::sol_types::{SolCall, SolInterface};
 use eyre::{eyre, Result};
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod models;
 mod read;
 #[cfg(test)]
 mod tests;
+pub use models::{
+    IntentRecord, ListInput, PlaceInput, PlaceOutcome, PolicyInput, PolicyOutput, StatusInput,
+    TokenPolicy,
+};
 pub use read::{list, policy, status};
 
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct PlaceInput {
-    pub chain: String,
-    pub proxy_owner: String,
-    pub from: String,
-    pub to: String,
-    pub amount: String,
-    pub start_out: String,
-    pub end_out: String,
-    #[serde(default)]
-    pub decay_secs: Option<u64>,
-    #[serde(default)]
-    pub duration_secs: Option<u64>,
-    #[serde(default)]
-    pub deadline_secs: Option<u64>,
-    #[serde(default)]
-    pub relay: bool,
-    #[serde(default)]
-    pub self_submit: bool,
-    #[serde(default)]
-    pub dry_run: bool,
-    #[serde(default)]
-    pub max_amount: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct PlaceOutcome {
-    pub dry_run: bool,
-    pub chain_id: u64,
-    pub order: order_types::OrderDto,
-    pub id: String,
-    pub authorization: order_types::IntentAuthorizationDto,
-    pub envelope: String,
-    pub digest: String,
-    pub signature: String,
-    pub relay: Option<serde_json::Value>,
-    pub tx_hash: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct ListInput {
-    pub chain: String,
-    pub owner: Option<String>,
-    pub agent: Option<String>,
-    #[serde(default)]
-    pub lookback_blocks: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct StatusInput {
-    pub chain: String,
-    pub id: String,
-    #[serde(default)]
-    pub lookback_blocks: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct PolicyInput {
-    pub chain: String,
-    pub owner: String,
-    pub agent: String,
-    #[serde(default)]
-    pub lookback_blocks: Option<u64>,
-    #[serde(default)]
-    pub tokens: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct IntentRecord {
-    pub id: String,
-    pub placed_by: String,
-    pub owner: String,
-    pub agent: Option<String>,
-    pub pair: String,
-    pub amount_in: String,
-    pub start_out: String,
-    pub end_out: String,
-    pub window: String,
-    pub exclusive_window: bool,
-    pub floor_now: String,
-    pub fee_now: String,
-    pub required_now: String,
-    pub floor_for_outsider: String,
-    pub required_for_outsider: String,
-    pub status: String,
-    pub reason: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct PolicyOutput {
-    pub owner: String,
-    pub agent: String,
-    pub proxy: String,
-    pub expiry: String,
-    pub epoch_len: String,
-    pub action_mask: String,
-    pub generation: String,
-    pub tokens: Vec<TokenPolicy>,
-    pub note: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct TokenPolicy {
-    pub token: String,
-    pub allowed: bool,
-    pub cap: String,
-    pub used: String,
-    pub epoch_start: String,
-}
 
 pub async fn place(
     relay_client: &Client,
@@ -135,6 +31,7 @@ pub async fn place(
     signer: Arc<dyn Signer>,
     allow_trade: bool,
 ) -> Result<PlaceOutcome> {
+    validate_input_amounts(&input)?;
     let config = evm::chain_config(&input.chain)?;
     let owner = order_types::parse_address(&input.proxy_owner)?;
     let agent = signer.address();
@@ -144,7 +41,8 @@ pub async fn place(
     {
         return Err(eyre!("choose exactly one of --relay or --self-submit"));
     }
-    let order = build_order(&input, owner, config.id, &provider).await?;
+    verify_raw_token_addresses(&provider, config.id, &input).await?;
+    let order = build_order(&input, owner, config.id).await?;
     let proxy_address = proxy_for(&provider, config, owner).await?;
     let proxy = UserProxyV6::new(proxy_address, provider.clone());
     let policy = proxy.policyOf(agent).call().await?;
@@ -215,13 +113,13 @@ async fn build_order(
     input: &PlaceInput,
     owner: Address,
     chain_id: u64,
-    provider: &alloy::providers::DynProvider,
 ) -> Result<Order> {
-    let (token_in, in_decimals) = resolve_order_token(&input.from, chain_id, provider).await?;
-    let (token_out, out_decimals) = resolve_order_token(&input.to, chain_id, provider).await?;
-    let amount = parse_amount(&input.amount, in_decimals)?;
-    let start = parse_amount(&input.start_out, out_decimals)?;
-    let end = parse_amount(&input.end_out, out_decimals)?;
+    let token_in = resolve_order_token(&input.from, chain_id)?;
+    let token_out = resolve_order_token(&input.to, chain_id)?;
+    let amount = parse_raw_amount("intent amount", &input.amount)?;
+    let start = parse_raw_amount("intent start-out", &input.start_out)?;
+    let end = parse_raw_amount("intent end-out", &input.end_out)?;
+    // Intent placement retains its existing nonzero policy for all three amounts.
     if start == U256::ZERO || end == U256::ZERO || start < end || amount == U256::ZERO {
         return Err(eyre!("intent amounts must be non-zero and start-out must be at least end-out"));
     }
@@ -234,25 +132,42 @@ async fn build_order(
     Ok(Order { owner, recipient: owner, tokenIn: token_in, amountIn: amount, tokenOut: token_out, startAmountOut: start, endAmountOut: end, startTime: U256::from(start_time), decayEndTime: U256::from(decay_end), endTime: U256::from(end_time), appData: B256::ZERO, nonce: U256::from(random_nonce()?), })
 }
 
-async fn resolve_order_token(
-    input: &str,
-    chain_id: u64,
+/// A token given as a raw address must answer `decimals()`, so a mistyped or non-ERC-20 address
+/// fails before the owner's agent signs an order that could never settle. Registry symbols are
+/// already known to be tokens. The value itself is unused: amounts are raw units.
+async fn verify_raw_token_addresses(
     provider: &alloy::providers::DynProvider,
-) -> Result<(Address, u8)> {
-    if let Some((address, _, decimals)) = resolve_token(input, chain_id) {
-        return Ok((order_types::parse_address(address)?, decimals));
+    chain_id: u64,
+    input: &PlaceInput,
+) -> Result<()> {
+    for value in [&input.from, &input.to] {
+        if resolve_token(value, chain_id).is_some() {
+            continue;
+        }
+        let address = order_types::parse_address(value)?;
+        Erc20Metadata::new(address, provider.clone())
+            .decimals()
+            .call()
+            .await
+            .map_err(|error| eyre!("token {value} does not answer decimals(): {error}"))?;
+    }
+    Ok(())
+}
+
+fn resolve_order_token(input: &str, chain_id: u64) -> Result<Address> {
+    if let Some((address, _, _)) = resolve_token(input, chain_id) {
+        return order_types::parse_address(address);
     }
     if !input.starts_with("0x") && !input.starts_with("0X") {
         return Err(eyre!("unknown token '{input}'"));
     }
     let address = order_types::parse_address(input)?;
-    let decimals = Erc20Metadata::new(address, provider.clone()).decimals().call().await?;
-    Ok((address, decimals))
+    Ok(address)
 }
 
 fn enforce_cap(order: &Order, cap: Option<&str>) -> Result<()> {
     let Some(cap) = cap else { return Ok(()); };
-    let cap = order_types::parse_u256(cap)?;
+    let cap = parse_raw_amount("intent max-amount", cap)?;
     if order.amountIn > cap { return Err(eyre!("order amountIn {} exceeds max-amount cap {}", order.amountIn, cap)); }
     Ok(())
 }
@@ -267,10 +182,14 @@ async fn fresh_agent_nonce(proxy: &UserProxyV6::UserProxyV6Instance<alloy::provi
     Err(eyre!("could not find an unused agent nonce"))
 }
 
-fn parse_amount(value: &str, decimals: u8) -> Result<U256> {
-    let raw = value.strip_prefix("raw:").map(str::to_string)
-        .unwrap_or_else(|| scale_amount(value, decimals));
-    order_types::parse_u256(&raw)
+fn validate_input_amounts(input: &PlaceInput) -> Result<()> {
+    parse_raw_amount("intent amount", &input.amount)?;
+    parse_raw_amount("intent start-out", &input.start_out)?;
+    parse_raw_amount("intent end-out", &input.end_out)?;
+    if let Some(max_amount) = &input.max_amount {
+        parse_raw_amount("intent max-amount", max_amount)?;
+    }
+    Ok(())
 }
 
 fn authorization_error(error: alloy::contract::Error) -> eyre::Report {

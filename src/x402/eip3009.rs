@@ -2,7 +2,7 @@
 // Exports: sign_payment.
 // Deps: alloy sol-types, base64, crate::signer.
 
-use crate::order_types::{parse_address, parse_u256};
+use crate::order_types::{parse_address, parse_raw_amount, parse_u256};
 use crate::signer::Signer;
 use crate::x402::types::{Accept, PaymentPayload, PaymentTransfer, TransferAuthorization};
 use alloy::primitives::{Address, B256};
@@ -94,7 +94,7 @@ fn typed_transfer(auth: &TransferAuthorization) -> Result<TransferWithAuthorizat
     Ok(TransferWithAuthorization {
         from: parse_address(&auth.from)?,
         to: parse_address(&auth.to)?,
-        value: parse_u256(&auth.value)?,
+        value: parse_raw_amount("x402 payment amount", &auth.value)?,
         validAfter: parse_u256(&auth.valid_after)?,
         validBefore: parse_u256(&auth.valid_before)?,
         nonce: parse_nonce(&auth.nonce)?,

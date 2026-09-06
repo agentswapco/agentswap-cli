@@ -49,7 +49,7 @@ pub struct Cli {
     #[arg(long, global = true, env = "AGENTSWAP_X402_CHAIN", default_value_t = 8453)]
     pub x402_chain: u64,
 
-    /// Maximum x402 payment amount in raw token units
+    /// Maximum x402 payment amount as unsigned decimal digits in raw token units
     #[arg(long, global = true, env = "AGENTSWAP_X402_MAX_AMOUNT", default_value = "0")]
     pub x402_max_amount: String,
 
@@ -61,7 +61,7 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub allow_trade: bool,
 
-    /// Per-trade notional cap on amountIn (raw token units); refuses to sign/self-submit above it. Also bounds MCP trades.
+    /// Per-trade cap on amountIn as unsigned decimal digits in raw token units; refuses to sign/self-submit above it. Also bounds MCP trades.
     #[arg(long = "max-amount", global = true, env = "AGENTSWAP_TRADE_MAX_AMOUNT")]
     pub trade_max_amount: Option<String>,
 
@@ -77,6 +77,7 @@ pub enum Commands {
         chain: String,
         #[arg(required = true)]
         pairs: Vec<String>,
+        /// Unsigned decimal amount in the input token's smallest unit.
         #[arg(short, long)]
         amount: String,
     },
@@ -88,6 +89,7 @@ pub enum Commands {
         chain: String,
         #[arg(short, long)]
         token: String,
+        /// Unsigned decimal amount in the input token's smallest unit.
         #[arg(short, long)]
         amount: String,
     },
@@ -99,6 +101,7 @@ pub enum Commands {
         from: String,
         #[arg(short, long)]
         to: String,
+        /// Unsigned decimal amount in the input token's smallest unit.
         #[arg(short, long)]
         amount: String,
         #[arg(short, long)]
@@ -173,10 +176,12 @@ pub enum Commands {
         from: String,
         #[arg(short, long)]
         to: String,
+        /// Unsigned decimal amount in the input token's smallest unit.
         #[arg(short, long)]
         amount: String,
         #[arg(short, long)]
         slippage: Option<u16>,
+        /// Optional unsigned decimal minimum output in raw token units.
         #[arg(long)]
         min_out: Option<String>,
         #[arg(long, default_value = "agent-order")]
@@ -208,10 +213,13 @@ pub enum IntentCommands {
         from: String,
         #[arg(short, long)]
         to: String,
+        /// Unsigned decimal input amount in the token's smallest unit.
         #[arg(short, long)]
         amount: String,
+        /// Unsigned decimal starting output in the token's smallest unit.
         #[arg(long)]
         start_out: String,
+        /// Unsigned decimal ending output in the token's smallest unit.
         #[arg(long)]
         end_out: String,
         #[arg(long)]

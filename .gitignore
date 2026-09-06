@@ -2,3 +2,5 @@ target/
 .env
 .DS_Store
 .aid/
+diff.patch
+test.log

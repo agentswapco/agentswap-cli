@@ -193,3 +193,16 @@ fn intent_filled_log_decodes_fee_between_required_and_received() {
     assert_eq!(event.fee, U256::from(3));
     assert_eq!(event.receivedOut, U256::from(23));
 }
+
+#[test]
+fn raw_amount_parser_accepts_digits_and_rejects_non_decimal_forms() {
+    assert_eq!(parse_raw_amount("quote amount", "0001").expect("digits"), U256::from(1));
+    for value in ["", " ", "-1", "+1", "1.5", "1e6", "1_000", "1 000", "0x10", "raw:10", "١٢٣"] {
+        let error = parse_raw_amount("quote amount", value).expect_err("invalid amount");
+        let message = format!("{error}");
+        assert!(message.contains("quote amount"), "{message}");
+        assert!(message.contains(value), "{message}");
+    }
+    let overflow = parse_raw_amount("trade max-amount", &"9".repeat(80)).expect_err("overflow");
+    assert!(format!("{overflow}").contains("trade max-amount"));
+}
