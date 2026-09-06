@@ -1,15 +1,17 @@
 # Changelog
 
-## 0.5.0 — unreleased
+## 0.5.0 — 2026-09-07
 
 ### Breaking
 
 - All CLI, MCP, and environment monetary inputs are now unsigned decimal integers in the asset's
-  smallest unit. Human-unit parsing, token-decimal scaling, and the `raw:` prefix were removed;
-  invalid values are rejected before quotes, RPC calls, signatures, relays, or broadcasts.
-- Quote requests no longer include the removed floating-point `amount_usd` field.
-
-## 0.4.1 — 2026-09-07
+  smallest unit: `1000000` is one USDC, `1000000000000000000` is one WETH. Human-unit parsing,
+  token-decimal scaling and the `raw:` prefix were removed, so `--amount 1000000` on a 6-decimal
+  token now means one token where 0.4.x meant a million. A value that is not digits — a fraction,
+  an exponent, a sign, a separator, an empty string — is refused before any quote, RPC call,
+  signature, relay or broadcast, and no amount passes through a float. Human-readable values are
+  printed beside the raw one and are never read back.
+- Quote requests no longer carry the floating-point `amount_usd` field.
 
 ### Fixed
 
