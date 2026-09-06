@@ -41,10 +41,11 @@ agentswap intent status --chain base --id 0xIntentId
 agentswap policy --chain base --owner 0xOwner --agent 0xAgent
 ```
 
-`trade` and intent announce/relay/self-submit operations are forced to dry-run unless
-`--allow-trade` is set. Every monetary input, including `--max-amount`, is an unsigned decimal
-integer in the asset's smallest unit; `--max-amount` bounds the raw input amount before signing
-or sending. Human-readable values may appear as supplementary display values only.
+`trade` and `intent place` operations are forced to dry-run unless `--allow-trade` is set.
+Intent placement supports `--relay` or `--self-submit`. Every monetary input, including
+`--max-amount`, is an unsigned decimal integer in the asset's smallest unit; `--max-amount` bounds
+the raw input amount before signing or sending. Human-readable values may appear as supplementary
+display values only.
 Trade dry-runs require a reachable RPC and deployed V6 proxy to verify policy and order hashes before signing. Dry-runs may sign locally but never broadcast or relay. `agentswap mcp` exposes quote, trade,
 intent place/list/status, and policy tools with the same safety model; intent listing requires
 an owner or agent filter.

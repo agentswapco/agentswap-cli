@@ -64,22 +64,7 @@ async fn run_cli(cli: Cli) -> Result<()> {
         },
         x402_signer.clone(),
     );
-    let gateway_url = cli.gateway_url.clone().unwrap_or_else(|| cli.url.clone());
-    let relay_client = client::Client::new(&gateway_url, cli.api_key.clone()).with_x402(
-        x402::Config {
-            enabled: cli.x402,
-            prefer_x402: cli.prefer_x402,
-            chain_id: cli.x402_chain,
-            max_amount: cli.x402_max_amount.clone(),
-            asset: cli.x402_asset.clone(),
-        },
-        signer.clone(),
-    );
-    let intent_gateway_url = cli
-        .gateway_url
-        .clone()
-        .unwrap_or_else(|| "https://app.agentswap.co".to_string());
-    let intent_relay_client = client::Client::new(&intent_gateway_url, api_key).with_x402(
+    let intent_relay_client = client::Client::new("https://app.agentswap.co", api_key).with_x402(
         x402::Config {
             enabled: cli.x402,
             prefer_x402: cli.prefer_x402,
@@ -247,7 +232,6 @@ async fn run_cli(cli: Cli) -> Result<()> {
             nonce,
             deadline_secs,
             dry_run,
-            relay,
             self_submit,
             key_file,
         } => {
@@ -256,7 +240,6 @@ async fn run_cli(cli: Cli) -> Result<()> {
                 .ok_or_else(|| eyre::eyre!("trade requires --key-file or AGENTSWAP_KEY_FILE"))?;
             commands::trade::run(
                 &client,
-                &relay_client,
                 signer,
                 commands::trade::Args {
                     chain,
@@ -270,7 +253,6 @@ async fn run_cli(cli: Cli) -> Result<()> {
                     nonce,
                     deadline_secs: Some(deadline_secs),
                     dry_run: dry_run || !cli.allow_trade,
-                    relay,
                     self_submit,
                     json: cli.json,
                     max_amount: cli.trade_max_amount.clone(),

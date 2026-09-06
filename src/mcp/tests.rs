@@ -27,7 +27,7 @@ impl Signer for CountingSigner {
 
 #[tokio::test]
 async fn malformed_mcp_trade_cap_rejects_before_signing() {
-    for cap in ["not-an-amount", "12abc", "", "  "] {
+    for cap in ["not-an-amount", "12abc", "", "  ", "1_000"] {
         let signer = Arc::new(CountingSigner { calls: AtomicUsize::new(0) });
         let server = AgentSwapMcp::new(Config {
             client: Client::new("http://127.0.0.1:1", None),
@@ -42,7 +42,7 @@ async fn malformed_mcp_trade_cap_rejects_before_signing() {
             max_amount: None, mode: "agent-order".to_string(),
             proxy: "0x2222222222222222222222222222222222222222".to_string(),
             nonce: Some("1".to_string()), deadline_secs: Some(120), dry_run: true,
-            relay: false, self_submit: false,
+            self_submit: false,
         })).await;
         let error = match result {
             Ok(_) => panic!("malformed operator cap {cap:?} must fail"),

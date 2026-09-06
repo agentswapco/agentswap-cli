@@ -75,6 +75,12 @@ sol! {
         ) external;
     }
 
+    /// Read only to prove a raw token address is an ERC-20 before its order is signed.
+    #[sol(rpc)]
+    contract Erc20Metadata {
+        function decimals() external view returns (uint8);
+    }
+
     #[sol(rpc)]
     #[derive(Debug)]
     contract UserProxyFactoryV6 {

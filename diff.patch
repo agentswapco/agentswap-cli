@@ -1,0 +1,1408 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index f1b7b4d..00fbf11 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,12 +1,13 @@
+ # Changelog
+ 
+-## 0.4.1 — 2026-09-07
++## 0.5.0 — unreleased
+ 
+-### Fixed
++### Breaking
+ 
+-- Intent relay requests include the V6 generation selected with the chain configuration.
+-- Removed the unavailable trade relay endpoint; trade still supports local signing and
+-  self-submission.
++- All CLI, MCP, and environment monetary inputs are now unsigned decimal integers in the asset's
++  smallest unit. Human-unit parsing, token-decimal scaling, and the `raw:` prefix were removed;
++  invalid values are rejected before quotes, RPC calls, signatures, relays, or broadcasts.
++- Quote requests no longer include the removed floating-point `amount_usd` field.
+ 
+ ## 0.4.0 — 2026-09-06
+ 
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 9290c58..6b9233d 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -18,10 +18,14 @@
+   `agentswapco <274458467+agentswapco@users.noreply.github.com>`, never by an individual. Do not
+   add `authors` to `Cargo.toml`, and do not put a person's name, email or machine path in any file.
+ - Agents never push; the maintainer pushes from the project account.
++- Commit messages carry no URL that identifies a person, an account or a chat session.
+ 
+ ## Amounts
+-- Every amount in signatures, calldata and machine output is a raw-unit integer string. Amount
+-  parsing (`parse_amount`, `scale_amount`, the `raw:` prefix) is owned by issue #2 — do not touch it.
++- Every monetary input, on the CLI and over MCP, is an unsigned decimal integer in the asset's
++  smallest unit: `1000000` is 1 USDC, `1000000000000000000` is 1 ETH. No input is ever scaled by
++  token decimals, and there is no second input format.
++- Token decimals may be used only to render a supplementary display value beside the raw one.
++  A rendered value is never parsed back as an amount, and no amount passes through a float.
+ 
+ ## Code style
+ - File ≤ 300 lines, function ≤ 50 lines, every file opens with a 2–4 line header comment.
+diff --git a/Cargo.lock b/Cargo.lock
+index e14bd9c..49856ab 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -4,7 +4,7 @@ version = 4
+ 
+ [[package]]
+ name = "agentswap"
+-version = "0.4.1"
++version = "0.4.0"
+ dependencies = [
+  "alloy",
+  "async-trait",
+diff --git a/Cargo.toml b/Cargo.toml
+index 39b13fb..068c217 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "agentswap"
+-version = "0.4.1"
++version = "0.4.0"
+ edition = "2024"
+ description = "AgentSwap CLI — AI-agent-optimized DEX aggregator"
+ license = "MIT"
+diff --git a/README.md b/README.md
+index a3247a7..38ca431 100644
+--- a/README.md
++++ b/README.md
+@@ -20,9 +20,9 @@ agentswap --help
+ agentswap health
+ agentswap chains
+ agentswap tokens --chain base
+-agentswap quote --chain base --from USDC --to WETH --amount 1000
+-agentswap batch-quote --chain arbitrum --amount 1000 USDC/WETH WETH/ARB
+-agentswap trade --chain base --from USDC --to WETH --amount 100 --dry-run
++agentswap quote --chain base --from USDC --to WETH --amount 1000000
++agentswap batch-quote --chain arbitrum --amount 1000000 USDC/WETH WETH/ARB
++agentswap trade --chain base --from USDC --to WETH --amount 1000000 --dry-run
+ ```
+ 
+ ## Intents and policy
+@@ -30,18 +30,21 @@ agentswap trade --chain base --from USDC --to WETH --amount 100 --dry-run
+ V6 open intents are signed against the owner proxy and can be inspected before they are
+ announced. Use `intent place` with `--dry-run`, `--relay`, or `--self-submit`, then use
+ `intent list --owner <address>` and `intent status --id <bytes32>` to inspect them. Raw token
+-addresses are accepted on supported chains; their decimals are read from the token contract.
++addresses are accepted on supported chains, and every amount is given in the token's smallest
++unit.
+ 
+ ```bash
+ agentswap intent place --chain base --proxy-owner 0xOwner --from USDC --to WETH \
+-  --amount 100 --start-out 99 --end-out 90 --dry-run
++  --amount 1000000 --start-out 1000000000000000000 --end-out 900000000000000000 --dry-run
+ agentswap intent list --chain base --owner 0xOwner
+ agentswap intent status --chain base --id 0xIntentId
+ agentswap policy --chain base --owner 0xOwner --agent 0xAgent
+ ```
+ 
+-`trade` and `intent place` operations are forced to dry-run unless `--allow-trade` is set.
+-Intent placement supports `--relay` or `--self-submit`. `--max-amount` bounds the raw input amount before signing or sending.
++`trade` and intent announce/relay/self-submit operations are forced to dry-run unless
++`--allow-trade` is set. Every monetary input, including `--max-amount`, is an unsigned decimal
++integer in the asset's smallest unit; `--max-amount` bounds the raw input amount before signing
++or sending. Human-readable values may appear as supplementary display values only.
+ Trade dry-runs require a reachable RPC and deployed V6 proxy to verify policy and order hashes before signing. Dry-runs may sign locally but never broadcast or relay. `agentswap mcp` exposes quote, trade,
+ intent place/list/status, and policy tools with the same safety model; intent listing requires
+ an owner or agent filter.
+diff --git a/src/cli.rs b/src/cli.rs
+index b89c7aa..a935834 100644
+--- a/src/cli.rs
++++ b/src/cli.rs
+@@ -49,7 +49,7 @@ pub struct Cli {
+     #[arg(long, global = true, env = "AGENTSWAP_X402_CHAIN", default_value_t = 8453)]
+     pub x402_chain: u64,
+ 
+-    /// Maximum x402 payment amount in raw token units
++    /// Maximum x402 payment amount as unsigned decimal digits in raw token units
+     #[arg(long, global = true, env = "AGENTSWAP_X402_MAX_AMOUNT", default_value = "0")]
+     pub x402_max_amount: String,
+ 
+@@ -57,11 +57,15 @@ pub struct Cli {
+     #[arg(long, global = true, env = "AGENTSWAP_X402_ASSET", default_value = "USDC")]
+     pub x402_asset: String,
+ 
++    /// Gateway URL for relayed trade submission
++    #[arg(long, global = true, env = "AGENTSWAP_GATEWAY_URL")]
++    pub gateway_url: Option<String>,
++
+     /// Allow trade execution; otherwise trade is forced to dry-run
+     #[arg(long, global = true)]
+     pub allow_trade: bool,
+ 
+-    /// Per-trade notional cap on amountIn (raw token units); refuses to sign/self-submit above it. Also bounds MCP trades.
++    /// Per-trade cap on amountIn as unsigned decimal digits in raw token units; refuses to sign/relay above it. Also bounds MCP trades.
+     #[arg(long = "max-amount", global = true, env = "AGENTSWAP_TRADE_MAX_AMOUNT")]
+     pub trade_max_amount: Option<String>,
+ 
+@@ -77,6 +81,7 @@ pub enum Commands {
+         chain: String,
+         #[arg(required = true)]
+         pairs: Vec<String>,
++        /// Unsigned decimal amount in the input token's smallest unit.
+         #[arg(short, long)]
+         amount: String,
+     },
+@@ -88,6 +93,7 @@ pub enum Commands {
+         chain: String,
+         #[arg(short, long)]
+         token: String,
++        /// Unsigned decimal amount in the input token's smallest unit.
+         #[arg(short, long)]
+         amount: String,
+     },
+@@ -99,6 +105,7 @@ pub enum Commands {
+         from: String,
+         #[arg(short, long)]
+         to: String,
++        /// Unsigned decimal amount in the input token's smallest unit.
+         #[arg(short, long)]
+         amount: String,
+         #[arg(short, long)]
+@@ -165,7 +172,7 @@ pub enum Commands {
+         #[arg(long = "token")]
+         tokens: Vec<String>,
+     },
+-    /// Quote and sign an agent order, optionally self-submitting it; dry-run requires a reachable RPC and deployed V6 proxy to verify policy and order hashes before signing
++    /// Quote, sign, and optionally relay an agent order; dry-run requires a reachable RPC and deployed V6 proxy to verify policy and order hashes before signing
+     Trade {
+         #[arg(short, long)]
+         chain: String,
+@@ -173,10 +180,12 @@ pub enum Commands {
+         from: String,
+         #[arg(short, long)]
+         to: String,
++        /// Unsigned decimal amount in the input token's smallest unit.
+         #[arg(short, long)]
+         amount: String,
+         #[arg(short, long)]
+         slippage: Option<u16>,
++        /// Optional unsigned decimal minimum output in raw token units.
+         #[arg(long)]
+         min_out: Option<String>,
+         #[arg(long, default_value = "agent-order")]
+@@ -190,6 +199,8 @@ pub enum Commands {
+         #[arg(long)]
+         dry_run: bool,
+         #[arg(long)]
++        relay: bool,
++        #[arg(long)]
+         self_submit: bool,
+         #[arg(long)]
+         key_file: Option<String>,
+@@ -208,10 +219,13 @@ pub enum IntentCommands {
+         from: String,
+         #[arg(short, long)]
+         to: String,
++        /// Unsigned decimal input amount in the token's smallest unit.
+         #[arg(short, long)]
+         amount: String,
++        /// Unsigned decimal starting output in the token's smallest unit.
+         #[arg(long)]
+         start_out: String,
++        /// Unsigned decimal ending output in the token's smallest unit.
+         #[arg(long)]
+         end_out: String,
+         #[arg(long)]
+diff --git a/src/client.rs b/src/client.rs
+index 0559252..7a3f20c 100644
+--- a/src/client.rs
++++ b/src/client.rs
+@@ -110,6 +110,10 @@ impl Client {
+             .await
+     }
+ 
++    pub async fn submit_intent(&self, body: &serde_json::Value) -> Result<serde_json::Value> {
++        self.post(crate::routes::INTENTS, body).await
++    }
++
+     pub async fn announce_intent(&self, body: &serde_json::Value) -> Result<serde_json::Value> {
+         self.post(crate::routes::INTENT_ANNOUNCE, body).await
+     }
+diff --git a/src/commands/buy_quota.rs b/src/commands/buy_quota.rs
+index 5886c3e..fbb3630 100644
+--- a/src/commands/buy_quota.rs
++++ b/src/commands/buy_quota.rs
+@@ -4,10 +4,10 @@
+ 
+ use alloy::primitives::U256;
+ use eyre::{eyre, Result};
+-use std::str::FromStr;
+ 
+ use crate::client::Client;
+-use crate::tokens::{chain_id_to_name, chain_name_to_id, format_amount, resolve_token, scale_amount};
++use crate::order_types::parse_raw_amount;
++use crate::tokens::{chain_id_to_name, chain_name_to_id, format_amount, resolve_token};
+ 
+ pub struct Args {
+     pub chain: String,
+@@ -17,16 +17,19 @@ pub struct Args {
+ }
+ 
+ pub async fn run(client: &Client, args: Args) -> Result<()> {
++    // Quota purchase amounts retain their existing zero-accepted policy.
++    parse_raw_amount("quota purchase amount", &args.amount)?;
+     let chain_id = chain_name_to_id(&args.chain)
+         .ok_or_else(|| eyre!("unknown chain: {}. Use: base, arbitrum", args.chain))?;
+     let (quota_contract, usdc_address) = quota_config(chain_id)
+         .ok_or_else(|| eyre!("quota purchase is only supported on Base and Arbitrum"))?;
+     let (token_addr, token_sym, token_dec) = resolve_token(&args.token, chain_id)
+         .ok_or_else(|| eyre!("unknown token '{}' on chain {}", args.token, args.chain))?;
+-    let amount_in = scale_amount(&args.amount, token_dec);
++    let amount_in = args.amount.clone();
+ 
+     if token_addr.eq_ignore_ascii_case(usdc_address) {
+-        return print_usdc(chain_id, quota_contract, token_addr, token_sym, &args.amount, &amount_in, args.json);
++        let display = format_amount(&args.amount, token_dec);
++        return print_usdc(chain_id, quota_contract, token_addr, token_sym, &display, &amount_in, args.json);
+     }
+ 
+     let resp = client
+@@ -35,12 +38,11 @@ pub async fn run(client: &Client, args: Args) -> Result<()> {
+             "token_in": token_addr,
+             "token_out": usdc_address,
+             "amount_in": amount_in,
+-            "amount_usd": args.amount.parse::<f64>().unwrap_or(0.0),
+         }))
+         .await?;
+     let usdc_out = field(&resp, &["output"]).unwrap_or("0");
+-    let min_usdc_out = (parse_u256(usdc_out, "quote output")? * U256::from(95u64)) / U256::from(100u64);
+-    let estimated_quotes = parse_u256(usdc_out, "quote output")? / U256::from(100u64);
++    let min_usdc_out = (parse_raw_amount("quota quote output", usdc_out)? * U256::from(95u64)) / U256::from(100u64);
++    let estimated_quotes = parse_raw_amount("quota quote output", usdc_out)? / U256::from(100u64);
+     let swap_calldata = field(&resp, &["execution", "calldata"])
+         .or_else(|| field(&resp, &["calldata"]))
+         .ok_or_else(|| eyre!("quote response missing swap calldata"))?;
+@@ -53,7 +55,7 @@ pub async fn run(client: &Client, args: Args) -> Result<()> {
+         "chain_id": chain_id,
+         "quota_contract": quota_contract,
+         "payment_token": {"address": token_addr, "symbol": token_sym, "decimals": token_dec},
+-        "amount": {"human": args.amount, "raw": amount_in},
++        "amount": {"raw": amount_in, "display": format_amount(&args.amount, token_dec)},
+         "estimated_usdc_out": usdc_out,
+         "estimated_quotes": estimated_quotes.to_string(),
+         "min_usdc_out": min_usdc_out.to_string(),
+@@ -72,7 +74,7 @@ pub async fn run(client: &Client, args: Args) -> Result<()> {
+     println!(
+         "Buy ~{} quotes for {} {} via buyWithToken",
+         format_amount(&estimated_quotes.to_string(), 0),
+-        output["amount"]["human"].as_str().unwrap_or("?"),
++        output["amount"]["display"].as_str().unwrap_or("?"),
+         token_sym
+     );
+     println!("To: {quota_contract}");
+@@ -90,17 +92,17 @@ fn print_usdc(
+     quota_contract: &str,
+     token_addr: &str,
+     token_sym: &str,
+-    amount_human: &str,
++    amount_display: &str,
+     amount_in: &str,
+     json: bool,
+ ) -> Result<()> {
+-    let quotes = parse_u256(amount_in, "amount")? / U256::from(100u64);
++    let quotes = parse_raw_amount("quota purchase amount", amount_in)? / U256::from(100u64);
+     let output = serde_json::json!({
+         "chain": chain_id_to_name(chain_id),
+         "chain_id": chain_id,
+         "quota_contract": quota_contract,
+         "payment_token": {"address": token_addr, "symbol": token_sym, "decimals": 6},
+-        "amount": {"human": amount_human, "raw": amount_in},
++        "amount": {"raw": amount_in, "display": amount_display},
+         "estimated_quotes": quotes.to_string(),
+         "steps": [{"to": quota_contract, "function": "buyWithUSDC(uint256)", "args": [amount_in]}]
+     });
+@@ -109,10 +111,8 @@ fn print_usdc(
+         return Ok(());
+     }
+     println!(
+-        "Buy {} quotes for {} {} via buyWithUSDC",
++        "Buy {} quotes for {amount_in} ({amount_display} {token_sym}) via buyWithUSDC",
+         format_amount(&quotes.to_string(), 0),
+-        amount_human,
+-        token_sym
+     );
+     println!("To: {quota_contract}");
+     println!("Call: buyWithUSDC({amount_in})");
+@@ -127,10 +127,6 @@ fn quota_config(chain_id: u64) -> Option<(&'static str, &'static str)> {
+     }
+ }
+ 
+-fn parse_u256(value: &str, label: &str) -> Result<U256> {
+-    U256::from_str(value).map_err(|_| eyre!("invalid {label}: {value}"))
+-}
+-
+ fn field<'a>(value: &'a serde_json::Value, path: &[&str]) -> Option<&'a str> {
+     let mut current = value;
+     for key in path {
+diff --git a/src/commands/quote.rs b/src/commands/quote.rs
+index 9e1529a..ddf6904 100644
+--- a/src/commands/quote.rs
++++ b/src/commands/quote.rs
+@@ -57,7 +57,8 @@ pub async fn run(client: &Client, args: Args) -> Result<()> {
+     table.add_row(vec![
+         "Input",
+         &format!(
+-            "{} {}",
++            "{} ({} {})",
++            out.request.amount_in,
+             format_amount(&out.request.amount_in, out.request.token_in_decimals),
+             out.request.token_in_symbol
+         ),
+diff --git a/src/commands/trade.rs b/src/commands/trade.rs
+index 5bdb135..b4594cd 100644
+--- a/src/commands/trade.rs
++++ b/src/commands/trade.rs
+@@ -1,4 +1,4 @@
+-// Trade command for quote-to-AgentOrder signing and optional self-submit.
++// Trade command for quote-to-AgentOrder signing and optional relay.
+ // Exports: Args, run.
+ // Deps: crate::{client, service::trade, signer}.
+ 
+@@ -22,19 +22,21 @@ pub struct Args {
+     pub nonce: Option<String>,
+     pub deadline_secs: Option<u64>,
+     pub dry_run: bool,
++    pub relay: bool,
+     pub self_submit: bool,
+     pub json: bool,
+ }
+ 
+ pub async fn run(
+     client: &Client,
++    relay_client: &Client,
+     signer: Arc<dyn Signer>,
+     args: Args,
+     allow_trade: bool,
+ ) -> Result<()> {
+     let json = args.json;
+-    let outcome = trade::execute_trade(client, signer, input(args), allow_trade).await?;
+-    if outcome.dry_run || outcome.self_submit.is_some() {
++    let outcome = trade::execute_trade(client, relay_client, signer, input(args), allow_trade).await?;
++    if outcome.dry_run || outcome.relay.is_some() || outcome.self_submit.is_some() {
+         print_outcome(outcome, json)?;
+     }
+     Ok(())
+@@ -54,6 +56,7 @@ fn input(args: Args) -> TradeInput {
+         nonce: args.nonce,
+         deadline_secs: args.deadline_secs,
+         dry_run: args.dry_run,
++        relay: args.relay,
+         self_submit: args.self_submit,
+     }
+ }
+@@ -75,6 +78,9 @@ fn print_outcome(outcome: trade::TradeOutcome, json: bool) -> Result<()> {
+     table.add_row(vec!["Amount In", outcome.order.amount_in.as_str()]);
+     table.add_row(vec!["Token Out", outcome.order.token_out.as_str()]);
+     table.add_row(vec!["Min Out", outcome.order.min_out.as_str()]);
++    if let Some(relay) = &outcome.relay {
++        table.add_row(vec!["Relay", &serde_json::to_string(relay)?]);
++    }
+     if let Some(preview) = &outcome.self_submit {
+         table.add_row(vec!["Self Submit To", preview.to.as_str()]);
+         table.add_row(vec!["Self Submit Calldata", preview.calldata.as_str()]);
+diff --git a/src/evm.rs b/src/evm.rs
+index 82932a8..de53004 100644
+--- a/src/evm.rs
++++ b/src/evm.rs
+@@ -16,7 +16,6 @@ pub struct ChainConfig {
+     pub rpc: &'static str,
+     pub factory: Address,
+     pub settler: Address,
+-    pub generation: &'static str,
+     pub lens: Address,
+ }
+ 
+@@ -25,7 +24,6 @@ pub struct ChainConfig {
+ // PREVIEW_LAYOUT()==3 redeploy, not the first V6 lens 0x7E62d98d…1b87.
+ const FACTORY: Address = alloy::primitives::address!("0xc1660e4BbC825f8367dA92b60dccc17E4E10bc26");
+ const SETTLER: Address = alloy::primitives::address!("0x2dd81c4fD1FC38b009Ab10D5C9b1f01Ca51cE462");
+-const INTENT_GENERATION: &str = "v6";
+ const LENS: Address = alloy::primitives::address!("0x3AFfAafAF3Ec0A8A535723CBf0891482680F30C3");
+ const EVENT_LOOKBACK_BLOCKS: u64 = 200_000;
+ const BSC_DEFAULT_EVENT_LOOKBACK_BLOCKS: u64 = 9_000;
+@@ -41,7 +39,7 @@ pub fn chain_config(chain: &str) -> Result<ChainConfig> {
+         4663 => "https://rpc.mainnet.chain.robinhood.com",
+         _ => return Err(eyre!("V6 intent protocol is unavailable on chain {id}")),
+     };
+-    Ok(ChainConfig { id, rpc, factory: FACTORY, settler: SETTLER, generation: INTENT_GENERATION, lens: LENS })
++    Ok(ChainConfig { id, rpc, factory: FACTORY, settler: SETTLER, lens: LENS })
+ }
+ 
+ pub fn rpc_url(config: ChainConfig) -> String {
+diff --git a/src/main.rs b/src/main.rs
+index 4d64e05..6fd3a69 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -43,6 +43,10 @@ async fn main() {
+ 
+ async fn run_cli(cli: Cli) -> Result<()> {
+     let _ = (routes::X402_VERIFY, routes::X402_SETTLE, routes::X402_DISCOVERY);
++    if let Some(max_amount) = &cli.trade_max_amount {
++        order_types::parse_raw_amount("trade max-amount", max_amount)?;
++    }
++    order_types::parse_raw_amount("x402 payment cap", &cli.x402_max_amount)?;
+     let api_key = cli
+         .api_key
+         .clone()
+@@ -60,7 +64,22 @@ async fn run_cli(cli: Cli) -> Result<()> {
+         },
+         x402_signer.clone(),
+     );
+-    let intent_relay_client = client::Client::new("https://app.agentswap.co", api_key).with_x402(
++    let gateway_url = cli.gateway_url.clone().unwrap_or_else(|| cli.url.clone());
++    let relay_client = client::Client::new(&gateway_url, cli.api_key.clone()).with_x402(
++        x402::Config {
++            enabled: cli.x402,
++            prefer_x402: cli.prefer_x402,
++            chain_id: cli.x402_chain,
++            max_amount: cli.x402_max_amount.clone(),
++            asset: cli.x402_asset.clone(),
++        },
++        signer.clone(),
++    );
++    let intent_gateway_url = cli
++        .gateway_url
++        .clone()
++        .unwrap_or_else(|| "https://app.agentswap.co".to_string());
++    let intent_relay_client = client::Client::new(&intent_gateway_url, api_key).with_x402(
+         x402::Config {
+             enabled: cli.x402,
+             prefer_x402: cli.prefer_x402,
+@@ -228,6 +247,7 @@ async fn run_cli(cli: Cli) -> Result<()> {
+             nonce,
+             deadline_secs,
+             dry_run,
++            relay,
+             self_submit,
+             key_file,
+         } => {
+@@ -236,6 +256,7 @@ async fn run_cli(cli: Cli) -> Result<()> {
+                 .ok_or_else(|| eyre::eyre!("trade requires --key-file or AGENTSWAP_KEY_FILE"))?;
+             commands::trade::run(
+                 &client,
++                &relay_client,
+                 signer,
+                 commands::trade::Args {
+                     chain,
+@@ -249,6 +270,7 @@ async fn run_cli(cli: Cli) -> Result<()> {
+                     nonce,
+                     deadline_secs: Some(deadline_secs),
+                     dry_run: dry_run || !cli.allow_trade,
++                    relay,
+                     self_submit,
+                     json: cli.json,
+                     max_amount: cli.trade_max_amount.clone(),
+diff --git a/src/mcp.rs b/src/mcp.rs
+index da8a0da..16cd283 100644
+--- a/src/mcp.rs
++++ b/src/mcp.rs
+@@ -16,6 +16,9 @@ use schemars::JsonSchema;
+ use serde::{Deserialize, Serialize};
+ use std::sync::Arc;
+ 
++#[cfg(test)]
++mod tests;
++
+ #[derive(Clone)]
+ pub struct Config {
+     pub client: Client,
+@@ -51,7 +54,7 @@ impl AgentSwapMcp {
+ 
+ #[tool_router(router = tool_router)]
+ impl AgentSwapMcp {
+-    #[tool(description = "Get a swap quote")]
++    #[tool(description = "Get a swap quote. Amount is an unsigned decimal integer in the input token's smallest unit.")]
+     async fn quote(
+         &self,
+         Parameters(input): Parameters<quote::QuoteInput>,
+@@ -62,7 +65,7 @@ impl AgentSwapMcp {
+             .map_err(|e| format!("{e}"))
+     }
+ 
+-    #[tool(description = "Get quotes for multiple FROM/TO pairs")]
++    #[tool(description = "Get quotes for multiple FROM/TO pairs. Amount is an unsigned decimal integer in the input token's smallest unit.")]
+     async fn batch_quote(
+         &self,
+         Parameters(input): Parameters<BatchQuoteInput>,
+@@ -96,7 +99,7 @@ impl AgentSwapMcp {
+             .map_err(|e| format!("{e}"))
+     }
+ 
+-    #[tool(description = "Quote and sign an AgentOrder; dry-run defaults to true and requires a reachable RPC and deployed V6 proxy to verify policy and order hashes before signing")]
++    #[tool(description = "Quote and sign an AgentOrder; amount, min_out, and max_amount are unsigned decimal integers in raw token units. Dry-run defaults to true and requires a reachable RPC and deployed V6 proxy to verify policy and order hashes before signing")]
+     async fn trade(
+         &self,
+         Parameters(mut input): Parameters<trade::TradeInput>,
+@@ -111,13 +114,13 @@ impl AgentSwapMcp {
+         let Some(signer) = self.signer.clone() else {
+             return Err("trade requires --key-file".to_string());
+         };
+-        trade::execute_trade(&self.client, signer, input, self.allow_trade)
++        trade::execute_trade(&self.client, &self.client, signer, input, self.allow_trade)
+             .await
+             .map(Json)
+             .map_err(|e| format!("{e}"))
+     }
+ 
+-    #[tool(description = "Sign and announce a V6 open intent; dry-run is forced without allow_trade")]
++    #[tool(description = "Sign and announce a V6 open intent; amount, start_out, end_out, and max_amount are unsigned decimal integers in raw token units. Dry-run is forced without allow_trade")]
+     async fn intent_place(
+         &self,
+         Parameters(mut input): Parameters<intent::PlaceInput>,
+@@ -167,15 +170,15 @@ impl ServerHandler for AgentSwapMcp {
+ 
+ fn bound_intent_cap(input: &mut intent::PlaceInput, server_cap: Option<&str>) -> std::result::Result<(), String> {
+     let Some(server_cap) = server_cap else { return Ok(()); };
+-    let server = crate::order_types::parse_u256(server_cap).map_err(|e| format!("{e}"))?;
+-    let client = input.max_amount.as_deref().map(crate::order_types::parse_u256).transpose().map_err(|e| format!("{e}"))?;
++    let server = crate::order_types::parse_raw_amount("MCP intent max-amount", server_cap).map_err(|e| format!("{e}"))?;
++    let client = input.max_amount.as_deref().map(|value| crate::order_types::parse_raw_amount("MCP intent max-amount", value)).transpose().map_err(|e| format!("{e}"))?;
+     input.max_amount = Some(client.map_or_else(|| server_cap.to_string(), |value| value.min(server).to_string()));
+     Ok(())
+ }
+ 
+ fn bound_trade_cap(input: &mut trade::TradeInput, server_cap: &str) -> std::result::Result<(), String> {
+-    let server = crate::order_types::parse_u256(server_cap).map_err(|e| format!("{e}"))?;
+-    let client = input.max_amount.as_deref().map(crate::order_types::parse_u256).transpose().map_err(|e| format!("{e}"))?;
++    let server = crate::order_types::parse_raw_amount("MCP trade max-amount", server_cap).map_err(|e| format!("{e}"))?;
++    let client = input.max_amount.as_deref().map(|value| crate::order_types::parse_raw_amount("MCP trade max-amount", value)).transpose().map_err(|e| format!("{e}"))?;
+     input.max_amount = Some(client.map_or_else(|| server_cap.to_string(), |value| value.min(server).to_string()));
+     Ok(())
+ }
+@@ -184,6 +187,7 @@ fn bound_trade_cap(input: &mut trade::TradeInput, server_cap: &str) -> std::resu
+ struct BatchQuoteInput {
+     chain: String,
+     pairs: Vec<String>,
++    /// Unsigned decimal amount in the input token's smallest unit.
+     amount: String,
+ }
+ 
+@@ -236,59 +240,3 @@ fn filter_tokens(tokens: serde_json::Value, chain: Option<&str>) -> std::result:
+         .collect();
+     Ok(serde_json::Value::Object(filtered))
+ }
+-
+-#[cfg(test)]
+-mod tests {
+-    use super::*;
+-    use alloy::primitives::{Address, B256, Signature};
+-    use async_trait::async_trait;
+-    use std::sync::atomic::{AtomicUsize, Ordering};
+-
+-    struct CountingSigner {
+-        calls: AtomicUsize,
+-    }
+-
+-    #[async_trait]
+-    impl Signer for CountingSigner {
+-        fn address(&self) -> Address { Address::ZERO }
+-
+-        async fn sign_message(&self, _: &[u8]) -> Result<Signature> {
+-            Err(eyre::eyre!("unexpected signature"))
+-        }
+-
+-        async fn sign_hash(&self, _: B256) -> Result<Signature> {
+-            self.calls.fetch_add(1, Ordering::SeqCst);
+-            Err(eyre::eyre!("unexpected signature"))
+-        }
+-    }
+-
+-    #[tokio::test]
+-    async fn malformed_mcp_trade_cap_rejects_before_signing() {
+-        // "" is the one that bites: from_str_radix("") is 0, so it used to become a zero cap only
+-        // after a quote and an RPC round trip. Every malformed shape must error before either.
+-        for cap in ["not-an-amount", "12abc", "", "  "] {
+-            let signer = Arc::new(CountingSigner { calls: AtomicUsize::new(0) });
+-            let server = AgentSwapMcp::new(Config {
+-                client: Client::new("http://127.0.0.1:1", None),
+-                intent_client: Client::new("http://127.0.0.1:1", None),
+-                signer: Some(signer.clone()),
+-                allow_trade: true,
+-                trade_max_amount: Some(cap.to_string()),
+-            });
+-            let result = server.trade(Parameters(trade::TradeInput {
+-                chain: "base".to_string(), from: "USDC".to_string(), to: "WETH".to_string(),
+-                amount: "1".to_string(), slippage: None, min_out: Some("1".to_string()),
+-                max_amount: None, mode: "agent-order".to_string(),
+-                proxy: "0x2222222222222222222222222222222222222222".to_string(),
+-                nonce: Some("1".to_string()), deadline_secs: Some(120), dry_run: true,
+-                self_submit: false,
+-            })).await;
+-            let error = match result {
+-                Ok(_) => panic!("malformed operator cap {cap:?} must fail"),
+-                Err(error) => error,
+-            };
+-            assert!(error.contains("invalid uint"), "cap {cap:?}: {error}");
+-            assert_eq!(signer.calls.load(Ordering::SeqCst), 0, "cap {cap:?} signed");
+-        }
+-    }
+-}
+diff --git a/src/mcp/tests.rs b/src/mcp/tests.rs
+new file mode 100644
+index 0000000..c2adbd3
+--- /dev/null
++++ b/src/mcp/tests.rs
+@@ -0,0 +1,74 @@
++// MCP boundary tests for early validation and exact JSON string preservation.
++// Exports: module-local tests.
++// Deps: super MCP server and service DTOs.
++
++use super::*;
++use alloy::primitives::{Address, B256, Signature};
++use async_trait::async_trait;
++use std::sync::atomic::{AtomicUsize, Ordering};
++
++struct CountingSigner {
++    calls: AtomicUsize,
++}
++
++#[async_trait]
++impl Signer for CountingSigner {
++    fn address(&self) -> Address { Address::ZERO }
++
++    async fn sign_message(&self, _: &[u8]) -> Result<Signature> {
++        Err(eyre::eyre!("unexpected signature"))
++    }
++
++    async fn sign_hash(&self, _: B256) -> Result<Signature> {
++        self.calls.fetch_add(1, Ordering::SeqCst);
++        Err(eyre::eyre!("unexpected signature"))
++    }
++}
++
++#[tokio::test]
++async fn malformed_mcp_trade_cap_rejects_before_signing() {
++    for cap in ["not-an-amount", "12abc", "", "  "] {
++        let signer = Arc::new(CountingSigner { calls: AtomicUsize::new(0) });
++        let server = AgentSwapMcp::new(Config {
++            client: Client::new("http://127.0.0.1:1", None),
++            intent_client: Client::new("http://127.0.0.1:1", None),
++            signer: Some(signer.clone()),
++            allow_trade: true,
++            trade_max_amount: Some(cap.to_string()),
++        });
++        let result = server.trade(Parameters(trade::TradeInput {
++            chain: "base".to_string(), from: "USDC".to_string(), to: "WETH".to_string(),
++            amount: "1".to_string(), slippage: None, min_out: Some("1".to_string()),
++            max_amount: None, mode: "agent-order".to_string(),
++            proxy: "0x2222222222222222222222222222222222222222".to_string(),
++            nonce: Some("1".to_string()), deadline_secs: Some(120), dry_run: true,
++            relay: false, self_submit: false,
++        })).await;
++        let error = match result {
++            Ok(_) => panic!("malformed operator cap {cap:?} must fail"),
++            Err(error) => error,
++        };
++        assert!(error.contains("invalid MCP trade max-amount"), "cap {cap:?}: {error}");
++        assert_eq!(signer.calls.load(Ordering::SeqCst), 0, "cap {cap:?} signed");
++    }
++}
++
++#[test]
++fn mcp_json_keeps_large_raw_amount_as_a_string() {
++    let amount = "900719925474099300000000000000000000";
++    let output = quote::QuoteOutput {
++        request: quote::QuoteContext {
++            chain_id: 8453,
++            token_in: "0x1".to_string(),
++            token_in_symbol: "USDC".to_string(),
++            token_in_decimals: 6,
++            token_out: "0x2".to_string(),
++            token_out_symbol: "WETH".to_string(),
++            token_out_decimals: 18,
++            amount_in: amount.to_string(),
++        },
++        response: serde_json::json!({}),
++    };
++    let json = serde_json::to_value(output).expect("MCP JSON");
++    assert_eq!(json["request"]["amount_in"], amount);
++}
+diff --git a/src/order_types.rs b/src/order_types.rs
+index 6e6067d..fb751ff 100644
+--- a/src/order_types.rs
++++ b/src/order_types.rs
+@@ -66,11 +66,6 @@ sol! {
+         event AgentCapSet(address indexed agent, uint64 generation, address indexed token, uint256 cap);
+     }
+ 
+-    #[sol(rpc)]
+-    contract Erc20Metadata {
+-        function decimals() external view returns (uint8);
+-    }
+-
+     #[sol(rpc)]
+     contract IntentAbiCodec {
+         function encodeEnvelope(uint8 kind, bytes payload) external;
+@@ -262,12 +257,17 @@ pub fn parse_address(value: &str) -> Result<Address> {
+ }
+ 
+ pub fn parse_u256(value: &str) -> Result<U256> {
+-    // `from_str_radix("")` is 0, which would turn an empty cap into a silent zero cap after a
+-    // quote or RPC round trip. Empty is malformed, not zero.
+-    if value.trim().is_empty() {
+-        return Err(eyre!("invalid uint '{value}': empty"));
++    parse_raw_amount("uint", value)
++}
++
++pub fn parse_raw_amount(field: &str, value: &str) -> Result<U256> {
++    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
++        return Err(eyre!(
++            "invalid {field} '{value}': expected unsigned decimal digits"
++        ));
+     }
+-    U256::from_str_radix(value, 10).map_err(|e| eyre!("invalid uint '{value}': {e}"))
++    U256::from_str_radix(value, 10)
++        .map_err(|_| eyre!("invalid {field} '{value}': integer overflow"))
+ }
+ 
+ #[cfg(test)]
+diff --git a/src/order_types/tests.rs b/src/order_types/tests.rs
+index d8f6360..87c6e15 100644
+--- a/src/order_types/tests.rs
++++ b/src/order_types/tests.rs
+@@ -193,3 +193,16 @@ fn intent_filled_log_decodes_fee_between_required_and_received() {
+     assert_eq!(event.fee, U256::from(3));
+     assert_eq!(event.receivedOut, U256::from(23));
+ }
++
++#[test]
++fn raw_amount_parser_accepts_digits_and_rejects_non_decimal_forms() {
++    assert_eq!(parse_raw_amount("quote amount", "0001").expect("digits"), U256::from(1));
++    for value in ["", " ", "-1", "+1", "1.5", "1e6", "1_000", "0x10", "raw:10"] {
++        let error = parse_raw_amount("quote amount", value).expect_err("invalid amount");
++        let message = format!("{error}");
++        assert!(message.contains("quote amount"), "{message}");
++        assert!(message.contains(value), "{message}");
++    }
++    let overflow = parse_raw_amount("trade max-amount", &"9".repeat(80)).expect_err("overflow");
++    assert!(format!("{overflow}").contains("trade max-amount"));
++}
+diff --git a/src/routes.rs b/src/routes.rs
+index 8c76029..9f84c14 100644
+--- a/src/routes.rs
++++ b/src/routes.rs
+@@ -7,6 +7,7 @@ pub const HEALTH: &str = "/health";
+ pub const CHAINS: &str = "/api/chains";
+ pub const TOKENS: &str = "/api/tokens";
+ pub const STATUS: &str = "/api/status";
++pub const INTENTS: &str = "/intents";
+ pub const INTENT_ANNOUNCE: &str = "/api/intents";
+ 
+ // Auth routes
+@@ -38,6 +39,7 @@ mod tests {
+         assert_eq!(CHAINS, "/api/chains");
+         assert_eq!(TOKENS, "/api/tokens");
+         assert_eq!(STATUS, "/api/status");
++        assert_eq!(INTENTS, "/intents");
+         assert_eq!(INTENT_ANNOUNCE, "/api/intents");
+         assert_eq!(AUTH_CHALLENGE, "/auth/challenge");
+         assert_eq!(AUTH_REGISTER, "/auth/register");
+diff --git a/src/service/intent.rs b/src/service/intent.rs
+index 955746c..39b46f2 100644
+--- a/src/service/intent.rs
++++ b/src/service/intent.rs
+@@ -4,9 +4,10 @@
+ 
+ use crate::client::Client;
+ use crate::evm::{self, ChainConfig};
+-use crate::order_types::{self, Erc20Metadata, IntentAuthorization, IntentSettlerV3, Order, UserProxyFactoryV6, UserProxyV6, UserProxyV6Errors};
++use crate::order_types::{self, IntentAuthorization, IntentSettlerV3, Order, UserProxyFactoryV6, UserProxyV6, UserProxyV6Errors};
+ use crate::signer::Signer;
+-use crate::tokens::{resolve_token, scale_amount};
++use crate::order_types::parse_raw_amount;
++use crate::tokens::resolve_token;
+ use alloy::primitives::{Address, B256, Bytes, U256};
+ use alloy::sol_types::{SolCall, SolInterface};
+ use eyre::{eyre, Result};
+@@ -25,8 +26,11 @@ pub struct PlaceInput {
+     pub proxy_owner: String,
+     pub from: String,
+     pub to: String,
++    /// Unsigned decimal input amount in the token's smallest unit.
+     pub amount: String,
++    /// Unsigned decimal starting output in the token's smallest unit.
+     pub start_out: String,
++    /// Unsigned decimal ending output in the token's smallest unit.
+     pub end_out: String,
+     #[serde(default)]
+     pub decay_secs: Option<u64>,
+@@ -41,6 +45,7 @@ pub struct PlaceInput {
+     #[serde(default)]
+     pub dry_run: bool,
+     #[serde(default)]
++    /// Optional unsigned decimal cap in raw input units.
+     pub max_amount: Option<String>,
+ }
+ 
+@@ -135,6 +140,7 @@ pub async fn place(
+     signer: Arc<dyn Signer>,
+     allow_trade: bool,
+ ) -> Result<PlaceOutcome> {
++    validate_input_amounts(&input)?;
+     let config = evm::chain_config(&input.chain)?;
+     let owner = order_types::parse_address(&input.proxy_owner)?;
+     let agent = signer.address();
+@@ -144,7 +150,7 @@ pub async fn place(
+     {
+         return Err(eyre!("choose exactly one of --relay or --self-submit"));
+     }
+-    let order = build_order(&input, owner, config.id, &provider).await?;
++    let order = build_order(&input, owner, config.id).await?;
+     let proxy_address = proxy_for(&provider, config, owner).await?;
+     let proxy = UserProxyV6::new(proxy_address, provider.clone());
+     let policy = proxy.policyOf(agent).call().await?;
+@@ -177,7 +183,10 @@ pub async fn place(
+     let (relay, tx_hash) = if dry_run {
+         (None, None)
+     } else if input.relay {
+-        let result = relay_client.announce_intent(&announce_body(config, &order, &envelope)).await?;
++        let result = relay_client.announce_intent(&serde_json::json!({
++            "chainId": config.id,
++            "announce": {"order": order_types::dto_from_order(&order), "auth": hex_bytes(&envelope)},
++        })).await?;
+         (Some(result), None)
+     } else {
+         let wallet = evm::wallet_provider(&evm::rpc_url(config), signer)?;
+@@ -197,14 +206,6 @@ pub async fn place(
+     })
+ }
+ 
+-fn announce_body(config: ChainConfig, order: &Order, envelope: &Bytes) -> serde_json::Value {
+-    serde_json::json!({
+-        "chainId": config.id,
+-        "generation": config.generation,
+-        "announce": {"order": order_types::dto_from_order(order), "auth": hex_bytes(envelope)},
+-    })
+-}
+-
+ async fn proxy_for(provider: &alloy::providers::DynProvider, config: ChainConfig, owner: Address) -> Result<Address> {
+     let proxy = UserProxyFactoryV6::new(config.factory, provider.clone()).proxyOf(owner).call().await?;
+     if proxy == Address::ZERO { return Err(eyre!("proxy is not deployed for owner {owner:?}")); }
+@@ -215,13 +216,13 @@ async fn build_order(
+     input: &PlaceInput,
+     owner: Address,
+     chain_id: u64,
+-    provider: &alloy::providers::DynProvider,
+ ) -> Result<Order> {
+-    let (token_in, in_decimals) = resolve_order_token(&input.from, chain_id, provider).await?;
+-    let (token_out, out_decimals) = resolve_order_token(&input.to, chain_id, provider).await?;
+-    let amount = parse_amount(&input.amount, in_decimals)?;
+-    let start = parse_amount(&input.start_out, out_decimals)?;
+-    let end = parse_amount(&input.end_out, out_decimals)?;
++    let token_in = resolve_order_token(&input.from, chain_id)?;
++    let token_out = resolve_order_token(&input.to, chain_id)?;
++    let amount = parse_raw_amount("intent amount", &input.amount)?;
++    let start = parse_raw_amount("intent start-out", &input.start_out)?;
++    let end = parse_raw_amount("intent end-out", &input.end_out)?;
++    // Intent placement retains its existing nonzero policy for all three amounts.
+     if start == U256::ZERO || end == U256::ZERO || start < end || amount == U256::ZERO {
+         return Err(eyre!("intent amounts must be non-zero and start-out must be at least end-out"));
+     }
+@@ -234,25 +235,20 @@ async fn build_order(
+     Ok(Order { owner, recipient: owner, tokenIn: token_in, amountIn: amount, tokenOut: token_out, startAmountOut: start, endAmountOut: end, startTime: U256::from(start_time), decayEndTime: U256::from(decay_end), endTime: U256::from(end_time), appData: B256::ZERO, nonce: U256::from(random_nonce()?), })
+ }
+ 
+-async fn resolve_order_token(
+-    input: &str,
+-    chain_id: u64,
+-    provider: &alloy::providers::DynProvider,
+-) -> Result<(Address, u8)> {
+-    if let Some((address, _, decimals)) = resolve_token(input, chain_id) {
+-        return Ok((order_types::parse_address(address)?, decimals));
++fn resolve_order_token(input: &str, chain_id: u64) -> Result<Address> {
++    if let Some((address, _, _)) = resolve_token(input, chain_id) {
++        return order_types::parse_address(address);
+     }
+     if !input.starts_with("0x") && !input.starts_with("0X") {
+         return Err(eyre!("unknown token '{input}'"));
+     }
+     let address = order_types::parse_address(input)?;
+-    let decimals = Erc20Metadata::new(address, provider.clone()).decimals().call().await?;
+-    Ok((address, decimals))
++    Ok(address)
+ }
+ 
+ fn enforce_cap(order: &Order, cap: Option<&str>) -> Result<()> {
+     let Some(cap) = cap else { return Ok(()); };
+-    let cap = order_types::parse_u256(cap)?;
++    let cap = parse_raw_amount("intent max-amount", cap)?;
+     if order.amountIn > cap { return Err(eyre!("order amountIn {} exceeds max-amount cap {}", order.amountIn, cap)); }
+     Ok(())
+ }
+@@ -267,10 +263,14 @@ async fn fresh_agent_nonce(proxy: &UserProxyV6::UserProxyV6Instance<alloy::provi
+     Err(eyre!("could not find an unused agent nonce"))
+ }
+ 
+-fn parse_amount(value: &str, decimals: u8) -> Result<U256> {
+-    let raw = value.strip_prefix("raw:").map(str::to_string)
+-        .unwrap_or_else(|| scale_amount(value, decimals));
+-    order_types::parse_u256(&raw)
++fn validate_input_amounts(input: &PlaceInput) -> Result<()> {
++    parse_raw_amount("intent amount", &input.amount)?;
++    parse_raw_amount("intent start-out", &input.start_out)?;
++    parse_raw_amount("intent end-out", &input.end_out)?;
++    if let Some(max_amount) = &input.max_amount {
++        parse_raw_amount("intent max-amount", max_amount)?;
++    }
++    Ok(())
+ }
+ 
+ fn authorization_error(error: alloy::contract::Error) -> eyre::Report {
+diff --git a/src/service/intent/tests.rs b/src/service/intent/tests.rs
+index ec415d1..3e57b07 100644
+--- a/src/service/intent/tests.rs
++++ b/src/service/intent/tests.rs
+@@ -1,31 +1,45 @@
+-// Intent relay request tests.
+-// Exports: no production symbols.
+-// Deps: parent intent service and V6 order types.
++// Intent raw-unit tests for order construction and early input validation.
++// Exports: module-local tests.
++// Deps: super intent service and alloy primitives.
+ 
+ use super::*;
+ 
+-#[test]
+-fn relay_request_contains_chain_intent_generation() {
+-    let config = evm::chain_config("base").expect("base chain config");
+-    let order = Order {
+-        owner: Address::ZERO,
+-        recipient: Address::ZERO,
+-        tokenIn: Address::ZERO,
+-        amountIn: U256::from(1),
+-        tokenOut: Address::ZERO,
+-        startAmountOut: U256::from(2),
+-        endAmountOut: U256::from(1),
+-        startTime: U256::from(3),
+-        decayEndTime: U256::from(4),
+-        endTime: U256::from(5),
+-        appData: B256::ZERO,
+-        nonce: U256::from(6),
+-    };
+-    let body = announce_body(config, &order, &Bytes::new());
+-    let serialized = serde_json::to_string(&body).expect("serialize relay request");
++fn input(from: &str, amount: &str) -> PlaceInput {
++    PlaceInput {
++        chain: "base".to_string(),
++        proxy_owner: format!("{:?}", Address::ZERO),
++        from: from.to_string(),
++        to: "USDC".to_string(),
++        amount: amount.to_string(),
++        start_out: "2".to_string(),
++        end_out: "1".to_string(),
++        decay_secs: Some(1),
++        duration_secs: Some(1),
++        deadline_secs: None,
++        relay: false,
++        self_submit: false,
++        dry_run: true,
++        max_amount: None,
++    }
++}
+ 
+-    assert_eq!(body["chainId"], config.id);
+-    assert_eq!(body["generation"], config.generation);
+-    assert!(serialized.contains("\"generation\":\"v6\""));
+-    assert_eq!(body["announce"]["auth"], "0x");
++#[tokio::test]
++async fn intent_order_keeps_one_raw_unit_for_six_and_eighteen_decimal_tokens() {
++    for token in ["USDC", "WETH"] {
++        let order = build_order(&input(token, "1"), Address::ZERO, 8453)
++            .await
++            .expect("intent order");
++        assert_eq!(order.amountIn, U256::from(1));
++        assert_eq!(order.startAmountOut, U256::from(2));
++        assert_eq!(order.endAmountOut, U256::from(1));
++    }
++}
++
++#[test]
++fn intent_amount_validation_rejects_invalid_forms_before_rpc() {
++    for value in ["", "1.5", "1e6", "raw:1", "-1", "0x1"] {
++        let error = validate_input_amounts(&input("USDC", value))
++            .expect_err("invalid amount");
++        assert!(format!("{error}").contains("intent amount"));
++    }
+ }
+diff --git a/src/service/quote.rs b/src/service/quote.rs
+index 538ed58..d1fbb80 100644
+--- a/src/service/quote.rs
++++ b/src/service/quote.rs
+@@ -3,7 +3,8 @@
+ // Deps: crate::{client, tokens}, serde, eyre.
+ 
+ use crate::client::Client;
+-use crate::tokens::{chain_name_to_id, format_amount, resolve_token, scale_amount};
++use crate::order_types::parse_raw_amount;
++use crate::tokens::{chain_name_to_id, format_amount, resolve_token};
+ use eyre::{eyre, Result};
+ use serde::{Deserialize, Serialize};
+ 
+@@ -12,6 +13,7 @@ pub struct QuoteInput {
+     pub chain: String,
+     pub from: String,
+     pub to: String,
++    /// Unsigned decimal amount in the input token's smallest unit.
+     pub amount: String,
+     pub slippage: Option<u16>,
+     #[serde(default)]
+@@ -45,6 +47,8 @@ pub struct BatchQuoteResult {
+ }
+ 
+ pub fn build_quote_body(input: &QuoteInput) -> Result<(serde_json::Value, QuoteContext)> {
++    // Quote amounts retain their existing zero-accepted policy.
++    parse_raw_amount("quote amount", &input.amount)?;
+     let chain_id = chain_name_to_id(&input.chain).ok_or_else(|| {
+         eyre!(
+             "unknown chain: {}. Use: ethereum, base, arbitrum",
+@@ -55,13 +59,12 @@ pub fn build_quote_body(input: &QuoteInput) -> Result<(serde_json::Value, QuoteC
+         .ok_or_else(|| eyre!("unknown token '{}' on chain {}", input.from, input.chain))?;
+     let (to_addr, to_sym, to_dec) = resolve_token(&input.to, chain_id)
+         .ok_or_else(|| eyre!("unknown token '{}' on chain {}", input.to, input.chain))?;
+-    let (amount_in, amount_usd) = amount_fields(&input.amount, from_dec);
++    let amount_in = input.amount.clone();
+     let mut body = serde_json::json!({
+         "chain_id": chain_id,
+         "token_in": from_addr,
+         "token_out": to_addr,
+         "amount_in": amount_in,
+-        "amount_usd": amount_usd,
+     });
+     if let Some(slippage) = input.slippage {
+         body["slippage_bps"] = serde_json::json!(slippage);
+@@ -94,6 +97,7 @@ pub async fn batch_quote(
+     pairs: &[String],
+     amount: &str,
+ ) -> Result<Vec<BatchQuoteResult>> {
++    parse_raw_amount("batch quote amount", amount)?;
+     let chain_id = chain_name_to_id(chain).ok_or_else(|| eyre!("unknown chain: {chain}"))?;
+     let mut results = Vec::with_capacity(pairs.len());
+     for pair in pairs {
+@@ -152,9 +156,41 @@ fn batch_error(pair: &str, error: String) -> BatchQuoteResult {
+     }
+ }
+ 
+-fn amount_fields(amount: &str, decimals: u8) -> (String, f64) {
+-    if let Some(raw) = amount.strip_prefix("raw:") {
+-        return (raw.to_string(), 0.0);
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn quote_body_preserves_raw_digits_without_float_fields() {
++        let input = QuoteInput {
++            chain: "base".to_string(),
++            from: "USDC".to_string(),
++            to: "WETH".to_string(),
++            amount: "1000000".to_string(),
++            slippage: None,
++            verify: false,
++        };
++        let (body, context) = build_quote_body(&input).expect("quote body");
++        assert_eq!(body["amount_in"], "1000000");
++        assert!(body.get("amount_usd").is_none());
++        assert_eq!(context.amount_in, "1000000");
++    }
++
++    #[test]
++    fn one_raw_unit_is_not_scaled_for_six_or_eighteen_decimal_tokens() {
++        for (from, expected_decimals) in [("USDC", 6), ("WETH", 18)] {
++            let input = QuoteInput {
++                chain: "base".to_string(),
++                from: from.to_string(),
++                to: "USDC".to_string(),
++                amount: "1".to_string(),
++                slippage: None,
++                verify: false,
++            };
++            let (body, context) = build_quote_body(&input).expect("quote body");
++            assert_eq!(context.token_in_decimals, expected_decimals);
++            assert_eq!(body["amount_in"], "1");
++        }
+     }
+-    (scale_amount(amount, decimals), amount.parse().unwrap_or(0.0))
++
+ }
+diff --git a/src/service/trade.rs b/src/service/trade.rs
+index 4c52c80..151243b 100644
+--- a/src/service/trade.rs
++++ b/src/service/trade.rs
+@@ -21,10 +21,12 @@ pub struct TradeInput {
+     pub chain: String,
+     pub from: String,
+     pub to: String,
++    /// Unsigned decimal input amount in the token's smallest unit.
+     pub amount: String,
+     pub slippage: Option<u16>,
++    /// Optional unsigned decimal minimum output in raw token units.
+     pub min_out: Option<String>,
+-    /// Per-trade notional ceiling on amountIn (raw token units). None = no cap.
++    /// Optional unsigned decimal per-trade cap in raw input units.
+     #[serde(default)]
+     pub max_amount: Option<String>,
+     #[serde(default = "agent_order_mode")]
+@@ -35,6 +37,8 @@ pub struct TradeInput {
+     #[serde(default = "default_true")]
+     pub dry_run: bool,
+     #[serde(default)]
++    pub relay: bool,
++    #[serde(default)]
+     pub self_submit: bool,
+ }
+ 
+@@ -46,6 +50,7 @@ pub struct TradeOutcome {
+     pub order: AgentOrderDto,
+     pub digest: String,
+     pub signature: String,
++    pub relay: Option<serde_json::Value>,
+     pub self_submit: Option<SelfSubmitPreview>,
+ }
+ 
+@@ -62,15 +67,20 @@ pub struct SelfSubmitPreview {
+ 
+ pub async fn execute_trade(
+     client: &Client,
++    relay_client: &Client,
+     signer: Arc<dyn Signer>,
+     input: TradeInput,
+     allow_trade: bool,
+ ) -> Result<TradeOutcome> {
+     let mut input = input;
++    validate_input_amounts(&input)?;
+     if input.mode != "agent-order" {
+         return Err(eyre!("only agent-order mode is implemented in this release"));
+     }
+     input.dry_run |= !allow_trade;
++    if input.relay && input.self_submit && !input.dry_run {
++        return Err(eyre!("choose exactly one of --relay or --self-submit"));
++    }
+     let quote_out = quote::quote(client, quote_input(&input)).await?;
+     let config = evm::chain_config(&input.chain)?;
+     let provider = evm::read_provider(&evm::rpc_url(config))?;
+@@ -92,6 +102,16 @@ pub async fn execute_trade(
+     let sig_hex = format!("0x{}", hex::encode(sig.as_bytes()));
+     let mut self_submit = self_submit_preview(proxy_address, &order, &sig_hex, &quote_out)?;
+     let order_dto = order_types::dto_from_agent_order(&order);
++    let relay = if input.relay && !input.dry_run {
++        Some(relay_client.submit_intent(&serde_json::json!({
++            "swap": {
++                "order": order_dto,
++                "agentSig": sig_hex,
++            }
++        })).await?)
++    } else {
++        None
++    };
+     if input.self_submit && !input.dry_run {
+         let wallet = evm::wallet_provider(&evm::rpc_url(config), signer.clone())?;
+         let preview = self_submit.as_mut().ok_or_else(|| eyre!("missing self-submit calldata"))?;
+@@ -118,6 +138,7 @@ pub async fn execute_trade(
+         order: order_dto,
+         digest: format!("{digest:?}"),
+         signature: sig_hex,
++        relay,
+         self_submit,
+     })
+ }
+@@ -138,7 +159,7 @@ fn build_order(input: &TradeInput, agent: Address, generation: u64, quote: &Quot
+         .or_else(|| field(&quote.response, &["router"]))
+         .ok_or_else(|| eyre!("quote response missing execution target/router"))?;
+     let min_out = match &input.min_out {
+-        Some(value) => order_types::parse_u256(value)?,
++        Some(value) => order_types::parse_raw_amount("trade min-out", value)?,
+         None => {
+             // Fund-moving trades must not derive their protection floor from the
+             // untrusted quote server's output. Only dry-run previews may.
+@@ -155,7 +176,7 @@ fn build_order(input: &TradeInput, agent: Address, generation: u64, quote: &Quot
+         generation,
+         router: order_types::parse_address(router)?,
+         tokenIn: order_types::parse_address(&quote.request.token_in)?,
+-        amountIn: order_types::parse_u256(&quote.request.amount_in)?,
++        amountIn: order_types::parse_raw_amount("quoted trade amount", &quote.request.amount_in)?,
+         tokenOut: order_types::parse_address(&quote.request.token_out)?,
+         minOut: min_out,
+         nonce: next_nonce(input.nonce.as_deref())?,
+@@ -202,15 +223,15 @@ fn slippage_min_out(response: &serde_json::Value, bps: u16) -> Result<U256> {
+     Ok((quoted * U256::from(10_000u64 - u64::from(bps))) / U256::from(10_000u64))
+ }
+ 
+-/// Refuse to sign/self-submit an order whose amountIn exceeds the configured cap.
++/// Refuse to sign/relay an order whose amountIn exceeds the configured cap.
+ fn enforce_notional_cap(order: &UserProxyV6::AgentOrder, cap: Option<&str>) -> Result<()> {
+     let Some(cap) = cap else {
+         return Ok(());
+     };
+-    let cap = order_types::parse_u256(cap)?;
++    let cap = order_types::parse_raw_amount("trade max-amount", cap)?;
+     if order.amountIn > cap {
+         return Err(eyre!(
+-            "order amountIn {} exceeds trade max-amount cap {}; refusing to sign/self-submit",
++            "order amountIn {} exceeds trade max-amount cap {}; refusing to sign/relay",
+             order.amountIn,
+             cap
+         ));
+@@ -227,6 +248,18 @@ fn next_nonce(explicit: Option<&str>) -> Result<U256> {
+     Ok(U256::from(u64::from_be_bytes(bytes)))
+ }
+ 
++fn validate_input_amounts(input: &TradeInput) -> Result<()> {
++    // Trade input, min-out, and cap retain their existing zero-accepted policies.
++    order_types::parse_raw_amount("trade amount", &input.amount)?;
++    if let Some(min_out) = &input.min_out {
++        order_types::parse_raw_amount("trade min-out", min_out)?;
++    }
++    if let Some(max_amount) = &input.max_amount {
++        order_types::parse_raw_amount("trade max-amount", max_amount)?;
++    }
++    Ok(())
++}
++
+ fn deadline(secs: u64) -> Result<U256> {
+     let now = SystemTime::now()
+         .duration_since(UNIX_EPOCH)
+diff --git a/src/service/trade/tests.rs b/src/service/trade/tests.rs
+index b6777b6..f39dadd 100644
+--- a/src/service/trade/tests.rs
++++ b/src/service/trade/tests.rs
+@@ -30,7 +30,7 @@ fn trade_input(min_out: Option<String>, dry_run: bool) -> TradeInput {
+         amount: "1".to_string(), slippage: Some(50), min_out, max_amount: None,
+         mode: "agent-order".to_string(),
+         proxy: "0x2222222222222222222222222222222222222222".to_string(), nonce: Some("1".to_string()),
+-        deadline_secs: Some(120), dry_run, self_submit: false,
++        deadline_secs: Some(120), dry_run, relay: false, self_submit: false,
+     }
+ }
+ 
+@@ -62,3 +62,13 @@ fn enforces_notional_cap() {
+     assert!(enforce_notional_cap(&order, Some("1000000")).is_ok());
+     assert!(enforce_notional_cap(&order, None).is_ok());
+ }
++
++#[test]
++fn trade_amount_validation_rejects_before_quote_or_signing() {
++    for value in ["", "1.5", "1e6", "raw:1000000", "-1", "0x10"] {
++        let mut input = trade_input(Some("1".to_string()), true);
++        input.amount = value.to_string();
++        let error = validate_input_amounts(&input).expect_err("invalid amount");
++        assert!(format!("{error}").contains("trade amount"));
++    }
++}
+diff --git a/src/tokens.rs b/src/tokens.rs
+index ea7d325..139f7fe 100644
+--- a/src/tokens.rs
++++ b/src/tokens.rs
+@@ -1,5 +1,5 @@
+ // Token resolution and amount-format helpers for the AgentSwap CLI.
+-// Exports: resolve_token, address_to_symbol, format_amount, scale_amount, chain_name_to_id.
++// Exports: resolve_token, address_to_symbol, format_amount, chain_name_to_id.
+ // Deps: tokens::registry for static token metadata.
+ mod registry;
+ 
+@@ -129,26 +129,6 @@ fn add_commas(s: &str) -> String {
+     result
+ }
+ 
+-/// Scale a human-readable amount to raw units. "1000" with 6 decimals -> "1000000000".
+-pub fn scale_amount(human: &str, decimals: u8) -> String {
+-    if human.contains('.') {
+-        let parts: Vec<&str> = human.splitn(2, '.').collect();
+-        let integer = parts[0];
+-        let frac = parts.get(1).unwrap_or(&"");
+-        let d = decimals as usize;
+-        let padded = if frac.len() >= d {
+-            frac[..d].to_string()
+-        } else {
+-            format!("{frac}{}", "0".repeat(d - frac.len()))
+-        };
+-        let int_part = if integer.is_empty() { "0" } else { integer };
+-        let raw = format!("{int_part}{padded}");
+-        raw.trim_start_matches('0').to_string().max("0".to_string())
+-    } else {
+-        format!("{human}{}", "0".repeat(decimals as usize))
+-    }
+-}
+-
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -226,11 +206,4 @@ mod tests {
+         assert_eq!(format_amount("", 6), "");
+     }
+ 
+-    #[test]
+-    fn scale_amount_cases() {
+-        assert_eq!(scale_amount("1000", 6), "1000000000");
+-        assert_eq!(scale_amount("1.5", 6), "1500000");
+-        assert_eq!(scale_amount("0.123", 6), "123000");
+-        assert_eq!(scale_amount("0.123456789", 6), "123456");
+-    }
+ }
+diff --git a/src/x402/eip3009.rs b/src/x402/eip3009.rs
+index e8356e6..7d775db 100644
+--- a/src/x402/eip3009.rs
++++ b/src/x402/eip3009.rs
+@@ -2,7 +2,7 @@
+ // Exports: sign_payment.
+ // Deps: alloy sol-types, base64, crate::signer.
+ 
+-use crate::order_types::{parse_address, parse_u256};
++use crate::order_types::{parse_address, parse_raw_amount, parse_u256};
+ use crate::signer::Signer;
+ use crate::x402::types::{Accept, PaymentPayload, PaymentTransfer, TransferAuthorization};
+ use alloy::primitives::{Address, B256};
+@@ -94,7 +94,7 @@ fn typed_transfer(auth: &TransferAuthorization) -> Result<TransferWithAuthorizat
+     Ok(TransferWithAuthorization {
+         from: parse_address(&auth.from)?,
+         to: parse_address(&auth.to)?,
+-        value: parse_u256(&auth.value)?,
++        value: parse_raw_amount("x402 payment amount", &auth.value)?,
+         validAfter: parse_u256(&auth.valid_after)?,
+         validBefore: parse_u256(&auth.valid_before)?,
+         nonce: parse_nonce(&auth.nonce)?,
+diff --git a/src/x402/select.rs b/src/x402/select.rs
+index 68e3f65..5ca6a96 100644
+--- a/src/x402/select.rs
++++ b/src/x402/select.rs
+@@ -4,10 +4,12 @@
+ 
+ use crate::x402::types::Accept;
+ use crate::x402::Config;
++use crate::order_types::parse_raw_amount;
+ use eyre::{eyre, Result};
+ 
+ pub fn select_accept<'a>(accepts: &'a [Accept], config: &Config) -> Result<&'a Accept> {
+-    let cap = amount_u128(&config.max_amount)?;
++    // A zero cap remains valid and means no positive payment can be selected.
++    let cap = parse_raw_amount("x402 payment cap", &config.max_amount)?;
+     let expected_asset = expected_asset_address(&config.asset, config.chain_id)?;
+     for accept in accepts {
+         if accept.scheme != "exact" {
+@@ -23,7 +25,7 @@ pub fn select_accept<'a>(accepts: &'a [Accept], config: &Config) -> Result<&'a A
+             .max_amount_required
+             .as_deref()
+             .ok_or_else(|| eyre!("x402 accept missing maxAmountRequired"))?;
+-        if amount_u128(amount)? <= cap {
++        if parse_raw_amount("x402 required amount", amount)? <= cap {
+             return Ok(accept);
+         }
+     }
+@@ -70,12 +72,6 @@ fn expected_asset_address(configured: &str, chain_id: u64) -> Result<String> {
+         })
+ }
+ 
+-fn amount_u128(value: &str) -> Result<u128> {
+-    value
+-        .parse::<u128>()
+-        .map_err(|e| eyre!("invalid x402 amount '{value}': {e}"))
+-}
+-
+ #[cfg(test)]
+ mod tests {
+     use super::*;

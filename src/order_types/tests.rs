@@ -197,7 +197,7 @@ fn intent_filled_log_decodes_fee_between_required_and_received() {
 #[test]
 fn raw_amount_parser_accepts_digits_and_rejects_non_decimal_forms() {
     assert_eq!(parse_raw_amount("quote amount", "0001").expect("digits"), U256::from(1));
-    for value in ["", " ", "-1", "+1", "1.5", "1e6", "1_000", "0x10", "raw:10"] {
+    for value in ["", " ", "-1", "+1", "1.5", "1e6", "1_000", "1 000", "0x10", "raw:10", "١٢٣"] {
         let error = parse_raw_amount("quote amount", value).expect_err("invalid amount");
         let message = format!("{error}");
         assert!(message.contains("quote amount"), "{message}");

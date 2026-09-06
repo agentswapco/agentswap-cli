@@ -4,7 +4,7 @@
 
 use crate::client::Client;
 use crate::evm::{self, ChainConfig};
-use crate::order_types::{self, IntentAuthorization, IntentSettlerV3, Order, UserProxyFactoryV6, UserProxyV6, UserProxyV6Errors};
+use crate::order_types::{self, Erc20Metadata, IntentAuthorization, IntentSettlerV3, Order, UserProxyFactoryV6, UserProxyV6, UserProxyV6Errors};
 use crate::signer::Signer;
 use crate::order_types::parse_raw_amount;
 use crate::tokens::resolve_token;
@@ -150,6 +150,7 @@ pub async fn place(
     {
         return Err(eyre!("choose exactly one of --relay or --self-submit"));
     }
+    verify_raw_token_addresses(&provider, config.id, &input).await?;
     let order = build_order(&input, owner, config.id).await?;
     let proxy_address = proxy_for(&provider, config, owner).await?;
     let proxy = UserProxyV6::new(proxy_address, provider.clone());
@@ -183,10 +184,7 @@ pub async fn place(
     let (relay, tx_hash) = if dry_run {
         (None, None)
     } else if input.relay {
-        let result = relay_client.announce_intent(&serde_json::json!({
-            "chainId": config.id,
-            "announce": {"order": order_types::dto_from_order(&order), "auth": hex_bytes(&envelope)},
-        })).await?;
+        let result = relay_client.announce_intent(&announce_body(config, &order, &envelope)).await?;
         (Some(result), None)
     } else {
         let wallet = evm::wallet_provider(&evm::rpc_url(config), signer)?;
@@ -203,6 +201,14 @@ pub async fn place(
         authorization: order_types::dto_from_authorization(&auth),
         envelope: hex_bytes(&envelope), digest: format!("{digest:?}"),
         signature: format!("0x{}", hex::encode(sig.as_bytes())), relay, tx_hash,
+    })
+}
+
+fn announce_body(config: ChainConfig, order: &Order, envelope: &Bytes) -> serde_json::Value {
+    serde_json::json!({
+        "chainId": config.id,
+        "generation": config.generation,
+        "announce": {"order": order_types::dto_from_order(order), "auth": hex_bytes(envelope)},
     })
 }
 
@@ -233,6 +239,28 @@ async fn build_order(
     let decay_end = start_time.checked_add(decay).ok_or_else(|| eyre!("decay time overflow"))?;
     let end_time = start_time.checked_add(duration).ok_or_else(|| eyre!("end time overflow"))?;
     Ok(Order { owner, recipient: owner, tokenIn: token_in, amountIn: amount, tokenOut: token_out, startAmountOut: start, endAmountOut: end, startTime: U256::from(start_time), decayEndTime: U256::from(decay_end), endTime: U256::from(end_time), appData: B256::ZERO, nonce: U256::from(random_nonce()?), })
+}
+
+/// A token given as a raw address must answer `decimals()`, so a mistyped or non-ERC-20 address
+/// fails before the owner's agent signs an order that could never settle. Registry symbols are
+/// already known to be tokens. The value itself is unused: amounts are raw units.
+async fn verify_raw_token_addresses(
+    provider: &alloy::providers::DynProvider,
+    chain_id: u64,
+    input: &PlaceInput,
+) -> Result<()> {
+    for value in [&input.from, &input.to] {
+        if resolve_token(value, chain_id).is_some() {
+            continue;
+        }
+        let address = order_types::parse_address(value)?;
+        Erc20Metadata::new(address, provider.clone())
+            .decimals()
+            .call()
+            .await
+            .map_err(|error| eyre!("token {value} does not answer decimals(): {error}"))?;
+    }
+    Ok(())
 }
 
 fn resolve_order_token(input: &str, chain_id: u64) -> Result<Address> {

@@ -114,7 +114,7 @@ impl AgentSwapMcp {
         let Some(signer) = self.signer.clone() else {
             return Err("trade requires --key-file".to_string());
         };
-        trade::execute_trade(&self.client, &self.client, signer, input, self.allow_trade)
+        trade::execute_trade(&self.client, signer, input, self.allow_trade)
             .await
             .map(Json)
             .map_err(|e| format!("{e}"))

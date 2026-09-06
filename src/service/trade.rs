@@ -37,8 +37,6 @@ pub struct TradeInput {
     #[serde(default = "default_true")]
     pub dry_run: bool,
     #[serde(default)]
-    pub relay: bool,
-    #[serde(default)]
     pub self_submit: bool,
 }
 
@@ -50,7 +48,6 @@ pub struct TradeOutcome {
     pub order: AgentOrderDto,
     pub digest: String,
     pub signature: String,
-    pub relay: Option<serde_json::Value>,
     pub self_submit: Option<SelfSubmitPreview>,
 }
 
@@ -67,7 +64,6 @@ pub struct SelfSubmitPreview {
 
 pub async fn execute_trade(
     client: &Client,
-    relay_client: &Client,
     signer: Arc<dyn Signer>,
     input: TradeInput,
     allow_trade: bool,
@@ -78,9 +74,6 @@ pub async fn execute_trade(
         return Err(eyre!("only agent-order mode is implemented in this release"));
     }
     input.dry_run |= !allow_trade;
-    if input.relay && input.self_submit && !input.dry_run {
-        return Err(eyre!("choose exactly one of --relay or --self-submit"));
-    }
     let quote_out = quote::quote(client, quote_input(&input)).await?;
     let config = evm::chain_config(&input.chain)?;
     let provider = evm::read_provider(&evm::rpc_url(config))?;
@@ -102,16 +95,6 @@ pub async fn execute_trade(
     let sig_hex = format!("0x{}", hex::encode(sig.as_bytes()));
     let mut self_submit = self_submit_preview(proxy_address, &order, &sig_hex, &quote_out)?;
     let order_dto = order_types::dto_from_agent_order(&order);
-    let relay = if input.relay && !input.dry_run {
-        Some(relay_client.submit_intent(&serde_json::json!({
-            "swap": {
-                "order": order_dto,
-                "agentSig": sig_hex,
-            }
-        })).await?)
-    } else {
-        None
-    };
     if input.self_submit && !input.dry_run {
         let wallet = evm::wallet_provider(&evm::rpc_url(config), signer.clone())?;
         let preview = self_submit.as_mut().ok_or_else(|| eyre!("missing self-submit calldata"))?;
@@ -138,7 +121,6 @@ pub async fn execute_trade(
         order: order_dto,
         digest: format!("{digest:?}"),
         signature: sig_hex,
-        relay,
         self_submit,
     })
 }
@@ -223,7 +205,7 @@ fn slippage_min_out(response: &serde_json::Value, bps: u16) -> Result<U256> {
     Ok((quoted * U256::from(10_000u64 - u64::from(bps))) / U256::from(10_000u64))
 }
 
-/// Refuse to sign/relay an order whose amountIn exceeds the configured cap.
+/// Refuse to sign/self-submit an order whose amountIn exceeds the configured cap.
 fn enforce_notional_cap(order: &UserProxyV6::AgentOrder, cap: Option<&str>) -> Result<()> {
     let Some(cap) = cap else {
         return Ok(());
@@ -231,7 +213,7 @@ fn enforce_notional_cap(order: &UserProxyV6::AgentOrder, cap: Option<&str>) -> R
     let cap = order_types::parse_raw_amount("trade max-amount", cap)?;
     if order.amountIn > cap {
         return Err(eyre!(
-            "order amountIn {} exceeds trade max-amount cap {}; refusing to sign/relay",
+            "order amountIn {} exceeds trade max-amount cap {}; refusing to sign/self-submit",
             order.amountIn,
             cap
         ));

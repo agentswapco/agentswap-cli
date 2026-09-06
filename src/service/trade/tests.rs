@@ -30,7 +30,7 @@ fn trade_input(min_out: Option<String>, dry_run: bool) -> TradeInput {
         amount: "1".to_string(), slippage: Some(50), min_out, max_amount: None,
         mode: "agent-order".to_string(),
         proxy: "0x2222222222222222222222222222222222222222".to_string(), nonce: Some("1".to_string()),
-        deadline_secs: Some(120), dry_run, relay: false, self_submit: false,
+        deadline_secs: Some(120), dry_run, self_submit: false,
     }
 }
 
@@ -65,7 +65,7 @@ fn enforces_notional_cap() {
 
 #[test]
 fn trade_amount_validation_rejects_before_quote_or_signing() {
-    for value in ["", "1.5", "1e6", "raw:1000000", "-1", "0x10"] {
+    for value in ["", " ", "1.5", "1e6", "raw:1000000", "-1", "0x10", "1_000"] {
         let mut input = trade_input(Some("1".to_string()), true);
         input.amount = value.to_string();
         let error = validate_input_amounts(&input).expect_err("invalid amount");
