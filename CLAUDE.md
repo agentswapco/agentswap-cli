@@ -27,3 +27,26 @@
 - Use `cargo check` for edit loops and `cargo test` before reporting done; report test output
   verbatim, never a summary of it. The RPC-gated parity test is skipped without its env vars —
   say so rather than counting it as passed.
+
+<!-- aid:start -->
+## aid orchestration
+
+This project uses [aid](https://github.com/agent-tools-org/ai-dispatch) as the primary development method.
+Use `aid run` to dispatch coding tasks to AI agents instead of writing code directly.
+
+- **Project**: agentswap-cli
+- **Profile**: standard
+- **Language**: rust
+- **Budget**: $20/day
+- **Verify**: cargo test
+
+### Rules
+- All new functions must have at least one test
+
+### Usage
+- Dispatch work: `aid run <agent> "<prompt>" --dir .`
+- Review output: `aid show <id> --diff`
+- Batch dispatch: `aid batch <file> --parallel`
+- Project config: `.aid/project.toml`
+
+<!-- aid:end -->
