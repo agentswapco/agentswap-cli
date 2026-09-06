@@ -18,10 +18,14 @@
   `agentswapco <274458467+agentswapco@users.noreply.github.com>`, never by an individual. Do not
   add `authors` to `Cargo.toml`, and do not put a person's name, email or machine path in any file.
 - Agents never push; the maintainer pushes from the project account.
+- Commit messages carry no URL that identifies a person, an account or a chat session.
 
 ## Amounts
-- Every amount in signatures, calldata and machine output is a raw-unit integer string. Amount
-  parsing (`parse_amount`, `scale_amount`, the `raw:` prefix) is owned by issue #2 — do not touch it.
+- Every monetary input, on the CLI and over MCP, is an unsigned decimal integer in the asset's
+  smallest unit: `1000000` is 1 USDC, `1000000000000000000` is 1 ETH. No input is ever scaled by
+  token decimals, and there is no second input format.
+- Token decimals may be used only to render a supplementary display value beside the raw one.
+  A rendered value is never parsed back as an amount, and no amount passes through a float.
 
 ## Code style
 - File ≤ 300 lines, function ≤ 50 lines, every file opens with a 2–4 line header comment.
