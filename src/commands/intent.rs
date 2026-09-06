@@ -1,4 +1,4 @@
-// CLI wrappers and concise displays for V5 intent operations.
+// CLI wrappers and concise displays for V6 intent operations.
 // Exports: run_place, run_list, run_status, run_policy.
 // Deps: crate::{service::intent, signer}, comfy_table, serde_json.
 
@@ -71,9 +71,9 @@ fn print_place(result: &intent::PlaceOutcome) {
 fn print_records(records: &[intent::IntentRecord]) {
     let mut table = Table::new();
     table.load_preset(UTF8_FULL_CONDENSED);
-    table.set_header(vec!["ID", "Placed By", "Pair", "Amount", "Window", "Status"]);
+    table.set_header(vec!["ID", "Placed By", "Pair", "Amount", "Window", "Exclusive", "Floor", "Fee", "Required", "Outsider Floor", "Outsider Required", "Status"]);
     for record in records {
-        table.add_row(vec![record.id.as_str(), record.placed_by.as_str(), record.pair.as_str(), record.amount_in.as_str(), record.window.as_str(), &format!("{} ({})", record.status, record.reason)]);
+        table.add_row(vec![record.id.as_str(), record.placed_by.as_str(), record.pair.as_str(), record.amount_in.as_str(), record.window.as_str(), &record.exclusive_window.to_string(), record.floor_now.as_str(), record.fee_now.as_str(), record.required_now.as_str(), record.floor_for_outsider.as_str(), record.required_for_outsider.as_str(), &format!("{} ({})", record.status, record.reason)]);
     }
     println!("{table}");
 }

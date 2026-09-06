@@ -1,10 +1,10 @@
-// Trade orchestration from quote to signed AgentOrder.
+// V6 trade orchestration from quote to signed AgentOrder.
 // Exports: TradeInput, TradeOptions, TradeOutcome, execute_trade.
 // Deps: quote service, order_types, signer trait.
 
 use crate::client::Client;
 use crate::evm;
-use crate::order_types::{self, AgentOrderDto, UserProxyV5};
+use crate::order_types::{self, AgentOrderDto, UserProxyV6};
 use crate::service::quote::{self, QuoteInput, QuoteOutput};
 use crate::signer::Signer;
 use alloy::primitives::{Address, Bytes, U256};
@@ -82,7 +82,7 @@ pub async fn execute_trade(
     let config = evm::chain_config(&input.chain)?;
     let provider = evm::read_provider(&evm::rpc_url(config))?;
     let proxy_address = order_types::parse_address(&input.proxy)?;
-    let proxy = UserProxyV5::new(proxy_address, provider.clone());
+    let proxy = UserProxyV6::new(proxy_address, provider.clone());
     let policy = proxy.policyOf(signer.address()).call().await?;
     let generation = policy.generation;
     let order = build_order(&input, signer.address(), generation, &quote_out)?;
@@ -112,7 +112,7 @@ pub async fn execute_trade(
     if input.self_submit && !input.dry_run {
         let wallet = evm::wallet_provider(&evm::rpc_url(config), signer.clone())?;
         let preview = self_submit.as_mut().ok_or_else(|| eyre!("missing self-submit calldata"))?;
-        let call = UserProxyV5::executeAsAgentCall {
+        let call = UserProxyV6::executeAsAgentCall {
             o: order,
             agentSig: hex_bytes(&sig_hex)?,
             spender: order_types::parse_address(&preview.spender)?,
@@ -151,7 +151,7 @@ fn quote_input(input: &TradeInput) -> QuoteInput {
     }
 }
 
-fn build_order(input: &TradeInput, agent: Address, generation: u64, quote: &QuoteOutput) -> Result<UserProxyV5::AgentOrder> {
+fn build_order(input: &TradeInput, agent: Address, generation: u64, quote: &QuoteOutput) -> Result<UserProxyV6::AgentOrder> {
     let router = field(&quote.response, &["execution", "target"])
         .or_else(|| field(&quote.response, &["router"]))
         .ok_or_else(|| eyre!("quote response missing execution target/router"))?;
@@ -168,7 +168,7 @@ fn build_order(input: &TradeInput, agent: Address, generation: u64, quote: &Quot
             slippage_min_out(&quote.response, input.slippage.unwrap_or(50))?
         }
     };
-    Ok(UserProxyV5::AgentOrder {
+    Ok(UserProxyV6::AgentOrder {
         agent,
         generation,
         router: order_types::parse_address(router)?,
@@ -183,7 +183,7 @@ fn build_order(input: &TradeInput, agent: Address, generation: u64, quote: &Quot
 
 fn self_submit_preview(
     proxy: Address,
-    order: &UserProxyV5::AgentOrder,
+    order: &UserProxyV6::AgentOrder,
     sig_hex: &str,
     quote: &QuoteOutput,
 ) -> Result<Option<SelfSubmitPreview>> {
@@ -193,7 +193,7 @@ fn self_submit_preview(
     let spender_value = field(&quote.response, &["execution", "spender"])
         .map(String::from)
         .unwrap_or_else(|| format!("{:?}", order.router));
-    let call = UserProxyV5::executeAsAgentCall {
+    let call = UserProxyV6::executeAsAgentCall {
         o: order.clone(),
         agentSig: hex_bytes(sig_hex)?,
         spender: order_types::parse_address(&spender_value)?,
@@ -221,7 +221,7 @@ fn slippage_min_out(response: &serde_json::Value, bps: u16) -> Result<U256> {
 }
 
 /// Refuse to sign/relay an order whose amountIn exceeds the configured cap.
-fn enforce_notional_cap(order: &UserProxyV5::AgentOrder, cap: Option<&str>) -> Result<()> {
+fn enforce_notional_cap(order: &UserProxyV6::AgentOrder, cap: Option<&str>) -> Result<()> {
     let Some(cap) = cap else {
         return Ok(());
     };

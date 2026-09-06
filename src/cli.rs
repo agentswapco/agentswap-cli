@@ -151,12 +151,12 @@ pub enum Commands {
     },
     /// Run an MCP server over stdio
     Mcp,
-    /// Place, list, or inspect V5 open intents
+    /// Place, list, or inspect V6 open intents
     Intent {
         #[command(subcommand)]
         command: IntentCommands,
     },
-    /// Show the V5 policy and token budgets for an agent
+    /// Show the V6 policy and token budgets for an agent
     Policy {
         #[arg(short, long)]
         chain: String,
@@ -169,7 +169,7 @@ pub enum Commands {
         #[arg(long = "token")]
         tokens: Vec<String>,
     },
-    /// Quote, sign, and optionally relay an agent order; dry-run requires a reachable RPC and deployed V5 proxy to verify policy and order hashes before signing
+    /// Quote, sign, and optionally relay an agent order; dry-run requires a reachable RPC and deployed V6 proxy to verify policy and order hashes before signing
     Trade {
         #[arg(short, long)]
         chain: String,

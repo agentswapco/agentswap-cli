@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0 — unreleased
+
+The CLI now speaks the V6 protocol generation: `UserProxyV6`, `IntentSettlerV3`, and
+`IntentLensV3`, including the exclusive-window pricing and protocol fee in intent reads.
+
 ## 0.3.0 — 2026-09-05
 
 The CLI is now a client for the protocol on Base, Arbitrum, BNB Smart Chain and Robinhood Chain.

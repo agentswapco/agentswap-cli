@@ -96,7 +96,7 @@ impl AgentSwapMcp {
             .map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "Quote and sign an AgentOrder; dry-run defaults to true and requires a reachable RPC and deployed V5 proxy to verify policy and order hashes before signing")]
+    #[tool(description = "Quote and sign an AgentOrder; dry-run defaults to true and requires a reachable RPC and deployed V6 proxy to verify policy and order hashes before signing")]
     async fn trade(
         &self,
         Parameters(mut input): Parameters<trade::TradeInput>,
@@ -117,7 +117,7 @@ impl AgentSwapMcp {
             .map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "Sign and announce a V5 open intent; dry-run is forced without allow_trade")]
+    #[tool(description = "Sign and announce a V6 open intent; dry-run is forced without allow_trade")]
     async fn intent_place(
         &self,
         Parameters(mut input): Parameters<intent::PlaceInput>,
@@ -129,7 +129,7 @@ impl AgentSwapMcp {
             .await.map(Json).map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "List announced V5 intents by owner or agent")]
+    #[tool(description = "List announced V6 intents by owner or agent")]
     async fn intent_list(
         &self,
         Parameters(input): Parameters<intent::ListInput>,
@@ -140,7 +140,7 @@ impl AgentSwapMcp {
         intent::list(input).await.map(|intents| Json(IntentListOutput { intents })).map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "Inspect one V5 intent by bytes32 id")]
+    #[tool(description = "Inspect one V6 intent by bytes32 id")]
     async fn intent_status(
         &self,
         Parameters(input): Parameters<intent::StatusInput>,
@@ -148,7 +148,7 @@ impl AgentSwapMcp {
         intent::status(input).await.map(Json).map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "Read a V5 agent policy and per-token cap/usage")]
+    #[tool(description = "Read a V6 agent policy and per-token cap/usage")]
     async fn policy(
         &self,
         Parameters(input): Parameters<intent::PolicyInput>,

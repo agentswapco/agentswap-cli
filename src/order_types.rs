@@ -1,5 +1,5 @@
-// Canonical V5 protocol ABI types and EIP-712/hash helpers.
-// Exports: Order, IntentAuthorization, UserProxyV5, IntentSettlerV2, IntentLensV2.
+// Canonical V6 protocol ABI types and EIP-712/hash helpers.
+// Exports: Order, IntentAuthorization, UserProxyV6, IntentSettlerV3, IntentLensV3.
 // Deps: alloy sol-types, serde, crate::signer-independent primitives.
 
 use alloy::primitives::{keccak256, Address, B256, Bytes, U256};
@@ -9,7 +9,7 @@ use eyre::{eyre, Result};
 use serde::{Deserialize, Serialize};
 
 mod errors;
-pub use errors::UserProxyV5Errors;
+pub use errors::UserProxyV6Errors;
 
 sol! {
     #[derive(Debug)]
@@ -39,7 +39,7 @@ sol! {
 
     #[sol(rpc)]
     #[derive(Debug)]
-    contract UserProxyV5 {
+    contract UserProxyV6 {
         struct AgentOrder {
             address agent;
             uint64 generation;
@@ -82,13 +82,13 @@ sol! {
 
     #[sol(rpc)]
     #[derive(Debug)]
-    contract UserProxyFactoryV5 {
+    contract UserProxyFactoryV6 {
         function proxyOf(address user) external view returns (address);
     }
 
     #[sol(rpc)]
     #[derive(Debug)]
-    contract IntentSettlerV2 {
+    contract IntentSettlerV3 {
         function announce(Order o, bytes auth) external;
         function orderHash(Order o) external pure returns (bytes32);
         function cancelled(bytes32 id) external view returns (bool);
@@ -109,14 +109,16 @@ sol! {
             address caller,
             uint256 amountIn,
             uint256 requiredOut,
+            uint256 fee,
             uint256 receivedOut,
             uint256 aboveFloor
         );
+        event IntentCancelled(bytes32 indexed id, address indexed owner, address indexed caller);
     }
 
     #[sol(rpc)]
     #[derive(Debug)]
-    contract IntentLensV2 {
+    contract IntentLensV3 {
         struct IntentView {
             bytes32 id;
             bool cancelled;
@@ -125,8 +127,13 @@ sol! {
             bool killedByOwner;
             bool proxyDeployed;
             bool inWindow;
+            bool exclusiveWindow;
             bool decayComplete;
             uint256 floorNow;
+            uint256 feeNow;
+            uint256 requiredNow;
+            uint256 floorForOutsider;
+            uint256 requiredForOutsider;
             uint256 ownerBalance;
             uint256 ownerProxyAllowance;
             address proxy;
@@ -134,6 +141,7 @@ sol! {
             uint256 observedBlock;
         }
 
+        function PREVIEW_LAYOUT() external view returns (uint256);
         function preview(Order o) external view returns (IntentView);
         function previewMany(Order[] o) external view returns (IntentView[]);
     }
@@ -208,7 +216,7 @@ pub fn authorization_envelope(auth: &IntentAuthorization, sig: &Bytes) -> Bytes 
     }.abi_encode()[4..].to_vec().into()
 }
 
-pub fn dto_from_agent_order(order: &UserProxyV5::AgentOrder) -> AgentOrderDto {
+pub fn dto_from_agent_order(order: &UserProxyV6::AgentOrder) -> AgentOrderDto {
     AgentOrderDto {
         agent: format!("{:?}", order.agent),
         generation: order.generation.to_string(),
@@ -263,41 +271,7 @@ pub fn parse_u256(value: &str) -> Result<U256> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn v5_agent_order_has_generation_in_digest() {
-        let order = UserProxyV5::AgentOrder {
-            agent: parse_address("0x1000000000000000000000000000000000000001").expect("agent"),
-            generation: 4,
-            router: parse_address("0x2000000000000000000000000000000000000002").expect("router"),
-            tokenIn: parse_address("0x3000000000000000000000000000000000000003").expect("token in"),
-            amountIn: U256::from(100_000_000u64),
-            tokenOut: parse_address("0x4000000000000000000000000000000000000004").expect("token out"),
-            minOut: U256::from(50_000_000_000_000_000u64),
-            nonce: U256::from(7u64),
-            deadline: U256::from(4_000_000_000u64),
-        };
-        let proxy = parse_address("0x5000000000000000000000000000000000000005").expect("proxy");
-        let digest = signing_hash(&order, &proxy_domain(8453, proxy));
-        assert_ne!(digest, B256::ZERO);
-    }
-
-    #[test]
-    fn authorization_envelope_uses_agent_discriminator() {
-        let auth = IntentAuthorization {
-            orderHash: B256::ZERO,
-            agent: Address::ZERO,
-            generation: 1,
-            nonce: U256::from(2),
-            deadline: 3,
-        };
-        let encoded = authorization_envelope(&auth, &Bytes::from(vec![1, 2, 3]));
-        assert_eq!(&encoded[..31], &[0u8; 31]);
-        assert_eq!(encoded[31], 1);
-    }
-}
+mod tests;
 
 #[cfg(test)]
 mod parity;

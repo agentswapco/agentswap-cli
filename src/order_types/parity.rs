@@ -1,8 +1,8 @@
-// RPC-gated parity tests for deployed the earlier contract set hashing contracts.
+// RPC-gated parity tests for deployed V6 hashing contracts.
 // Exports: deployed_digest_parity.
 // Deps: crate::{evm, order_types}, alloy provider and protocol bindings.
 
-use super::{order_id, proxy_domain, signing_hash, IntentAuthorization, IntentSettlerV2, Order, UserProxyFactoryV5, UserProxyV5};
+use super::{order_id, proxy_domain, signing_hash, IntentAuthorization, IntentSettlerV3, Order, UserProxyFactoryV6, UserProxyV6};
 use crate::evm;
 use alloy::primitives::{address, Address, B256, U256};
 
@@ -28,7 +28,7 @@ async fn deployed_digest_parity() {
         .and_then(|value| value.parse().ok())
         .unwrap_or(evm::chain_config("base").expect("base config").settler);
     let provider = evm::read_provider(&rpc).expect("parity RPC");
-    let factory_proxy = UserProxyFactoryV5::new(
+    let factory_proxy = UserProxyFactoryV6::new(
         evm::chain_config("base").expect("base config").factory,
         provider.clone(),
     )
@@ -53,7 +53,7 @@ async fn deployed_digest_parity() {
         nonce: U256::from(17u64),
     };
     let local_id = order_id(&order);
-    let settler_id = IntentSettlerV2::new(settler, provider.clone())
+    let settler_id = IntentSettlerV3::new(settler, provider.clone())
         .orderHash(order.clone())
         .call()
         .await
@@ -67,7 +67,7 @@ async fn deployed_digest_parity() {
         nonce: U256::from(19u64),
         deadline: 1_800_000_900u64,
     };
-    let proxy_contract = UserProxyV5::new(proxy, provider.clone());
+    let proxy_contract = UserProxyV6::new(proxy, provider.clone());
     let local_auth_digest = signing_hash(&auth, &proxy_domain(chain_id, proxy));
     let chain_auth_digest = proxy_contract
         .hashIntentAuthorization(auth)
@@ -76,7 +76,7 @@ async fn deployed_digest_parity() {
         .expect("proxy hashIntentAuthorization");
     assert_eq!(local_auth_digest, chain_auth_digest);
 
-    let agent_order = UserProxyV5::AgentOrder {
+    let agent_order = UserProxyV6::AgentOrder {
         agent: address!("0x1000000000000000000000000000000000000001"),
         generation: 3,
         router: address!("0x2000000000000000000000000000000000000002"),

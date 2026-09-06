@@ -1,4 +1,4 @@
-// Unit tests for V5 market-order validation and protection-floor rules.
+// Unit tests for V6 market-order validation and protection-floor rules.
 // Exports: no production symbols.
 // Deps: parent trade module and quote models.
 
