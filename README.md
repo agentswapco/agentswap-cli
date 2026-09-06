@@ -20,9 +20,9 @@ agentswap --help
 agentswap health
 agentswap chains
 agentswap tokens --chain base
-agentswap quote --chain base --from USDC --to WETH --amount 1000
-agentswap batch-quote --chain arbitrum --amount 1000 USDC/WETH WETH/ARB
-agentswap trade --chain base --from USDC --to WETH --amount 100 --dry-run
+agentswap quote --chain base --from USDC --to WETH --amount 1000000
+agentswap batch-quote --chain arbitrum --amount 1000000 USDC/WETH WETH/ARB
+agentswap trade --chain base --from USDC --to WETH --amount 1000000 --dry-run
 ```
 
 ## Intents and policy
@@ -30,18 +30,21 @@ agentswap trade --chain base --from USDC --to WETH --amount 100 --dry-run
 V6 open intents are signed against the owner proxy and can be inspected before they are
 announced. Use `intent place` with `--dry-run`, `--relay`, or `--self-submit`, then use
 `intent list --owner <address>` and `intent status --id <bytes32>` to inspect them. Raw token
-addresses are accepted on supported chains; their decimals are read from the token contract.
+Raw token addresses are accepted on supported chains; amounts are still supplied in their
+smallest units.
 
 ```bash
 agentswap intent place --chain base --proxy-owner 0xOwner --from USDC --to WETH \
-  --amount 100 --start-out 99 --end-out 90 --dry-run
+  --amount 1000000 --start-out 1000000000000000000 --end-out 900000000000000000 --dry-run
 agentswap intent list --chain base --owner 0xOwner
 agentswap intent status --chain base --id 0xIntentId
 agentswap policy --chain base --owner 0xOwner --agent 0xAgent
 ```
 
 `trade` and intent announce/relay/self-submit operations are forced to dry-run unless
-`--allow-trade` is set. `--max-amount` bounds the raw input amount before signing or sending.
+`--allow-trade` is set. Every monetary input, including `--max-amount`, is an unsigned decimal
+integer in the asset's smallest unit; `--max-amount` bounds the raw input amount before signing
+or sending. Human-readable values may appear as supplementary display values only.
 Trade dry-runs require a reachable RPC and deployed V6 proxy to verify policy and order hashes before signing. Dry-runs may sign locally but never broadcast or relay. `agentswap mcp` exposes quote, trade,
 intent place/list/status, and policy tools with the same safety model; intent listing requires
 an owner or agent filter.

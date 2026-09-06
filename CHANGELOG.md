@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0 — unreleased
+
+### Breaking
+
+- All CLI, MCP, and environment monetary inputs are now unsigned decimal integers in the asset's
+  smallest unit. Human-unit parsing, token-decimal scaling, and the `raw:` prefix were removed;
+  invalid values are rejected before quotes, RPC calls, signatures, relays, or broadcasts.
+- Quote requests no longer include the removed floating-point `amount_usd` field.
+
 ## 0.4.0 — 2026-09-06
 
 The CLI is now a client for the V6 protocol generation, live since 2026-09-06 at one address set

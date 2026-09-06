@@ -262,12 +262,17 @@ pub fn parse_address(value: &str) -> Result<Address> {
 }
 
 pub fn parse_u256(value: &str) -> Result<U256> {
-    // `from_str_radix("")` is 0, which would turn an empty cap into a silent zero cap after a
-    // quote or RPC round trip. Empty is malformed, not zero.
-    if value.trim().is_empty() {
-        return Err(eyre!("invalid uint '{value}': empty"));
+    parse_raw_amount("uint", value)
+}
+
+pub fn parse_raw_amount(field: &str, value: &str) -> Result<U256> {
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(eyre!(
+            "invalid {field} '{value}': expected unsigned decimal digits"
+        ));
     }
-    U256::from_str_radix(value, 10).map_err(|e| eyre!("invalid uint '{value}': {e}"))
+    U256::from_str_radix(value, 10)
+        .map_err(|_| eyre!("invalid {field} '{value}': integer overflow"))
 }
 
 #[cfg(test)]

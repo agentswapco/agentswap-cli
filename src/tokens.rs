@@ -1,5 +1,5 @@
 // Token resolution and amount-format helpers for the AgentSwap CLI.
-// Exports: resolve_token, address_to_symbol, format_amount, scale_amount, chain_name_to_id.
+// Exports: resolve_token, address_to_symbol, format_amount, chain_name_to_id.
 // Deps: tokens::registry for static token metadata.
 mod registry;
 
@@ -129,26 +129,6 @@ fn add_commas(s: &str) -> String {
     result
 }
 
-/// Scale a human-readable amount to raw units. "1000" with 6 decimals -> "1000000000".
-pub fn scale_amount(human: &str, decimals: u8) -> String {
-    if human.contains('.') {
-        let parts: Vec<&str> = human.splitn(2, '.').collect();
-        let integer = parts[0];
-        let frac = parts.get(1).unwrap_or(&"");
-        let d = decimals as usize;
-        let padded = if frac.len() >= d {
-            frac[..d].to_string()
-        } else {
-            format!("{frac}{}", "0".repeat(d - frac.len()))
-        };
-        let int_part = if integer.is_empty() { "0" } else { integer };
-        let raw = format!("{int_part}{padded}");
-        raw.trim_start_matches('0').to_string().max("0".to_string())
-    } else {
-        format!("{human}{}", "0".repeat(decimals as usize))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -226,11 +206,4 @@ mod tests {
         assert_eq!(format_amount("", 6), "");
     }
 
-    #[test]
-    fn scale_amount_cases() {
-        assert_eq!(scale_amount("1000", 6), "1000000000");
-        assert_eq!(scale_amount("1.5", 6), "1500000");
-        assert_eq!(scale_amount("0.123", 6), "123000");
-        assert_eq!(scale_amount("0.123456789", 6), "123456");
-    }
 }

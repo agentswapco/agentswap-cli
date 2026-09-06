@@ -3,7 +3,8 @@
 // Deps: crate::{client, tokens}, serde, eyre.
 
 use crate::client::Client;
-use crate::tokens::{chain_name_to_id, format_amount, resolve_token, scale_amount};
+use crate::order_types::parse_raw_amount;
+use crate::tokens::{chain_name_to_id, format_amount, resolve_token};
 use eyre::{eyre, Result};
 use serde::{Deserialize, Serialize};
 
@@ -12,6 +13,7 @@ pub struct QuoteInput {
     pub chain: String,
     pub from: String,
     pub to: String,
+    /// Unsigned decimal amount in the input token's smallest unit.
     pub amount: String,
     pub slippage: Option<u16>,
     #[serde(default)]
@@ -45,6 +47,8 @@ pub struct BatchQuoteResult {
 }
 
 pub fn build_quote_body(input: &QuoteInput) -> Result<(serde_json::Value, QuoteContext)> {
+    // Quote amounts retain their existing zero-accepted policy.
+    parse_raw_amount("quote amount", &input.amount)?;
     let chain_id = chain_name_to_id(&input.chain).ok_or_else(|| {
         eyre!(
             "unknown chain: {}. Use: ethereum, base, arbitrum",
@@ -55,13 +59,12 @@ pub fn build_quote_body(input: &QuoteInput) -> Result<(serde_json::Value, QuoteC
         .ok_or_else(|| eyre!("unknown token '{}' on chain {}", input.from, input.chain))?;
     let (to_addr, to_sym, to_dec) = resolve_token(&input.to, chain_id)
         .ok_or_else(|| eyre!("unknown token '{}' on chain {}", input.to, input.chain))?;
-    let (amount_in, amount_usd) = amount_fields(&input.amount, from_dec);
+    let amount_in = input.amount.clone();
     let mut body = serde_json::json!({
         "chain_id": chain_id,
         "token_in": from_addr,
         "token_out": to_addr,
         "amount_in": amount_in,
-        "amount_usd": amount_usd,
     });
     if let Some(slippage) = input.slippage {
         body["slippage_bps"] = serde_json::json!(slippage);
@@ -94,6 +97,7 @@ pub async fn batch_quote(
     pairs: &[String],
     amount: &str,
 ) -> Result<Vec<BatchQuoteResult>> {
+    parse_raw_amount("batch quote amount", amount)?;
     let chain_id = chain_name_to_id(chain).ok_or_else(|| eyre!("unknown chain: {chain}"))?;
     let mut results = Vec::with_capacity(pairs.len());
     for pair in pairs {
@@ -152,9 +156,41 @@ fn batch_error(pair: &str, error: String) -> BatchQuoteResult {
     }
 }
 
-fn amount_fields(amount: &str, decimals: u8) -> (String, f64) {
-    if let Some(raw) = amount.strip_prefix("raw:") {
-        return (raw.to_string(), 0.0);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quote_body_preserves_raw_digits_without_float_fields() {
+        let input = QuoteInput {
+            chain: "base".to_string(),
+            from: "USDC".to_string(),
+            to: "WETH".to_string(),
+            amount: "1000000".to_string(),
+            slippage: None,
+            verify: false,
+        };
+        let (body, context) = build_quote_body(&input).expect("quote body");
+        assert_eq!(body["amount_in"], "1000000");
+        assert!(body.get("amount_usd").is_none());
+        assert_eq!(context.amount_in, "1000000");
     }
-    (scale_amount(amount, decimals), amount.parse().unwrap_or(0.0))
+
+    #[test]
+    fn one_raw_unit_is_not_scaled_for_six_or_eighteen_decimal_tokens() {
+        for (from, expected_decimals) in [("USDC", 6), ("WETH", 18)] {
+            let input = QuoteInput {
+                chain: "base".to_string(),
+                from: from.to_string(),
+                to: "USDC".to_string(),
+                amount: "1".to_string(),
+                slippage: None,
+                verify: false,
+            };
+            let (body, context) = build_quote_body(&input).expect("quote body");
+            assert_eq!(context.token_in_decimals, expected_decimals);
+            assert_eq!(body["amount_in"], "1");
+        }
+    }
+
 }

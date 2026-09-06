@@ -4,10 +4,12 @@
 
 use crate::x402::types::Accept;
 use crate::x402::Config;
+use crate::order_types::parse_raw_amount;
 use eyre::{eyre, Result};
 
 pub fn select_accept<'a>(accepts: &'a [Accept], config: &Config) -> Result<&'a Accept> {
-    let cap = amount_u128(&config.max_amount)?;
+    // A zero cap remains valid and means no positive payment can be selected.
+    let cap = parse_raw_amount("x402 payment cap", &config.max_amount)?;
     let expected_asset = expected_asset_address(&config.asset, config.chain_id)?;
     for accept in accepts {
         if accept.scheme != "exact" {
@@ -23,7 +25,7 @@ pub fn select_accept<'a>(accepts: &'a [Accept], config: &Config) -> Result<&'a A
             .max_amount_required
             .as_deref()
             .ok_or_else(|| eyre!("x402 accept missing maxAmountRequired"))?;
-        if amount_u128(amount)? <= cap {
+        if parse_raw_amount("x402 required amount", amount)? <= cap {
             return Ok(accept);
         }
     }
@@ -68,12 +70,6 @@ fn expected_asset_address(configured: &str, chain_id: u64) -> Result<String> {
         .ok_or_else(|| {
             eyre!("unknown x402 asset '{configured}' for chain {chain_id}; cannot resolve to an address")
         })
-}
-
-fn amount_u128(value: &str) -> Result<u128> {
-    value
-        .parse::<u128>()
-        .map_err(|e| eyre!("invalid x402 amount '{value}': {e}"))
 }
 
 #[cfg(test)]

@@ -57,7 +57,8 @@ pub async fn run(client: &Client, args: Args) -> Result<()> {
     table.add_row(vec![
         "Input",
         &format!(
-            "{} {}",
+            "{} ({} {})",
+            out.request.amount_in,
             format_amount(&out.request.amount_in, out.request.token_in_decimals),
             out.request.token_in_symbol
         ),
