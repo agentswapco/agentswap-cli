@@ -1,4 +1,4 @@
-// RPC/provider helpers for V5 reads and signed transaction submission.
+// RPC/provider helpers for V6 reads and signed transaction submission.
 // Exports: chain_config, rpc_url, read_provider, wallet_provider.
 // Deps: alloy providers/network, crate::signer and crate::tokens.
 
@@ -19,9 +19,12 @@ pub struct ChainConfig {
     pub lens: Address,
 }
 
-const FACTORY: Address = alloy::primitives::address!("0x1b1086b82b7a3935cc4158ab289a7331a2dc63c6");
-const SETTLER: Address = alloy::primitives::address!("0xc0b66ee5345170dfd4855cfda917bf316d8058e2");
-const LENS: Address = alloy::primitives::address!("0x805fe607e265477227ab5492963f6f0bef1f3860");
+// V6 (2026-09-06): one address set on Base 8453, Arbitrum 42161, BSC 56 and Robinhood 4663.
+// Source of record: agentswap-protocol docs/v6-deployed-2026-09-06.md; the lens is the
+// PREVIEW_LAYOUT()==3 redeploy, not the first V6 lens 0x7E62d98d…1b87.
+const FACTORY: Address = alloy::primitives::address!("0xc1660e4BbC825f8367dA92b60dccc17E4E10bc26");
+const SETTLER: Address = alloy::primitives::address!("0x2dd81c4fD1FC38b009Ab10D5C9b1f01Ca51cE462");
+const LENS: Address = alloy::primitives::address!("0x3AFfAafAF3Ec0A8A535723CBf0891482680F30C3");
 const EVENT_LOOKBACK_BLOCKS: u64 = 200_000;
 const BSC_DEFAULT_EVENT_LOOKBACK_BLOCKS: u64 = 9_000;
 pub const EVENT_CHUNK_SIZE: u64 = 5_000;
@@ -34,7 +37,7 @@ pub fn chain_config(chain: &str) -> Result<ChainConfig> {
         42161 => "https://arb1.arbitrum.io/rpc",
         56 => "https://bsc-rpc.publicnode.com",
         4663 => "https://rpc.mainnet.chain.robinhood.com",
-        _ => return Err(eyre!("the earlier contract set intent protocol is unavailable on chain {id}")),
+        _ => return Err(eyre!("V6 intent protocol is unavailable on chain {id}")),
     };
     Ok(ChainConfig { id, rpc, factory: FACTORY, settler: SETTLER, lens: LENS })
 }
