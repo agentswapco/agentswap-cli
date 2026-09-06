@@ -111,7 +111,7 @@ impl AgentSwapMcp {
         let Some(signer) = self.signer.clone() else {
             return Err("trade requires --key-file".to_string());
         };
-        trade::execute_trade(&self.client, &self.client, signer, input, self.allow_trade)
+        trade::execute_trade(&self.client, signer, input, self.allow_trade)
             .await
             .map(Json)
             .map_err(|e| format!("{e}"))
@@ -281,7 +281,7 @@ mod tests {
                 max_amount: None, mode: "agent-order".to_string(),
                 proxy: "0x2222222222222222222222222222222222222222".to_string(),
                 nonce: Some("1".to_string()), deadline_secs: Some(120), dry_run: true,
-                relay: false, self_submit: false,
+                self_submit: false,
             })).await;
             let error = match result {
                 Ok(_) => panic!("malformed operator cap {cap:?} must fail"),

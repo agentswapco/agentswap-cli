@@ -57,15 +57,11 @@ pub struct Cli {
     #[arg(long, global = true, env = "AGENTSWAP_X402_ASSET", default_value = "USDC")]
     pub x402_asset: String,
 
-    /// Gateway URL for relayed trade submission
-    #[arg(long, global = true, env = "AGENTSWAP_GATEWAY_URL")]
-    pub gateway_url: Option<String>,
-
     /// Allow trade execution; otherwise trade is forced to dry-run
     #[arg(long, global = true)]
     pub allow_trade: bool,
 
-    /// Per-trade notional cap on amountIn (raw token units); refuses to sign/relay above it. Also bounds MCP trades.
+    /// Per-trade notional cap on amountIn (raw token units); refuses to sign/self-submit above it. Also bounds MCP trades.
     #[arg(long = "max-amount", global = true, env = "AGENTSWAP_TRADE_MAX_AMOUNT")]
     pub trade_max_amount: Option<String>,
 
@@ -169,7 +165,7 @@ pub enum Commands {
         #[arg(long = "token")]
         tokens: Vec<String>,
     },
-    /// Quote, sign, and optionally relay an agent order; dry-run requires a reachable RPC and deployed V6 proxy to verify policy and order hashes before signing
+    /// Quote and sign an agent order, optionally self-submitting it; dry-run requires a reachable RPC and deployed V6 proxy to verify policy and order hashes before signing
     Trade {
         #[arg(short, long)]
         chain: String,
@@ -193,8 +189,6 @@ pub enum Commands {
         deadline_secs: u64,
         #[arg(long)]
         dry_run: bool,
-        #[arg(long)]
-        relay: bool,
         #[arg(long)]
         self_submit: bool,
         #[arg(long)]

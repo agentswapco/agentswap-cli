@@ -1,4 +1,4 @@
-// Trade command for quote-to-AgentOrder signing and optional relay.
+// Trade command for quote-to-AgentOrder signing and optional self-submit.
 // Exports: Args, run.
 // Deps: crate::{client, service::trade, signer}.
 
@@ -22,21 +22,19 @@ pub struct Args {
     pub nonce: Option<String>,
     pub deadline_secs: Option<u64>,
     pub dry_run: bool,
-    pub relay: bool,
     pub self_submit: bool,
     pub json: bool,
 }
 
 pub async fn run(
     client: &Client,
-    relay_client: &Client,
     signer: Arc<dyn Signer>,
     args: Args,
     allow_trade: bool,
 ) -> Result<()> {
     let json = args.json;
-    let outcome = trade::execute_trade(client, relay_client, signer, input(args), allow_trade).await?;
-    if outcome.dry_run || outcome.relay.is_some() || outcome.self_submit.is_some() {
+    let outcome = trade::execute_trade(client, signer, input(args), allow_trade).await?;
+    if outcome.dry_run || outcome.self_submit.is_some() {
         print_outcome(outcome, json)?;
     }
     Ok(())
@@ -56,7 +54,6 @@ fn input(args: Args) -> TradeInput {
         nonce: args.nonce,
         deadline_secs: args.deadline_secs,
         dry_run: args.dry_run,
-        relay: args.relay,
         self_submit: args.self_submit,
     }
 }
@@ -78,9 +75,6 @@ fn print_outcome(outcome: trade::TradeOutcome, json: bool) -> Result<()> {
     table.add_row(vec!["Amount In", outcome.order.amount_in.as_str()]);
     table.add_row(vec!["Token Out", outcome.order.token_out.as_str()]);
     table.add_row(vec!["Min Out", outcome.order.min_out.as_str()]);
-    if let Some(relay) = &outcome.relay {
-        table.add_row(vec!["Relay", &serde_json::to_string(relay)?]);
-    }
     if let Some(preview) = &outcome.self_submit {
         table.add_row(vec!["Self Submit To", preview.to.as_str()]);
         table.add_row(vec!["Self Submit Calldata", preview.calldata.as_str()]);

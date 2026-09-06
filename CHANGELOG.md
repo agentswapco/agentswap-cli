@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.1 — 2026-09-07
+
+### Fixed
+
+- Intent relay requests include the V6 generation selected with the chain configuration.
+- Removed the unavailable trade relay endpoint; trade still supports local signing and
+  self-submission.
+
 ## 0.4.0 — 2026-09-06
 
 The CLI is now a client for the V6 protocol generation, live since 2026-09-06 at one address set
