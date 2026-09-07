@@ -32,7 +32,7 @@ pub async fn place(
     allow_trade: bool,
 ) -> Result<PlaceOutcome> {
     validate_input_amounts(&input)?;
-    let config = evm::chain_config(&input.chain)?;
+    let config = evm::chain_config(&input.chain_id)?;
     let owner = order_types::parse_address(&input.proxy_owner)?;
     let agent = signer.address();
     let provider = evm::read_provider(&evm::rpc_url(config))?;

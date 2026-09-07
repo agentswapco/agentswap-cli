@@ -3,16 +3,16 @@
 // Deps: tokens::registry for static token metadata.
 mod registry;
 
-/// Resolve chain name (case-insensitive) to chain_id.
-pub fn chain_name_to_id(name: &str) -> Option<u64> {
-    match name.to_lowercase().as_str() {
+/// Resolve a chain ID or known alias (case-insensitive) to a chain ID.
+pub fn chain_name_to_id(chain_id_or_alias: &str) -> Option<u64> {
+    match chain_id_or_alias.to_lowercase().as_str() {
         "base" => Some(8453),
         "arbitrum" | "arb" => Some(42161),
         "bsc" | "bnb" | "binance" => Some(56),
         "robinhood" | "robinhood-chain" | "rh" => Some(4663),
         "ethereum" | "eth" | "mainnet" => Some(1),
         "optimism" | "op" => Some(10),
-        _ => name.parse::<u64>().ok(),
+        _ => chain_id_or_alias.parse::<u64>().ok(),
     }
 }
 

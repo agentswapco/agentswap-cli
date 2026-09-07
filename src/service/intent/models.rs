@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PlaceInput {
-    pub chain: String,
+    /// Chain ID such as 8453; known aliases such as base are also accepted.
+    pub chain_id: String,
     pub proxy_owner: String,
     pub from: String,
     pub to: String,
@@ -51,7 +52,8 @@ pub struct PlaceOutcome {
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ListInput {
-    pub chain: String,
+    /// Chain ID such as 8453; known aliases such as base are also accepted.
+    pub chain_id: String,
     pub owner: Option<String>,
     pub agent: Option<String>,
     #[serde(default)]
@@ -60,7 +62,8 @@ pub struct ListInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct StatusInput {
-    pub chain: String,
+    /// Chain ID such as 8453; known aliases such as base are also accepted.
+    pub chain_id: String,
     pub id: String,
     #[serde(default)]
     pub lookback_blocks: Option<u64>,
@@ -68,7 +71,8 @@ pub struct StatusInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PolicyInput {
-    pub chain: String,
+    /// Chain ID such as 8453; known aliases such as base are also accepted.
+    pub chain_id: String,
     pub owner: String,
     pub agent: String,
     #[serde(default)]

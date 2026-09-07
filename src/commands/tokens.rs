@@ -8,15 +8,20 @@ use crate::client::Client;
 use crate::service::market;
 use crate::tokens::{chain_id_to_short, chain_name_to_id};
 
-pub async fn run(client: &Client, json: bool, chain: Option<&str>) -> Result<()> {
+pub async fn run(client: &Client, json: bool, chain_id: Option<&str>) -> Result<()> {
+    let chain_filter = chain_id
+        .map(|value| {
+            chain_name_to_id(value).ok_or_else(|| {
+                eyre::eyre!("unknown chain id: {value}. Pass a chain ID such as 8453 (aliases like base are accepted)")
+            })
+        })
+        .transpose()?;
     let resp = market::tokens(client).await?;
 
     if json {
         println!("{}", serde_json::to_string_pretty(&resp)?);
         return Ok(());
     }
-
-    let chain_filter = chain.and_then(chain_name_to_id);
 
     let obj = resp
         .as_object()

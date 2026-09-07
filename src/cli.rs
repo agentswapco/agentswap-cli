@@ -33,11 +33,12 @@ pub struct Cli {
     #[arg(long, global = true, env = "AGENTSWAP_KEY_FILE")]
     pub key_file: Option<String>,
 
-    /// Enable x402 paid retry flow
+    /// Pay and retry when the service answers 402, which happens past the free allowance.
+    /// Quotes, trades and intents need no payment while a request is served.
     #[arg(long, global = true, env = "AGENTSWAP_X402")]
     pub x402: bool,
 
-    /// Prefer x402 even when an API key is configured
+    /// Pay through x402 even when an API key is configured and the request would be served
     #[arg(long, global = true)]
     pub prefer_x402: bool,
 
@@ -45,9 +46,9 @@ pub struct Cli {
     #[arg(long, global = true, env = "AGENTSWAP_X402_KEY_FILE")]
     pub x402_key_file: Option<String>,
 
-    /// x402 chain ID
-    #[arg(long, global = true, env = "AGENTSWAP_X402_CHAIN", default_value_t = 8453)]
-    pub x402_chain: u64,
+    /// Chain ID the x402 payment is made on
+    #[arg(long = "x402-chainid", global = true, env = "AGENTSWAP_X402_CHAINID", default_value_t = 8453)]
+    pub x402_chain_id: u64,
 
     /// Maximum x402 payment amount as unsigned decimal digits in raw token units
     #[arg(long, global = true, env = "AGENTSWAP_X402_MAX_AMOUNT", default_value = "0")]
@@ -73,8 +74,9 @@ pub struct Cli {
 pub enum Commands {
     /// Get quotes for multiple token pairs at once
     BatchQuote {
-        #[arg(short, long)]
-        chain: String,
+        /// Chain ID such as 8453; known aliases such as base are also accepted.
+        #[arg(short, long = "chainid")]
+        chain_id: String,
         #[arg(required = true)]
         pairs: Vec<String>,
         /// Unsigned decimal amount in the input token's smallest unit.
@@ -85,8 +87,9 @@ pub enum Commands {
     Chains,
     /// Show wallet call instructions for buying API quota
     BuyQuota {
-        #[arg(short, long)]
-        chain: String,
+        /// Chain ID such as 8453; known aliases such as base are also accepted.
+        #[arg(short, long = "chainid")]
+        chain_id: String,
         #[arg(short, long)]
         token: String,
         /// Unsigned decimal amount in the input token's smallest unit.
@@ -95,8 +98,9 @@ pub enum Commands {
     },
     /// Get a swap quote
     Quote {
-        #[arg(short, long)]
-        chain: String,
+        /// Chain ID such as 8453; known aliases such as base are also accepted.
+        #[arg(short, long = "chainid")]
+        chain_id: String,
         #[arg(short, long)]
         from: String,
         #[arg(short, long)]
@@ -115,13 +119,15 @@ pub enum Commands {
     KeyInfo,
     /// List supported tokens
     Tokens {
-        #[arg(short, long)]
-        chain: Option<String>,
+        /// Chain ID such as 8453; known aliases such as base are also accepted.
+        #[arg(short, long = "chainid")]
+        chain_id: Option<String>,
     },
     /// Inspect a specific pool
     Pools {
-        #[arg(short, long)]
-        chain: String,
+        /// Chain ID such as 8453; known aliases such as base are also accepted.
+        #[arg(short, long = "chainid")]
+        chain_id: String,
         #[arg(short, long)]
         address: String,
     },
@@ -138,8 +144,9 @@ pub enum Commands {
     Pricing,
     /// Claim purchased API quote quota using an on-chain tx hash
     QuotaClaim {
-        #[arg(short, long)]
-        chain: String,
+        /// Chain ID such as 8453; known aliases such as base are also accepted.
+        #[arg(short, long = "chainid")]
+        chain_id: String,
         #[arg(long)]
         tx_hash: String,
     },
@@ -157,8 +164,9 @@ pub enum Commands {
     },
     /// Show the V6 policy and token budgets for an agent
     Policy {
-        #[arg(short, long)]
-        chain: String,
+        /// Chain ID such as 8453; known aliases such as base are also accepted.
+        #[arg(short, long = "chainid")]
+        chain_id: String,
         #[arg(long)]
         owner: String,
         #[arg(long)]
@@ -170,8 +178,9 @@ pub enum Commands {
     },
     /// Quote and sign an agent order, optionally self-submitting it; dry-run requires a reachable RPC and deployed V6 proxy to verify policy and order hashes before signing
     Trade {
-        #[arg(short, long)]
-        chain: String,
+        /// Chain ID such as 8453; known aliases such as base are also accepted.
+        #[arg(short, long = "chainid")]
+        chain_id: String,
         #[arg(short, long)]
         from: String,
         #[arg(short, long)]
@@ -205,8 +214,9 @@ pub enum Commands {
 pub enum IntentCommands {
     /// Sign and announce an agent-placed open intent
     Place {
-        #[arg(short, long)]
-        chain: String,
+        /// Chain ID such as 8453; known aliases such as base are also accepted.
+        #[arg(short, long = "chainid")]
+        chain_id: String,
         #[arg(long)]
         proxy_owner: String,
         #[arg(short, long)]
@@ -237,8 +247,9 @@ pub enum IntentCommands {
     },
     /// List announced intents by owner or agent
     List {
-        #[arg(short, long)]
-        chain: String,
+        /// Chain ID such as 8453; known aliases such as base are also accepted.
+        #[arg(short, long = "chainid")]
+        chain_id: String,
         #[arg(long, conflicts_with = "agent", required_unless_present = "agent")]
         owner: Option<String>,
         #[arg(long, conflicts_with = "owner", required_unless_present = "owner")]
@@ -248,11 +259,69 @@ pub enum IntentCommands {
     },
     /// Inspect an announced intent by bytes32 id
     Status {
-        #[arg(short, long)]
-        chain: String,
+        /// Chain ID such as 8453; known aliases such as base are also accepted.
+        #[arg(short, long = "chainid")]
+        chain_id: String,
         #[arg(long)]
         id: String,
         #[arg(long)]
         lookback_blocks: Option<u64>,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chainid_is_the_only_chain_selector_flag() {
+        let cli = Cli::try_parse_from([
+            "agentswap", "quote", "--chainid", "8453", "--from", "USDC", "--to", "WETH",
+            "--amount", "1",
+        ])
+        .expect("--chainid should parse");
+        let Commands::Quote { chain_id, .. } = cli.command else {
+            panic!("expected quote command");
+        };
+        assert_eq!(chain_id, "8453");
+        assert!(Cli::try_parse_from([
+            "agentswap", "quote", "--chain", "base", "--from", "USDC", "--to", "WETH",
+            "--amount", "1",
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn no_subcommand_still_takes_the_old_chain_flag() {
+        // One rename that is only half done would leave the old flag alive on a command nobody
+        // exercises, so every subcommand that selects a chain is probed here.
+        let cases: [&[&str]; 6] = [
+            &["agentswap", "tokens", "--chain", "base"],
+            &["agentswap", "pools", "--chain", "base", "--address", "0x1"],
+            &["agentswap", "batch-quote", "--chain", "base", "--amount", "1", "USDC/WETH"],
+            &["agentswap", "policy", "--chain", "base", "--owner", "0x1", "--agent", "0x2"],
+            &["agentswap", "intent", "list", "--chain", "base", "--owner", "0x1"],
+            &["agentswap", "quota-claim", "--chain", "base", "--tx-hash", "0x1"],
+        ];
+        for case in cases {
+            assert!(
+                Cli::try_parse_from(case).is_err(),
+                "--chain still parses for {:?}",
+                case[1]
+            );
+        }
+    }
+
+    #[test]
+    fn the_x402_payment_chain_is_selected_by_chainid() {
+        let cli = Cli::try_parse_from([
+            "agentswap", "--x402-chainid", "42161", "tokens", "--chainid", "8453",
+        ])
+        .expect("--x402-chainid should parse");
+        assert_eq!(cli.x402_chain_id, 42161);
+        assert!(Cli::try_parse_from([
+            "agentswap", "--x402-chain", "42161", "tokens", "--chainid", "8453",
+        ])
+        .is_err());
+    }
 }

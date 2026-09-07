@@ -7,14 +7,15 @@ use crate::client::Client;
 use crate::tokens::chain_name_to_id;
 
 pub struct Args {
-    pub chain: String,
+    pub chain_id: String,
     pub tx_hash: String,
     pub json: bool,
 }
 
 pub async fn run(client: &Client, args: Args) -> Result<()> {
-    let chain_id =
-        chain_name_to_id(&args.chain).ok_or_else(|| eyre!("unsupported chain '{}'", args.chain))?;
+    let chain_id = chain_name_to_id(&args.chain_id).ok_or_else(|| {
+        eyre!("unknown chain id: {}. Pass a chain ID such as 8453 (aliases like base are accepted)", args.chain_id)
+    })?;
     let resp = client.quota_claim(chain_id, &args.tx_hash).await?;
 
     if args.json {

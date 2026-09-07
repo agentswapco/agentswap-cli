@@ -37,7 +37,7 @@ async fn malformed_mcp_trade_cap_rejects_before_signing() {
             trade_max_amount: Some(cap.to_string()),
         });
         let result = server.trade(Parameters(trade::TradeInput {
-            chain: "base".to_string(), from: "USDC".to_string(), to: "WETH".to_string(),
+            chain_id: "base".to_string(), from: "USDC".to_string(), to: "WETH".to_string(),
             amount: "1".to_string(), slippage: None, min_out: Some("1".to_string()),
             max_amount: None, mode: "agent-order".to_string(),
             proxy: "0x2222222222222222222222222222222222222222".to_string(),
