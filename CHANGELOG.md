@@ -8,6 +8,7 @@
   documented contract. Known aliases such as `base` remain accepted as a convenience; the old
   `--chain` flag is removed. Matching service and MCP request fields are now named `chain_id`.
 - The x402 payment chain flag is `--x402-chainid`, read from `AGENTSWAP_X402_CHAINID`.
+- `tokens --chainid` rejects a value that names no chain instead of silently listing every chain.
 
 ## 0.5.0 — 2026-09-07
 

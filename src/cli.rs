@@ -33,11 +33,12 @@ pub struct Cli {
     #[arg(long, global = true, env = "AGENTSWAP_KEY_FILE")]
     pub key_file: Option<String>,
 
-    /// Enable x402 paid retry flow
+    /// Pay and retry when the service answers 402, which happens past the free allowance.
+    /// Quotes, trades and intents need no payment while a request is served.
     #[arg(long, global = true, env = "AGENTSWAP_X402")]
     pub x402: bool,
 
-    /// Prefer x402 even when an API key is configured
+    /// Pay through x402 even when an API key is configured and the request would be served
     #[arg(long, global = true)]
     pub prefer_x402: bool,
 
@@ -286,6 +287,40 @@ mod tests {
         assert!(Cli::try_parse_from([
             "agentswap", "quote", "--chain", "base", "--from", "USDC", "--to", "WETH",
             "--amount", "1",
+        ])
+        .is_err());
+    }
+
+    #[test]
+    fn no_subcommand_still_takes_the_old_chain_flag() {
+        // One rename that is only half done would leave the old flag alive on a command nobody
+        // exercises, so every subcommand that selects a chain is probed here.
+        let cases: [&[&str]; 6] = [
+            &["agentswap", "tokens", "--chain", "base"],
+            &["agentswap", "pools", "--chain", "base", "--address", "0x1"],
+            &["agentswap", "batch-quote", "--chain", "base", "--amount", "1", "USDC/WETH"],
+            &["agentswap", "policy", "--chain", "base", "--owner", "0x1", "--agent", "0x2"],
+            &["agentswap", "intent", "list", "--chain", "base", "--owner", "0x1"],
+            &["agentswap", "quota-claim", "--chain", "base", "--tx-hash", "0x1"],
+        ];
+        for case in cases {
+            assert!(
+                Cli::try_parse_from(case).is_err(),
+                "--chain still parses for {:?}",
+                case[1]
+            );
+        }
+    }
+
+    #[test]
+    fn the_x402_payment_chain_is_selected_by_chainid() {
+        let cli = Cli::try_parse_from([
+            "agentswap", "--x402-chainid", "42161", "tokens", "--chainid", "8453",
+        ])
+        .expect("--x402-chainid should parse");
+        assert_eq!(cli.x402_chain_id, 42161);
+        assert!(Cli::try_parse_from([
+            "agentswap", "--x402-chain", "42161", "tokens", "--chainid", "8453",
         ])
         .is_err());
     }

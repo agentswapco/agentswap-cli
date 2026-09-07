@@ -76,7 +76,7 @@ impl AgentSwapMcp {
             .map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "List supported tokens")]
+    #[tool(description = "List supported tokens, optionally filtered by chain_id (a chain ID such as 8453; an alias such as base is accepted)")]
     async fn tokens(
         &self,
         Parameters(input): Parameters<TokensInput>,
@@ -104,7 +104,7 @@ impl AgentSwapMcp {
             .map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "Quote and sign an AgentOrder; amount, min_out, and max_amount are unsigned decimal integers in raw token units. Dry-run defaults to true and requires a reachable RPC and deployed V6 proxy to verify policy and order hashes before signing")]
+    #[tool(description = "Quote and sign an AgentOrder; chain_id is a chain ID such as 8453 (an alias such as base is accepted) and amount, min_out and max_amount are unsigned decimal integers in raw token units. Dry-run defaults to true and requires a reachable RPC and deployed V6 proxy to verify policy and order hashes before signing")]
     async fn trade(
         &self,
         Parameters(mut input): Parameters<trade::TradeInput>,
@@ -125,7 +125,7 @@ impl AgentSwapMcp {
             .map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "Sign and announce a V6 open intent; amount, start_out, end_out, and max_amount are unsigned decimal integers in raw token units. Dry-run is forced without allow_trade")]
+    #[tool(description = "Sign and announce a V6 open intent; chain_id is a chain ID such as 8453 (an alias such as base is accepted) and amount, start_out, end_out and max_amount are unsigned decimal integers in raw token units. Dry-run is forced without allow_trade")]
     async fn intent_place(
         &self,
         Parameters(mut input): Parameters<intent::PlaceInput>,
@@ -137,7 +137,7 @@ impl AgentSwapMcp {
             .await.map(Json).map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "List announced V6 intents by owner or agent")]
+    #[tool(description = "List announced V6 intents by owner or agent on chain_id (a chain ID such as 8453; an alias such as base is accepted)")]
     async fn intent_list(
         &self,
         Parameters(input): Parameters<intent::ListInput>,
@@ -148,7 +148,7 @@ impl AgentSwapMcp {
         intent::list(input).await.map(|intents| Json(IntentListOutput { intents })).map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "Inspect one V6 intent by bytes32 id")]
+    #[tool(description = "Inspect one V6 intent by bytes32 id on chain_id (a chain ID such as 8453; an alias such as base is accepted)")]
     async fn intent_status(
         &self,
         Parameters(input): Parameters<intent::StatusInput>,
@@ -156,7 +156,7 @@ impl AgentSwapMcp {
         intent::status(input).await.map(Json).map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "Read a V6 agent policy and per-token cap/usage")]
+    #[tool(description = "Read a V6 agent policy and per-token cap/usage on chain_id (a chain ID such as 8453; an alias such as base is accepted)")]
     async fn policy(
         &self,
         Parameters(input): Parameters<intent::PolicyInput>,

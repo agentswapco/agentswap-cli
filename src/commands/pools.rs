@@ -6,7 +6,7 @@ use comfy_table::{presets::UTF8_FULL_CONDENSED, Table};
 use eyre::{eyre, Result};
 use crate::client::Client;
 use crate::service::market;
-use crate::tokens::chain_name_to_id;
+use crate::tokens::{chain_id_to_name, chain_name_to_id};
 
 pub struct Args {
     pub chain_id: String,
@@ -33,7 +33,7 @@ pub async fn run(client: &Client, args: Args) -> Result<()> {
     table.load_preset(UTF8_FULL_CONDENSED);
     table.set_header(vec!["Pool Info", ""]);
     table.add_row(vec!["Address", resp["address"].as_str().unwrap_or("?")]);
-    table.add_row(vec!["Chain ID", &format!("{} ({})", chain_id, chain_id)]);
+    table.add_row(vec!["Chain", &format!("{} ({})", chain_id, chain_id_to_name(chain_id))]);
     table.add_row(vec!["Found In", found_in]);
     table.add_row(vec!["Grade", grade]);
 
