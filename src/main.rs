@@ -58,7 +58,7 @@ async fn run_cli(cli: Cli) -> Result<()> {
         x402::Config {
             enabled: cli.x402,
             prefer_x402: cli.prefer_x402,
-            chain_id: cli.x402_chain,
+            chain_id: cli.x402_chain_id,
             max_amount: cli.x402_max_amount.clone(),
             asset: cli.x402_asset.clone(),
         },
@@ -68,7 +68,7 @@ async fn run_cli(cli: Cli) -> Result<()> {
         x402::Config {
             enabled: cli.x402,
             prefer_x402: cli.prefer_x402,
-            chain_id: cli.x402_chain,
+            chain_id: cli.x402_chain_id,
             max_amount: cli.x402_max_amount.clone(),
             asset: cli.x402_asset.clone(),
         },

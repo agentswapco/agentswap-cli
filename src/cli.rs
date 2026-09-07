@@ -45,9 +45,9 @@ pub struct Cli {
     #[arg(long, global = true, env = "AGENTSWAP_X402_KEY_FILE")]
     pub x402_key_file: Option<String>,
 
-    /// x402 chain ID
-    #[arg(long, global = true, env = "AGENTSWAP_X402_CHAIN", default_value_t = 8453)]
-    pub x402_chain: u64,
+    /// Chain ID the x402 payment is made on
+    #[arg(long = "x402-chainid", global = true, env = "AGENTSWAP_X402_CHAINID", default_value_t = 8453)]
+    pub x402_chain_id: u64,
 
     /// Maximum x402 payment amount as unsigned decimal digits in raw token units
     #[arg(long, global = true, env = "AGENTSWAP_X402_MAX_AMOUNT", default_value = "0")]
