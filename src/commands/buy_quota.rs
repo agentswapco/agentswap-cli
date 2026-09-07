@@ -10,7 +10,7 @@ use crate::order_types::parse_raw_amount;
 use crate::tokens::{chain_id_to_name, chain_name_to_id, format_amount, resolve_token};
 
 pub struct Args {
-    pub chain: String,
+    pub chain_id: String,
     pub token: String,
     pub amount: String,
     pub json: bool,
@@ -19,12 +19,13 @@ pub struct Args {
 pub async fn run(client: &Client, args: Args) -> Result<()> {
     // Quota purchase amounts retain their existing zero-accepted policy.
     parse_raw_amount("quota purchase amount", &args.amount)?;
-    let chain_id = chain_name_to_id(&args.chain)
-        .ok_or_else(|| eyre!("unknown chain: {}. Use: base, arbitrum", args.chain))?;
+    let chain_id = chain_name_to_id(&args.chain_id).ok_or_else(|| {
+        eyre!("unknown chain id: {}. Pass a chain ID such as 8453 (aliases like base are accepted)", args.chain_id)
+    })?;
     let (quota_contract, usdc_address) = quota_config(chain_id)
         .ok_or_else(|| eyre!("quota purchase is only supported on Base and Arbitrum"))?;
     let (token_addr, token_sym, token_dec) = resolve_token(&args.token, chain_id)
-        .ok_or_else(|| eyre!("unknown token '{}' on chain {}", args.token, args.chain))?;
+        .ok_or_else(|| eyre!("unknown token '{}' on chain id {}", args.token, chain_id))?;
     let amount_in = args.amount.clone();
 
     if token_addr.eq_ignore_ascii_case(usdc_address) {
@@ -163,7 +164,7 @@ mod tests {
             let error = run(
                 &Client::new("http://127.0.0.1:1", None),
                 Args {
-                    chain: "base".to_string(),
+                    chain_id: "base".to_string(),
                     token: "USDC".to_string(),
                     amount: amount.to_string(),
                     json: true,

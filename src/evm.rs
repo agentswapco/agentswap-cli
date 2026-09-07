@@ -31,15 +31,16 @@ const EVENT_LOOKBACK_BLOCKS: u64 = 200_000;
 const BSC_DEFAULT_EVENT_LOOKBACK_BLOCKS: u64 = 9_000;
 pub const EVENT_CHUNK_SIZE: u64 = 5_000;
 
-pub fn chain_config(chain: &str) -> Result<ChainConfig> {
-    let id = crate::tokens::chain_name_to_id(chain)
-        .ok_or_else(|| eyre!("unknown chain: {chain}"))?;
+pub fn chain_config(chain_id: &str) -> Result<ChainConfig> {
+    let id = crate::tokens::chain_name_to_id(chain_id).ok_or_else(|| {
+        eyre!("unknown chain id: {chain_id}. Pass a chain ID such as 8453 (aliases like base are accepted)")
+    })?;
     let rpc = match id {
         8453 => "https://mainnet.base.org",
         42161 => "https://arb1.arbitrum.io/rpc",
         56 => "https://bsc-rpc.publicnode.com",
         4663 => "https://rpc.mainnet.chain.robinhood.com",
-        _ => return Err(eyre!("V6 intent protocol is unavailable on chain {id}")),
+        _ => return Err(eyre!("V6 intent protocol is unavailable on chain id {id}")),
     };
     Ok(ChainConfig { id, rpc, factory: FACTORY, settler: SETTLER, generation: INTENT_GENERATION, lens: LENS })
 }
@@ -125,5 +126,16 @@ impl TxSigner<Signature> for WalletSigner {
             .sign_hash(tx.signature_hash())
             .await
             .map_err(SignerError::other)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolved_chain_without_v6_deployment_reports_unavailability() {
+        let error = chain_config("1").expect_err("Ethereum resolves but has no V6 deployment");
+        assert_eq!(format!("{error}"), "V6 intent protocol is unavailable on chain id 1");
     }
 }

@@ -77,14 +77,14 @@ async fn run_cli(cli: Cli) -> Result<()> {
 
     match cli.command {
         Commands::BatchQuote {
-            chain,
+            chain_id,
             pairs,
             amount,
         } => {
             commands::batch_quote::run(
                 &client,
                 commands::batch_quote::Args {
-                    chain,
+                    chain_id,
                     pairs,
                     amount,
                     json: cli.json,
@@ -94,14 +94,14 @@ async fn run_cli(cli: Cli) -> Result<()> {
         }
         Commands::Chains => commands::chains::run(&client, cli.json).await,
         Commands::BuyQuota {
-            chain,
+            chain_id,
             token,
             amount,
         } => {
             commands::buy_quota::run(
                 &client,
                 commands::buy_quota::Args {
-                    chain,
+                    chain_id,
                     token,
                     amount,
                     json: cli.json,
@@ -110,7 +110,7 @@ async fn run_cli(cli: Cli) -> Result<()> {
             .await
         }
         Commands::Quote {
-            chain,
+            chain_id,
             from,
             to,
             amount,
@@ -120,7 +120,7 @@ async fn run_cli(cli: Cli) -> Result<()> {
             commands::quote::run(
                 &client,
                 commands::quote::Args {
-                    chain,
+                    chain_id,
                     from,
                     to,
                     amount,
@@ -133,14 +133,14 @@ async fn run_cli(cli: Cli) -> Result<()> {
         }
         Commands::Health => commands::health::run(&client, cli.json).await,
         Commands::KeyInfo => commands::key_info::run(&client, cli.json).await,
-        Commands::Tokens { chain } => {
-            commands::tokens::run(&client, cli.json, chain.as_deref()).await
+        Commands::Tokens { chain_id } => {
+            commands::tokens::run(&client, cli.json, chain_id.as_deref()).await
         }
-        Commands::Pools { chain, address } => {
+        Commands::Pools { chain_id, address } => {
             commands::pools::run(
                 &client,
                 commands::pools::Args {
-                    chain,
+                    chain_id,
                     address,
                     json: cli.json,
                 },
@@ -164,11 +164,11 @@ async fn run_cli(cli: Cli) -> Result<()> {
             .await
         }
         Commands::Pricing => commands::pricing::run(&client, cli.json).await,
-        Commands::QuotaClaim { chain, tx_hash } => {
+        Commands::QuotaClaim { chain_id, tx_hash } => {
             commands::quota_claim::run(
                 &client,
                 commands::quota_claim::Args {
-                    chain,
+                    chain_id,
                     tx_hash,
                     json: cli.json,
                 },
@@ -197,31 +197,31 @@ async fn run_cli(cli: Cli) -> Result<()> {
         }
         Commands::Intent { command } => match command {
             IntentCommands::Place {
-                chain, proxy_owner, from, to, amount, start_out, end_out,
+                chain_id, proxy_owner, from, to, amount, start_out, end_out,
                 decay_secs, duration_secs, deadline_secs, relay, self_submit, dry_run,
             } => {
                 let signer = signer.ok_or_else(|| eyre::eyre!("intent place requires --key-file or AGENTSWAP_KEY_FILE"))?;
                 commands::intent::run_place(
                     &intent_relay_client,
                     service::intent::PlaceInput {
-                        chain, proxy_owner, from, to, amount, start_out, end_out,
+                        chain_id, proxy_owner, from, to, amount, start_out, end_out,
                         decay_secs, duration_secs, deadline_secs, relay, self_submit, dry_run,
                         max_amount: cli.trade_max_amount.clone(),
                     }, signer, cli.allow_trade, cli.json,
                 ).await
             }
-            IntentCommands::List { chain, owner, agent, lookback_blocks } => {
-                commands::intent::run_list(service::intent::ListInput { chain, owner, agent, lookback_blocks }, cli.json).await
+            IntentCommands::List { chain_id, owner, agent, lookback_blocks } => {
+                commands::intent::run_list(service::intent::ListInput { chain_id, owner, agent, lookback_blocks }, cli.json).await
             }
-            IntentCommands::Status { chain, id, lookback_blocks } => {
-                commands::intent::run_status(service::intent::StatusInput { chain, id, lookback_blocks }, cli.json).await
+            IntentCommands::Status { chain_id, id, lookback_blocks } => {
+                commands::intent::run_status(service::intent::StatusInput { chain_id, id, lookback_blocks }, cli.json).await
             }
         },
-        Commands::Policy { chain, owner, agent, lookback_blocks, tokens } => {
-            commands::intent::run_policy(service::intent::PolicyInput { chain, owner, agent, lookback_blocks, tokens }, cli.json).await
+        Commands::Policy { chain_id, owner, agent, lookback_blocks, tokens } => {
+            commands::intent::run_policy(service::intent::PolicyInput { chain_id, owner, agent, lookback_blocks, tokens }, cli.json).await
         }
         Commands::Trade {
-            chain,
+            chain_id,
             from,
             to,
             amount,
@@ -242,7 +242,7 @@ async fn run_cli(cli: Cli) -> Result<()> {
                 &client,
                 signer,
                 commands::trade::Args {
-                    chain,
+                    chain_id,
                     from,
                     to,
                     amount,

@@ -19,11 +19,14 @@ The installer downloads release assets named
 agentswap --help
 agentswap health
 agentswap chains
-agentswap tokens --chain base
-agentswap quote --chain base --from USDC --to WETH --amount 1000000
-agentswap batch-quote --chain arbitrum --amount 1000000 USDC/WETH WETH/ARB
-agentswap trade --chain base --from USDC --to WETH --amount 1000000 --dry-run
+agentswap tokens --chainid 8453
+agentswap quote --chainid 8453 --from USDC --to WETH --amount 1000000
+agentswap batch-quote --chainid 42161 --amount 1000000 USDC/WETH WETH/ARB
+agentswap trade --chainid 8453 --from USDC --to WETH --amount 1000000 --dry-run
 ```
+
+Use `--chainid` with a numeric chain ID such as `8453`. Known aliases such as `base`, `arb`,
+`bsc`, `robinhood`, and `ethereum` remain accepted as a convenience.
 
 ## Intents and policy
 
@@ -34,11 +37,11 @@ addresses are accepted on supported chains, and every amount is given in the tok
 unit.
 
 ```bash
-agentswap intent place --chain base --proxy-owner 0xOwner --from USDC --to WETH \
+agentswap intent place --chainid 8453 --proxy-owner 0xOwner --from USDC --to WETH \
   --amount 1000000 --start-out 1000000000000000000 --end-out 900000000000000000 --dry-run
-agentswap intent list --chain base --owner 0xOwner
-agentswap intent status --chain base --id 0xIntentId
-agentswap policy --chain base --owner 0xOwner --agent 0xAgent
+agentswap intent list --chainid 8453 --owner 0xOwner
+agentswap intent status --chainid 8453 --id 0xIntentId
+agentswap policy --chainid 8453 --owner 0xOwner --agent 0xAgent
 ```
 
 `trade` and `intent place` operations are forced to dry-run unless `--allow-trade` is set.
@@ -60,7 +63,7 @@ BSC uses 9,000 blocks with the built-in public RPC; set `AGENTSWAP_RPC_URL_56` o
 agentswap register --address 0xYourWallet --key-file ./private-key.txt
 agentswap key-info
 agentswap pricing
-agentswap quota-claim --chain base --tx-hash 0xYourPurchaseTx
+agentswap quota-claim --chainid 8453 --tx-hash 0xYourPurchaseTx
 ```
 
 Set `AGENTSWAP_URL` to target a non-default service endpoint and `SR_API_KEY` to override the cached API key.

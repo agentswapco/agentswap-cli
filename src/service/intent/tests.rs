@@ -6,7 +6,7 @@ use super::*;
 
 fn input(from: &str, amount: &str) -> PlaceInput {
     PlaceInput {
-        chain: "base".to_string(),
+        chain_id: "base".to_string(),
         proxy_owner: format!("{:?}", Address::ZERO),
         from: from.to_string(),
         to: "USDC".to_string(),

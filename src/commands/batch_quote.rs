@@ -8,14 +8,14 @@ use crate::client::Client;
 use crate::service::quote;
 
 pub struct Args {
-    pub chain: String,
+    pub chain_id: String,
     pub pairs: Vec<String>,
     pub amount: String,
     pub json: bool,
 }
 
 pub async fn run(client: &Client, args: Args) -> Result<()> {
-    let results = quote::batch_quote(client, &args.chain, &args.pairs, &args.amount).await?;
+    let results = quote::batch_quote(client, &args.chain_id, &args.pairs, &args.amount).await?;
 
     if args.json {
         let json_results: Vec<_> = results

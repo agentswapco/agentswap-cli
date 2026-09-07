@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0 — unreleased
+
+### Breaking
+
+- Every CLI chain selector is now `--chainid`, and numeric chain IDs such as `8453` are the
+  documented contract. Known aliases remain accepted as a convenience; the old `--chain` flag
+  is removed. Matching service and MCP request fields are now named `chain_id`.
+
 ## 0.5.0 — 2026-09-07
 
 ### Breaking

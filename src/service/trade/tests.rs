@@ -26,7 +26,7 @@ fn quote_output() -> QuoteOutput {
 
 fn trade_input(min_out: Option<String>, dry_run: bool) -> TradeInput {
     TradeInput {
-        chain: "base".to_string(), from: "USDC".to_string(), to: "WETH".to_string(),
+        chain_id: "base".to_string(), from: "USDC".to_string(), to: "WETH".to_string(),
         amount: "1".to_string(), slippage: Some(50), min_out, max_amount: None,
         mode: "agent-order".to_string(),
         proxy: "0x2222222222222222222222222222222222222222".to_string(), nonce: Some("1".to_string()),

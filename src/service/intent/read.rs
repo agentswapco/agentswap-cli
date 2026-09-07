@@ -13,7 +13,7 @@ use alloy::sol_types::SolType;
 use std::collections::BTreeSet;
 
 pub async fn list(input: ListInput) -> Result<Vec<IntentRecord>> {
-    let config = evm::chain_config(&input.chain)?;
+    let config = evm::chain_config(&input.chain_id)?;
     let owner = input.owner.as_deref().map(order_types::parse_address).transpose()?;
     let agent = input.agent.as_deref().map(order_types::parse_address).transpose()?;
     let provider = evm::read_provider(&evm::rpc_url(config))?;
@@ -49,7 +49,7 @@ pub async fn list(input: ListInput) -> Result<Vec<IntentRecord>> {
 }
 
 pub async fn status(input: StatusInput) -> Result<IntentRecord> {
-    let config = evm::chain_config(&input.chain)?;
+    let config = evm::chain_config(&input.chain_id)?;
     let id = parse_b256(&input.id)?;
     let provider = evm::read_provider(&evm::rpc_url(config))?;
     let lens = IntentLensV3::new(config.lens, provider.clone());
@@ -83,7 +83,7 @@ pub async fn status(input: StatusInput) -> Result<IntentRecord> {
 }
 
 pub async fn policy(input: PolicyInput) -> Result<PolicyOutput> {
-    let config = evm::chain_config(&input.chain)?;
+    let config = evm::chain_config(&input.chain_id)?;
     let owner = order_types::parse_address(&input.owner)?;
     let agent = order_types::parse_address(&input.agent)?;
     let provider = evm::read_provider(&evm::rpc_url(config))?;

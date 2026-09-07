@@ -18,7 +18,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TradeInput {
-    pub chain: String,
+    /// Chain ID such as 8453; known aliases such as base are also accepted.
+    pub chain_id: String,
     pub from: String,
     pub to: String,
     /// Unsigned decimal input amount in the token's smallest unit.
@@ -75,7 +76,7 @@ pub async fn execute_trade(
     }
     input.dry_run |= !allow_trade;
     let quote_out = quote::quote(client, quote_input(&input)).await?;
-    let config = evm::chain_config(&input.chain)?;
+    let config = evm::chain_config(&input.chain_id)?;
     let provider = evm::read_provider(&evm::rpc_url(config))?;
     let proxy_address = order_types::parse_address(&input.proxy)?;
     let proxy = UserProxyV6::new(proxy_address, provider.clone());
@@ -127,7 +128,7 @@ pub async fn execute_trade(
 
 fn quote_input(input: &TradeInput) -> QuoteInput {
     QuoteInput {
-        chain: input.chain.clone(),
+        chain_id: input.chain_id.clone(),
         from: input.from.clone(),
         to: input.to.clone(),
         amount: input.amount.clone(),

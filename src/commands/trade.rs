@@ -10,7 +10,7 @@ use eyre::Result;
 use std::sync::Arc;
 
 pub struct Args {
-    pub chain: String,
+    pub chain_id: String,
     pub from: String,
     pub to: String,
     pub amount: String,
@@ -42,7 +42,7 @@ pub async fn run(
 
 fn input(args: Args) -> TradeInput {
     TradeInput {
-        chain: args.chain,
+        chain_id: args.chain_id,
         from: args.from,
         to: args.to,
         amount: args.amount,

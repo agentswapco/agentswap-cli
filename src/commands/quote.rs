@@ -9,7 +9,7 @@ use crate::service::quote::{self, QuoteInput};
 use crate::tokens::{chain_id_to_name, format_amount};
 
 pub struct Args {
-    pub chain: String,
+    pub chain_id: String,
     pub from: String,
     pub to: String,
     pub amount: String,
@@ -22,7 +22,7 @@ pub async fn run(client: &Client, args: Args) -> Result<()> {
     let json = args.json;
     let verify = args.verify;
     let out = quote::quote(client, QuoteInput {
-        chain: args.chain,
+        chain_id: args.chain_id,
         from: args.from,
         to: args.to,
         amount: args.amount,

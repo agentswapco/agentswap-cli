@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct QuoteInput {
-    pub chain: String,
+    /// Chain ID such as 8453; known aliases such as base are also accepted.
+    pub chain_id: String,
     pub from: String,
     pub to: String,
     /// Unsigned decimal amount in the input token's smallest unit.
@@ -49,16 +50,16 @@ pub struct BatchQuoteResult {
 pub fn build_quote_body(input: &QuoteInput) -> Result<(serde_json::Value, QuoteContext)> {
     // Quote amounts retain their existing zero-accepted policy.
     parse_raw_amount("quote amount", &input.amount)?;
-    let chain_id = chain_name_to_id(&input.chain).ok_or_else(|| {
+    let chain_id = chain_name_to_id(&input.chain_id).ok_or_else(|| {
         eyre!(
-            "unknown chain: {}. Use: ethereum, base, arbitrum",
-            input.chain
+            "unknown chain id: {}. Pass a chain ID such as 8453 (aliases like base are accepted)",
+            input.chain_id
         )
     })?;
     let (from_addr, from_sym, from_dec) = resolve_token(&input.from, chain_id)
-        .ok_or_else(|| eyre!("unknown token '{}' on chain {}", input.from, input.chain))?;
+        .ok_or_else(|| eyre!("unknown token '{}' on chain id {}", input.from, chain_id))?;
     let (to_addr, to_sym, to_dec) = resolve_token(&input.to, chain_id)
-        .ok_or_else(|| eyre!("unknown token '{}' on chain {}", input.to, input.chain))?;
+        .ok_or_else(|| eyre!("unknown token '{}' on chain id {}", input.to, chain_id))?;
     let amount_in = input.amount.clone();
     let mut body = serde_json::json!({
         "chain_id": chain_id,
@@ -93,22 +94,24 @@ pub async fn quote(client: &Client, input: QuoteInput) -> Result<QuoteOutput> {
 
 pub async fn batch_quote(
     client: &Client,
-    chain: &str,
+    chain_id: &str,
     pairs: &[String],
     amount: &str,
 ) -> Result<Vec<BatchQuoteResult>> {
     parse_raw_amount("batch quote amount", amount)?;
-    let chain_id = chain_name_to_id(chain).ok_or_else(|| eyre!("unknown chain: {chain}"))?;
+    let resolved_chain_id = chain_name_to_id(chain_id).ok_or_else(|| {
+        eyre!("unknown chain id: {chain_id}. Pass a chain ID such as 8453 (aliases like base are accepted)")
+    })?;
     let mut results = Vec::with_capacity(pairs.len());
     for pair in pairs {
-        results.push(batch_one(client, chain, chain_id, pair, amount).await);
+        results.push(batch_one(client, chain_id, resolved_chain_id, pair, amount).await);
     }
     Ok(results)
 }
 
 async fn batch_one(
     client: &Client,
-    chain: &str,
+    chain_id_input: &str,
     chain_id: u64,
     pair: &str,
     amount: &str,
@@ -117,7 +120,7 @@ async fn batch_one(
         return batch_error(pair, format!("invalid pair format '{pair}', use FROM/TO"));
     };
     let input = QuoteInput {
-        chain: chain.to_string(),
+        chain_id: chain_id_input.to_string(),
         from: from.to_string(),
         to: to.to_string(),
         amount: amount.to_string(),
@@ -159,11 +162,12 @@ fn batch_error(pair: &str, error: String) -> BatchQuoteResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
 
     #[test]
     fn quote_body_preserves_raw_digits_without_float_fields() {
         let input = QuoteInput {
-            chain: "base".to_string(),
+            chain_id: "base".to_string(),
             from: "USDC".to_string(),
             to: "WETH".to_string(),
             amount: "1000000".to_string(),
@@ -177,10 +181,60 @@ mod tests {
     }
 
     #[test]
+    fn numeric_and_alias_chain_ids_resolve_to_the_same_config_and_quote_body() {
+        let parse_quote = |chain_id: &str| {
+            let cli = crate::cli::Cli::try_parse_from([
+                "agentswap", "quote", "--chainid", chain_id, "--from", "USDC", "--to", "WETH",
+                "--amount", "1000000", "--slippage", "50", "--verify",
+            ])
+            .expect("chainid quote arguments");
+            let crate::cli::Commands::Quote { chain_id, from, to, amount, slippage, verify } = cli.command else {
+                panic!("expected quote command");
+            };
+            QuoteInput { chain_id, from, to, amount, slippage, verify }
+        };
+        let numeric = parse_quote("8453");
+        let alias = parse_quote("base");
+        let numeric_config = crate::evm::chain_config(&numeric.chain_id).expect("numeric config");
+        let alias_config = crate::evm::chain_config(&alias.chain_id).expect("alias config");
+        assert_eq!(numeric_config.id, alias_config.id);
+        assert_eq!(numeric_config.rpc, alias_config.rpc);
+        assert_eq!(numeric_config.factory, alias_config.factory);
+        assert_eq!(numeric_config.settler, alias_config.settler);
+        assert_eq!(numeric_config.generation, alias_config.generation);
+        assert_eq!(numeric_config.lens, alias_config.lens);
+        let numeric_body = build_quote_body(&numeric).expect("numeric quote body");
+        let alias_body = build_quote_body(&alias).expect("alias quote body");
+        assert_eq!(numeric_body.0, alias_body.0);
+        assert_eq!(numeric_body.1.chain_id, alias_body.1.chain_id);
+        assert_eq!(numeric_body.1.token_in, alias_body.1.token_in);
+        assert_eq!(numeric_body.1.token_out, alias_body.1.token_out);
+        assert_eq!(numeric_body.1.amount_in, alias_body.1.amount_in);
+    }
+
+    #[tokio::test]
+    async fn unknown_chain_id_fails_before_any_quote_request() {
+        let input = QuoteInput {
+            chain_id: "not-a-chain".to_string(),
+            from: "USDC".to_string(),
+            to: "WETH".to_string(),
+            amount: "1000000".to_string(),
+            slippage: None,
+            verify: false,
+        };
+        let error = quote(&Client::new("http://127.0.0.1:1", None), input)
+            .await
+            .expect_err("unknown chain ID must fail before requesting a quote");
+        let message = format!("{error}");
+        assert!(message.starts_with("unknown chain id: not-a-chain"));
+        assert!(message.contains("Pass a chain ID such as 8453"));
+    }
+
+    #[test]
     fn one_raw_unit_is_not_scaled_for_six_or_eighteen_decimal_tokens() {
         for (from, expected_decimals) in [("USDC", 6), ("WETH", 18)] {
             let input = QuoteInput {
-                chain: "base".to_string(),
+                chain_id: "base".to_string(),
                 from: from.to_string(),
                 to: "USDC".to_string(),
                 amount: "1".to_string(),

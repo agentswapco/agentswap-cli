@@ -54,7 +54,7 @@ impl AgentSwapMcp {
 
 #[tool_router(router = tool_router)]
 impl AgentSwapMcp {
-    #[tool(description = "Get a swap quote. Amount is an unsigned decimal integer in the input token's smallest unit.")]
+    #[tool(description = "Get a swap quote by chain ID; aliases such as base are accepted as a convenience. Amount is an unsigned decimal integer in the input token's smallest unit.")]
     async fn quote(
         &self,
         Parameters(input): Parameters<quote::QuoteInput>,
@@ -65,12 +65,12 @@ impl AgentSwapMcp {
             .map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "Get quotes for multiple FROM/TO pairs. Amount is an unsigned decimal integer in the input token's smallest unit.")]
+    #[tool(description = "Get quotes for multiple FROM/TO pairs by chain ID; aliases such as base are accepted as a convenience. Amount is an unsigned decimal integer in the input token's smallest unit.")]
     async fn batch_quote(
         &self,
         Parameters(input): Parameters<BatchQuoteInput>,
     ) -> std::result::Result<Json<BatchQuoteOutput>, String> {
-        quote::batch_quote(&self.client, &input.chain, &input.pairs, &input.amount)
+        quote::batch_quote(&self.client, &input.chain_id, &input.pairs, &input.amount)
             .await
             .map(|results| Json(BatchQuoteOutput { results }))
             .map_err(|e| format!("{e}"))
@@ -81,19 +81,24 @@ impl AgentSwapMcp {
         &self,
         Parameters(input): Parameters<TokensInput>,
     ) -> std::result::Result<Json<ValueOutput>, String> {
+        if let Some(chain_id) = input.chain_id.as_deref() {
+            chain_name_to_id(chain_id).ok_or_else(|| {
+                format!("unknown chain id: {chain_id}. Pass a chain ID such as 8453 (aliases like base are accepted)")
+            })?;
+        }
         match market::tokens(&self.client).await {
-            Ok(tokens) => filter_tokens(tokens, input.chain.as_deref())
+            Ok(tokens) => filter_tokens(tokens, input.chain_id.as_deref())
                 .map(|value| Json(ValueOutput { value })),
             Err(e) => Err(format!("{e}")),
         }
     }
 
-    #[tool(description = "Inspect a pool by chain and address")]
+    #[tool(description = "Inspect a pool by chain ID and address; aliases such as base are accepted as a convenience.")]
     async fn pools(
         &self,
         Parameters(input): Parameters<PoolsInput>,
     ) -> std::result::Result<Json<ValueOutput>, String> {
-        market::pool(&self.client, &input.chain, &input.address)
+        market::pool(&self.client, &input.chain_id, &input.address)
             .await
             .map(|value| Json(ValueOutput { value }))
             .map_err(|e| format!("{e}"))
@@ -185,7 +190,8 @@ fn bound_trade_cap(input: &mut trade::TradeInput, server_cap: &str) -> std::resu
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct BatchQuoteInput {
-    chain: String,
+    /// Chain ID such as 8453; known aliases such as base are also accepted.
+    chain_id: String,
     pairs: Vec<String>,
     /// Unsigned decimal amount in the input token's smallest unit.
     amount: String,
@@ -208,12 +214,14 @@ struct ValueOutput {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct TokensInput {
-    chain: Option<String>,
+    /// Chain ID such as 8453; known aliases such as base are also accepted.
+    chain_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct PoolsInput {
-    chain: String,
+    /// Chain ID such as 8453; known aliases such as base are also accepted.
+    chain_id: String,
     address: String,
 }
 
@@ -225,11 +233,11 @@ pub async fn serve_stdio(config: Config) -> Result<()> {
     Ok(())
 }
 
-fn filter_tokens(tokens: serde_json::Value, chain: Option<&str>) -> std::result::Result<serde_json::Value, String> {
-    let Some(chain) = chain else {
+fn filter_tokens(tokens: serde_json::Value, chain_id: Option<&str>) -> std::result::Result<serde_json::Value, String> {
+    let Some(chain_id) = chain_id else {
         return Ok(tokens);
     };
-    let chain_id = chain_name_to_id(chain).ok_or_else(|| format!("unknown chain: {chain}"))?;
+    let chain_id = chain_name_to_id(chain_id).ok_or_else(|| format!("unknown chain id: {chain_id}. Pass a chain ID such as 8453 (aliases like base are accepted)"))?;
     let Some(object) = tokens.as_object() else {
         return Ok(tokens);
     };
