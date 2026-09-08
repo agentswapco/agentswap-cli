@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.0 — 2026-09-09
+
+### Breaking
+
+- `intent place` now derives the agent authorization deadline from the order itself: the default
+  is the order's `endTime`, and an explicit `--deadline-secs` that lands before `endTime` is
+  refused with both numbers named. 0.6.x defaulted to 120 seconds regardless of the order window,
+  so a resting order announced through the relay stopped being fillable two minutes in while its
+  price curve was still running: `UserProxyV6` refuses the pull once `block.timestamp` passes the
+  authorization deadline, and the gas paid to announce it was already spent. Anyone passing a
+  `--deadline-secs` shorter than their order window now gets an error instead of a signature.
+
+### Added
+
+- Offline golden-vector tests for the `IntentAuthorization` EIP-712 digest and for the
+  authorization envelope bytes, so domain, typehash and encoding are pinned without an RPC.
+
 ## 0.6.0 — 2026-09-07
 
 ### Breaking
