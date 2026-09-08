@@ -71,3 +71,33 @@ fn relay_request_contains_chain_intent_generation() {
     assert!(serialized.contains("\"generation\":\"v6\""));
     assert_eq!(body["announce"]["auth"], "0x");
 }
+
+#[test]
+fn default_deadline_matches_order_end_time() {
+    let order_end_time = 1_700_000_600u64;
+    let now = 1_700_000_000u64;
+    let deadline = resolve_deadline(order_end_time, None, now).expect("default deadline");
+    assert_eq!(deadline, order_end_time);
+}
+
+#[test]
+fn caller_supplied_deadline_earlier_than_end_time_is_refused() {
+    let order_end_time = 1_700_000_600u64;
+    let now = 1_700_000_000u64;
+    let deadline_secs = 120u64;
+    let err = resolve_deadline(order_end_time, Some(deadline_secs), now)
+        .expect_err("should reject earlier deadline");
+    let msg = err.to_string();
+    assert!(msg.contains("1700000120"), "expected deadline 1700000120 in error: {msg}");
+    assert!(msg.contains("1700000600"), "expected order endTime 1700000600 in error: {msg}");
+}
+
+#[test]
+fn caller_supplied_deadline_after_end_time_is_accepted() {
+    let order_end_time = 1_700_000_600u64;
+    let now = 1_700_000_000u64;
+    let deadline_secs = 700u64;
+    let deadline = resolve_deadline(order_end_time, Some(deadline_secs), now)
+        .expect("valid deadline");
+    assert_eq!(deadline, 1_700_000_700);
+}

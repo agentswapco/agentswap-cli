@@ -43,6 +43,8 @@ pub async fn place(
     }
     verify_raw_token_addresses(&provider, config.id, &input).await?;
     let order = build_order(&input, owner, config.id).await?;
+    let order_end_time = u64::try_from(order.endTime).map_err(|_| eyre!("order endTime overflow"))?;
+    let deadline = resolve_deadline(order_end_time, input.deadline_secs, now()?)?;
     let proxy_address = proxy_for(&provider, config, owner).await?;
     let proxy = UserProxyV6::new(proxy_address, provider.clone());
     let policy = proxy.policyOf(agent).call().await?;
@@ -52,7 +54,7 @@ pub async fn place(
         agent,
         generation: policy.generation,
         nonce: fresh_agent_nonce(&proxy, agent).await?,
-        deadline: now()?.saturating_add(input.deadline_secs.unwrap_or(120)),
+        deadline,
     };
     let settler = IntentSettlerV3::new(config.settler, provider.clone());
     let chain_id = settler.orderHash(order.clone()).call().await?;
@@ -190,6 +192,25 @@ fn validate_input_amounts(input: &PlaceInput) -> Result<()> {
         parse_raw_amount("intent max-amount", max_amount)?;
     }
     Ok(())
+}
+
+pub(crate) fn resolve_deadline(
+    order_end_time: u64,
+    deadline_secs: Option<u64>,
+    now_secs: u64,
+) -> Result<u64> {
+    match deadline_secs {
+        Some(secs) => {
+            let deadline = now_secs.saturating_add(secs);
+            if deadline < order_end_time {
+                return Err(eyre!(
+                    "caller deadline {deadline} is earlier than order endTime {order_end_time}"
+                ));
+            }
+            Ok(deadline)
+        }
+        None => Ok(order_end_time),
+    }
 }
 
 fn authorization_error(error: alloy::contract::Error) -> eyre::Report {
