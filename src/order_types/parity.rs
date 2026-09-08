@@ -1,10 +1,10 @@
-// RPC-gated parity tests for deployed V6 hashing contracts.
-// Exports: deployed_digest_parity.
+// Hashing parity tests for V6 contracts: deployed RPC checks and offline golden vectors.
+// Exports: deployed_digest_parity, offline golden digest tests.
 // Deps: crate::{evm, order_types}, alloy provider and protocol bindings.
 
 use super::{order_id, proxy_domain, signing_hash, IntentAuthorization, IntentSettlerV3, Order, UserProxyFactoryV6, UserProxyV6};
 use crate::evm;
-use alloy::primitives::{address, Address, B256, U256};
+use alloy::primitives::{address, b256, Address, B256, U256};
 
 #[tokio::test]
 async fn deployed_digest_parity() {
@@ -97,4 +97,28 @@ async fn deployed_digest_parity() {
         .await
         .expect("proxy hashAgentOrder");
     assert_eq!(local_agent_digest, chain_agent_digest);
+}
+
+#[test]
+fn offline_intent_authorization_digest_matches_golden_vector() {
+    // Golden vector computed by running UserProxyV6.hashIntentAuthorization in
+    // agentswap-protocol test/V6TestBase.sol fixture for chainId 8453, proxy
+    // 0xD0Cbf7f4884dc454bf58A8F27972f385176491A9, and the shared agent authorization inputs.
+    let chain_id = 8453u64;
+    let proxy = address!("0xD0Cbf7f4884dc454bf58A8F27972f385176491A9");
+    let domain = proxy_domain(chain_id, proxy);
+    assert_eq!(domain.name.as_deref(), Some("AgentSwap UserProxy"));
+    assert_eq!(domain.version.as_deref(), Some("5"));
+
+    let auth = IntentAuthorization {
+        orderHash: b256!("da2743275525fadf0df5710b30e89e7f60af2257c0dedd306deaeb5255839d0f"),
+        agent: address!("0x3507A251bbd388eb31C630627E2DdFE10Eb5aD6F"),
+        generation: 1,
+        nonce: U256::from(102u64),
+        deadline: 1_086_400u64,
+    };
+
+    let digest = signing_hash(&auth, &domain);
+    let expected = b256!("4f1ae85bfbb66fe338d82bef0563e74e92f0b3f3457db9c3c8bec9153349be70");
+    assert_eq!(digest, expected);
 }
