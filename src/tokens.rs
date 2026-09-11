@@ -1,7 +1,21 @@
 // Token resolution and amount-format helpers for the AgentSwap CLI.
-// Exports: resolve_token, address_to_symbol, format_amount, chain_name_to_id.
+// Exports: CHAIN_ID_HELP, V6_CHAINS_NOTE, unknown_chain_id, resolve_token, address_to_symbol,
+// format_amount, chain_name_to_id, chain_id_to_name, chain_id_to_short.
 // Deps: tokens::registry for static token metadata.
 mod registry;
+
+/// The one published description of the chain selector. Every help string, MCP tool description,
+/// input-schema field and runtime error that names a chain refers to this instead of pasting it.
+pub const CHAIN_ID_HELP: &str = "Chain ID such as 8453; known aliases such as base are also accepted.";
+
+/// The chains carrying a V6 deployment, stated on every command that needs one. An alias that
+/// resolves to a chain without one is accepted by the quote commands and refused by these.
+pub const V6_CHAINS_NOTE: &str = "V6 intents, policy and trade are available on Base (8453), Arbitrum One (42161), BNB Smart Chain (56) and Robinhood Chain (4663) only; an alias that resolves to another chain is refused by those commands.";
+
+/// The one published error for a chain selector that named no chain.
+pub fn unknown_chain_id(value: &str) -> String {
+    format!("unknown chain id: {value}. {CHAIN_ID_HELP}")
+}
 
 /// Resolve a chain ID or known alias (case-insensitive) to a chain ID.
 pub fn chain_name_to_id(chain_id_or_alias: &str) -> Option<u64> {
@@ -146,6 +160,14 @@ mod tests {
         assert_eq!(chain_name_to_id("10"), Some(10));
         assert_eq!(chain_name_to_id("999"), Some(999));
         assert_eq!(chain_name_to_id("unknown"), None);
+    }
+
+    #[test]
+    fn unknown_chain_id_reuses_the_published_chain_selector_sentence() {
+        assert_eq!(
+            unknown_chain_id("not-a-chain"),
+            format!("unknown chain id: not-a-chain. {CHAIN_ID_HELP}")
+        );
     }
 
     #[test]

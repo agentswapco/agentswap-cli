@@ -12,11 +12,6 @@
   authorization deadline, and the gas paid to announce it was already spent. Anyone passing a
   `--deadline-secs` shorter than their order window now gets an error instead of a signature.
 
-### Added
-
-- Offline golden-vector tests for the `IntentAuthorization` EIP-712 digest and for the
-  authorization envelope bytes, so domain, typehash and encoding are pinned without an RPC.
-
 ## 0.6.0 — 2026-09-07
 
 ### Breaking

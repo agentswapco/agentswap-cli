@@ -27,6 +27,31 @@
 - Token decimals may be used only to render a supplementary display value beside the raw one.
   A rendered value is never parsed back as an amount, and no amount passes through a float.
 
+## Published copy states technical facts only
+Everything a reader meets outside the code — `--help` strings, `after_help`, MCP tool descriptions
+and input-schema descriptions, runtime messages and tables, `README.md`, `CHANGELOG.md` and the
+`Cargo.toml` description — states technical facts only:
+- State every precondition the code enforces where the reader meets the command, not only in the
+  code: `--min-out` for a live trade, `--allow-trade` for `trade`, `intent place` and both MCP
+  signing tools, a positive `--x402-max-amount` for `--x402`, and the chains a command is deployed
+  on.
+- No tuning constants, budgets, thresholds, gas figures or bps the code owns internally; print the
+  chain-derived value instead of restating it. No first person about the team, no operational
+  status, no dates or version history, no internal document, service or repository names. A
+  limitation an integrator must know stays, phrased as a property of the code.
+- One product one-liner, shared by `Cargo.toml`, the clap `about` and `README.md`.
+- The chain-selector sentence lives in `crate::tokens::CHAIN_ID_HELP` and the V6 chain list in
+  `crate::tokens::V6_CHAINS_NOTE`. Refer to them; never paste them.
+- One name per thing: the executor is a solver ("filler" only when naming `IIntentFiller`), the
+  signed object is an intent ("order" only when naming the EIP-712 type), chain 56 is BNB Smart
+  Chain, chain 42161 is Arbitrum One wherever ids are listed, and the wallet that owns the proxy is
+  the owner.
+- `health` prints status, version and uptime; the rest stays in `--json`. `register` prints the key
+  once. One error gets one remediation block.
+- Copy that renames or removes a flag, subcommand, env var, default or MCP tool is a breaking
+  release, not a copy fix: correct the help text to describe current behaviour and record the
+  rename for the next breaking release.
+
 ## Code style
 - File ≤ 300 lines, function ≤ 50 lines, every file opens with a 2–4 line header comment.
 - No compat shims, feature flags or dead code; change the API directly. No `any`-style escape

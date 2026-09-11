@@ -6,7 +6,7 @@ use comfy_table::{presets::UTF8_FULL_CONDENSED, Table};
 use eyre::{eyre, Result};
 use crate::client::Client;
 use crate::service::market;
-use crate::tokens::{chain_id_to_name, chain_name_to_id};
+use crate::tokens::{chain_id_to_name, chain_name_to_id, unknown_chain_id};
 
 pub struct Args {
     pub chain_id: String,
@@ -15,9 +15,8 @@ pub struct Args {
 }
 
 pub async fn run(client: &Client, args: Args) -> Result<()> {
-    let chain_id = chain_name_to_id(&args.chain_id).ok_or_else(|| {
-        eyre!("unknown chain id: {}. Pass a chain ID such as 8453 (aliases like base are accepted)", args.chain_id)
-    })?;
+    let chain_id =
+        chain_name_to_id(&args.chain_id).ok_or_else(|| eyre!("{}", unknown_chain_id(&args.chain_id)))?;
 
     let resp = market::pool(client, &args.chain_id, &args.address).await?;
 
@@ -33,7 +32,7 @@ pub async fn run(client: &Client, args: Args) -> Result<()> {
     table.load_preset(UTF8_FULL_CONDENSED);
     table.set_header(vec!["Pool Info", ""]);
     table.add_row(vec!["Address", resp["address"].as_str().unwrap_or("?")]);
-    table.add_row(vec!["Chain", &format!("{} ({})", chain_id, chain_id_to_name(chain_id))]);
+    table.add_row(vec!["Chain", &format!("{} ({})", chain_id_to_name(chain_id), chain_id)]);
     table.add_row(vec!["Found In", found_in]);
     table.add_row(vec!["Grade", grade]);
 

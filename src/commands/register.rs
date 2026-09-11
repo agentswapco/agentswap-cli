@@ -73,16 +73,15 @@ pub async fn run(client: &Client, args: Args) -> Result<()> {
             })
             .unwrap_or_default();
 
-        eprintln!("Registration successful!\n");
-        println!("API Key:  {api_key}");
+        eprintln!("Registration successful.");
         println!("Scopes:   {scopes}");
         println!("Quota:    {quota} requests");
-        eprintln!("\nSet your key: export SR_API_KEY={api_key}");
         if let Err(e) = crate::credentials::save_api_key(api_key) {
             eprintln!("Warning: could not cache API key: {e}");
         } else {
-            eprintln!("API key saved to ~/.agentswap/credentials");
+            eprintln!("API key saved to ~/.agentswap/credentials.");
         }
+        eprintln!("To use it in this shell: export SR_API_KEY={api_key}");
     }
 
     Ok(())

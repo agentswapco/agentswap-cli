@@ -121,7 +121,7 @@ pub async fn policy(input: PolicyInput) -> Result<PolicyOutput> {
         token_out.push(TokenPolicy { token: format!("{token:?}"), allowed: info.allowed, cap: info.cap.to_string(), used: info.used.to_string(), epoch_start: info.epochStart.to_string() });
     }
     let note = if event_tokens.is_empty() && !explicit_tokens && generation != 0 && policy.expiry > super::now()? {
-        Some(format!("no cap events within {lookback} blocks; pass --token to read specific budgets"))
+        Some(format!("no cap events within {lookback} blocks; name the tokens you want budgets for (`policy --token`, MCP `tokens`)"))
     } else {
         None
     };
@@ -158,14 +158,14 @@ fn status_word(view: &IntentLensV3::IntentView, owner_order: bool) -> (String, S
     if !view.proxyDeployed { return ("dead".into(), "proxy not deployed".into()); }
     if view.killedByOwner { return ("dead".into(), "killed by owner".into()); }
     if owner_order && view.nonceSpent { return ("dead".into(), "owner nonce spent".into()); }
-    if !view.inWindow { return ("expired".into(), "order window closed".into()); }
+    if !view.inWindow { return ("expired".into(), "intent window closed".into()); }
     if view.exclusiveWindow {
         return (
             "open".into(),
-            "exclusive window: system filler fills at the floor; an outsider pays floor + 25 bps; required amounts include the 3 bps fee".into(),
+            "exclusive window: only the system solver fills at the floor; an outsider pays the floor plus the exclusivity override".into(),
         );
     }
-    ("open".into(), "within announced feed".into())
+    ("open".into(), "inside the announced intent window".into())
 }
 
 fn decode_event(event: &IntentSettlerV3::IntentAnnounced) -> Result<(Order, Option<Address>)> {
@@ -209,7 +209,7 @@ mod tests {
         };
         assert_eq!(
             status_word(&view, false),
-            ("open".to_string(), "exclusive window: system filler fills at the floor; an outsider pays floor + 25 bps; required amounts include the 3 bps fee".to_string())
+            ("open".to_string(), "exclusive window: only the system solver fills at the floor; an outsider pays the floor plus the exclusivity override".to_string())
         );
     }
 }

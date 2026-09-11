@@ -1,15 +1,17 @@
 // Request and response models for the intent service, shared by the CLI and MCP.
 // Exports: PlaceInput, PlaceOutcome, ListInput, StatusInput, PolicyInput, IntentRecord,
 // PolicyOutput, TokenPolicy.
-// Deps: serde, schemars, crate::order_types DTOs.
+// Deps: serde, schemars, crate::order_types DTOs, crate::tokens for the chain-selector copy.
 
 use crate::order_types;
+use crate::tokens::CHAIN_ID_HELP;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PlaceInput {
-    /// Chain ID such as 8453; known aliases such as base are also accepted.
+    #[schemars(description = CHAIN_ID_HELP)]
     pub chain_id: String,
+    /// Owner wallet whose V6 proxy signs the intent.
     pub proxy_owner: String,
     pub from: String,
     pub to: String,
@@ -20,10 +22,15 @@ pub struct PlaceInput {
     /// Unsigned decimal ending output in the token's smallest unit.
     pub end_out: String,
     #[serde(default)]
+    /// Seconds over which the output decays from start_out to end_out; defaults to the window
+    /// and is capped at it. Must be greater than zero.
     pub decay_secs: Option<u64>,
     #[serde(default)]
+    /// Intent window in seconds from now; default 600.
     pub duration_secs: Option<u64>,
     #[serde(default)]
+    /// Seconds from now for the agent authorization deadline. Defaults to the end of the intent
+    /// window; a value that lands before the window closes is refused.
     pub deadline_secs: Option<u64>,
     #[serde(default)]
     pub relay: bool,
@@ -52,9 +59,11 @@ pub struct PlaceOutcome {
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ListInput {
-    /// Chain ID such as 8453; known aliases such as base are also accepted.
+    #[schemars(description = CHAIN_ID_HELP)]
     pub chain_id: String,
+    /// Owner wallet whose intents to list; required unless agent is given.
     pub owner: Option<String>,
+    /// Agent wallet that placed the intents; required unless owner is given.
     pub agent: Option<String>,
     #[serde(default)]
     pub lookback_blocks: Option<u64>,
@@ -62,8 +71,9 @@ pub struct ListInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct StatusInput {
-    /// Chain ID such as 8453; known aliases such as base are also accepted.
+    #[schemars(description = CHAIN_ID_HELP)]
     pub chain_id: String,
+    /// Intent id (bytes32) as announced.
     pub id: String,
     #[serde(default)]
     pub lookback_blocks: Option<u64>,
@@ -71,13 +81,17 @@ pub struct StatusInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PolicyInput {
-    /// Chain ID such as 8453; known aliases such as base are also accepted.
+    #[schemars(description = CHAIN_ID_HELP)]
     pub chain_id: String,
+    /// Owner wallet whose proxy holds the policy.
     pub owner: String,
+    /// Agent wallet the policy authorizes.
     pub agent: String,
     #[serde(default)]
     pub lookback_blocks: Option<u64>,
     #[serde(default)]
+    /// Token addresses to read budgets for; use them when the cap events are older than the
+    /// lookback.
     pub tokens: Vec<String>,
 }
 

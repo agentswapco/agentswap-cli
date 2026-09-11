@@ -4,13 +4,13 @@
 
 use crate::client::Client;
 use crate::order_types::parse_raw_amount;
-use crate::tokens::{chain_name_to_id, format_amount, resolve_token};
+use crate::tokens::{chain_name_to_id, format_amount, resolve_token, unknown_chain_id, CHAIN_ID_HELP};
 use eyre::{eyre, Result};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct QuoteInput {
-    /// Chain ID such as 8453; known aliases such as base are also accepted.
+    #[schemars(description = CHAIN_ID_HELP)]
     pub chain_id: String,
     pub from: String,
     pub to: String,
@@ -50,12 +50,8 @@ pub struct BatchQuoteResult {
 pub fn build_quote_body(input: &QuoteInput) -> Result<(serde_json::Value, QuoteContext)> {
     // Quote amounts retain their existing zero-accepted policy.
     parse_raw_amount("quote amount", &input.amount)?;
-    let chain_id = chain_name_to_id(&input.chain_id).ok_or_else(|| {
-        eyre!(
-            "unknown chain id: {}. Pass a chain ID such as 8453 (aliases like base are accepted)",
-            input.chain_id
-        )
-    })?;
+    let chain_id = chain_name_to_id(&input.chain_id)
+        .ok_or_else(|| eyre!("{}", unknown_chain_id(&input.chain_id)))?;
     let (from_addr, from_sym, from_dec) = resolve_token(&input.from, chain_id)
         .ok_or_else(|| eyre!("unknown token '{}' on chain id {}", input.from, chain_id))?;
     let (to_addr, to_sym, to_dec) = resolve_token(&input.to, chain_id)
@@ -99,9 +95,8 @@ pub async fn batch_quote(
     amount: &str,
 ) -> Result<Vec<BatchQuoteResult>> {
     parse_raw_amount("batch quote amount", amount)?;
-    let resolved_chain_id = chain_name_to_id(chain_id).ok_or_else(|| {
-        eyre!("unknown chain id: {chain_id}. Pass a chain ID such as 8453 (aliases like base are accepted)")
-    })?;
+    let resolved_chain_id =
+        chain_name_to_id(chain_id).ok_or_else(|| eyre!("{}", unknown_chain_id(chain_id)))?;
     let mut results = Vec::with_capacity(pairs.len());
     for pair in pairs {
         results.push(batch_one(client, chain_id, resolved_chain_id, pair, amount).await);
@@ -227,7 +222,7 @@ mod tests {
             .expect_err("unknown chain ID must fail before requesting a quote");
         let message = format!("{error}");
         assert!(message.starts_with("unknown chain id: not-a-chain"));
-        assert!(message.contains("Pass a chain ID such as 8453"));
+        assert!(message.contains(crate::tokens::CHAIN_ID_HELP));
     }
 
     #[test]

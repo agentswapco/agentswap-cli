@@ -20,9 +20,7 @@ pub struct ChainConfig {
     pub lens: Address,
 }
 
-// V6 (2026-09-06): one address set on Base 8453, Arbitrum 42161, BSC 56 and Robinhood 4663.
-// Source of record: agentswap-protocol docs/v6-deployed-2026-09-06.md; the lens is the
-// PREVIEW_LAYOUT()==3 redeploy, not the first V6 lens 0x7E62d98d…1b87.
+// V6: one address set on Base 8453, Arbitrum 42161, BSC 56 and Robinhood 4663.
 const FACTORY: Address = alloy::primitives::address!("0xc1660e4BbC825f8367dA92b60dccc17E4E10bc26");
 const SETTLER: Address = alloy::primitives::address!("0x2dd81c4fD1FC38b009Ab10D5C9b1f01Ca51cE462");
 const INTENT_GENERATION: &str = "v6";
@@ -32,9 +30,8 @@ const BSC_DEFAULT_EVENT_LOOKBACK_BLOCKS: u64 = 9_000;
 pub const EVENT_CHUNK_SIZE: u64 = 5_000;
 
 pub fn chain_config(chain_id: &str) -> Result<ChainConfig> {
-    let id = crate::tokens::chain_name_to_id(chain_id).ok_or_else(|| {
-        eyre!("unknown chain id: {chain_id}. Pass a chain ID such as 8453 (aliases like base are accepted)")
-    })?;
+    let id = crate::tokens::chain_name_to_id(chain_id)
+        .ok_or_else(|| eyre!("{}", crate::tokens::unknown_chain_id(chain_id)))?;
     let rpc = match id {
         8453 => "https://mainnet.base.org",
         42161 => "https://arb1.arbitrum.io/rpc",

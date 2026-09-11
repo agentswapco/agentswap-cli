@@ -23,18 +23,23 @@ agentswap tokens --chainid 8453
 agentswap quote --chainid 8453 --from USDC --to WETH --amount 1000000
 agentswap batch-quote --chainid 42161 --amount 1000000 USDC/WETH WETH/ARB
 agentswap trade --chainid 8453 --from USDC --to WETH --amount 1000000 --dry-run
+agentswap route-explain --hash 0xYourQuoteHash
 ```
 
-Use `--chainid` with a numeric chain ID such as `8453`. Known aliases such as `base`, `arb`,
-`bsc`, `robinhood`, and `ethereum` remain accepted as a convenience.
+Use `--chainid` with a numeric chain ID such as `8453`; known aliases such as `base`, `arb`,
+`bsc`, `robinhood` and `ethereum` are also accepted. Quotes, tokens and pools resolve any of
+them. Intents, policy and trade are deployed on Base (8453), Arbitrum One (42161), BNB Smart
+Chain (56) and Robinhood Chain (4663) only, and an alias that resolves to another chain is
+refused by those commands.
 
 ## Intents and policy
 
-V6 open intents are signed against the owner proxy and can be inspected before they are
-announced. Use `intent place` with `--dry-run`, `--relay`, or `--self-submit`, then use
-`intent list --owner <address>` and `intent status --id <bytes32>` to inspect them. Raw token
-addresses are accepted on supported chains, and every amount is given in the token's smallest
-unit.
+V6 open intents are signed against the owner's V6 proxy and can be inspected before they are
+announced. A live `intent place` needs exactly one submission mode: `--relay` hands the signed
+intent to the AgentSwap relay, `--self-submit` broadcasts it from the `--key-file` wallet.
+`--dry-run` signs and verifies against the chain, then stops. Use `intent list --owner <address>`
+and `intent status --id <bytes32>` to inspect them. Raw token addresses are accepted on supported
+chains, and every amount is given in the token's smallest unit.
 
 ```bash
 agentswap intent place --chainid 8453 --proxy-owner 0xOwner --from USDC --to WETH \
@@ -44,27 +49,38 @@ agentswap intent status --chainid 8453 --id 0xIntentId
 agentswap policy --chainid 8453 --owner 0xOwner --agent 0xAgent
 ```
 
-`trade` and `intent place` operations are forced to dry-run unless `--allow-trade` is set.
-Intent placement supports `--relay` or `--self-submit`. Every monetary input, including
-`--max-amount`, is an unsigned decimal integer in the asset's smallest unit; `--max-amount` bounds
-the raw input amount before signing or sending. Human-readable values may appear as supplementary
-display values only.
-Trade dry-runs require a reachable RPC and deployed V6 proxy to verify policy and order hashes before signing. Dry-runs may sign locally but never broadcast or relay. `agentswap mcp` exposes quote, trade,
-intent place/list/status, and policy tools with the same safety model; intent listing requires
-an owner or agent filter.
+`trade` and `intent place` are forced to dry-run unless `--allow-trade` is set, and the same flag
+gates the MCP `trade` and `intent_place` tools. A live trade also needs `--min-out`: without an
+explicit floor the trade is refused, because the quote server's output is not trusted as the
+protection floor. Every monetary input is an unsigned decimal integer in the asset's smallest
+unit; `--max-amount` bounds the raw input amount before signing or sending. A trade dry-run
+verifies policy and order hashes against the chain before signing, and may sign locally but never
+broadcasts or relays.
 
-Intent and policy reads inspect the latest 200,000 blocks on Base, Arbitrum, and Robinhood Chain.
-BSC uses 9,000 blocks with the built-in public RPC; set `AGENTSWAP_RPC_URL_56` or
-`AGENTSWAP_RPC_URL` for a keyed endpoint to use the full lookback, or pass `--lookback-blocks`.
+`agentswap mcp` exposes nine tools — quote, batch_quote, tokens, pools, trade, intent_place,
+intent_list, intent_status and policy — under the same `--allow-trade` gate; intent listing
+requires an owner or agent filter. MCP `trade` additionally defaults `dry_run` to true, while the
+CLI defaults to a live trade once `--allow-trade` is set.
+
+Intent and policy reads inspect the latest 200,000 blocks on Base, Arbitrum One, BNB Smart Chain
+and Robinhood Chain. BNB Smart Chain uses 9,000 blocks with the built-in public RPC; set
+`AGENTSWAP_RPC_URL_56` or `AGENTSWAP_RPC_URL` for a keyed endpoint to use the full lookback, or
+pass `--lookback-blocks`.
 
 ## Authenticated Flows
 
 ```bash
-agentswap register --address 0xYourWallet --key-file ./private-key.txt
+agentswap register --address 0xOwnerWallet --key-file ./private-key.txt
 agentswap key-info
 agentswap pricing
+agentswap buy-quota --chainid 8453 --token USDC --amount 10000000
 agentswap quota-claim --chainid 8453 --tx-hash 0xYourPurchaseTx
 ```
 
-Set `AGENTSWAP_URL` to target a non-default service endpoint and `SR_API_KEY` to override the cached API key.
-Set `AGENTSWAP_RPC_URL_<chainId>` or `AGENTSWAP_RPC_URL` to override the V6 RPC endpoint.
+`buy-quota` prints the wallet calls for a quota purchase and is available on Base and Arbitrum
+only.
+
+Set `AGENTSWAP_URL` to target a non-default service endpoint; the intent relay
+(`intent place --relay`) always posts to https://app.agentswap.co and does not follow this
+setting. Set `SR_API_KEY`, the AgentSwap API key, to override the cached key, and
+`AGENTSWAP_RPC_URL_<chainId>` or `AGENTSWAP_RPC_URL` to override the V6 RPC endpoint.

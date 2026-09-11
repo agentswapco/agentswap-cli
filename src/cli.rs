@@ -1,21 +1,23 @@
 // Clap argument definitions for the AgentSwap binary.
 // Exports: Cli and Commands.
-// Deps: clap derive macros.
+// Deps: clap derive macros, crate::tokens for the published chain-selector copy.
 
+use crate::tokens::{CHAIN_ID_HELP, V6_CHAINS_NOTE};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(
     name = "agentswap",
     version,
-    about = "AgentSwap CLI — AI-agent-optimized DEX aggregator"
+    about = "AgentSwap CLI for requesting quotes, inspecting tokens and pools, managing V6 intents, and registering an API key against the AgentSwap service."
 )]
 pub struct Cli {
     /// Output raw JSON instead of formatted tables
     #[arg(short, long, global = true)]
     pub json: bool,
 
-    /// AgentSwap service URL
+    /// AgentSwap service URL for quotes, tokens, pools, pricing, quota and health. The intent
+    /// relay always posts to https://app.agentswap.co and does not follow this setting.
     #[arg(
         short,
         long,
@@ -25,24 +27,27 @@ pub struct Cli {
     )]
     pub url: String,
 
-    /// API key for authenticated endpoints
+    /// AgentSwap API key (SR_API_KEY) for authenticated endpoints; overrides the key cached in
+    /// ~/.agentswap/credentials
     #[arg(short = 'k', long, global = true, env = "SR_API_KEY")]
     pub api_key: Option<String>,
 
-    /// Local signer key file for trade/MCP signing
+    /// Local signer key file for `trade`, `intent place` and the MCP signing tools; also the
+    /// fallback x402 signer when --x402-key-file is unset
     #[arg(long, global = true, env = "AGENTSWAP_KEY_FILE")]
     pub key_file: Option<String>,
 
-    /// Pay and retry when the service answers 402, which happens past the free allowance.
-    /// Quotes, trades and intents need no payment while a request is served.
+    /// Pay and retry once when a request answers 402. Needs --x402-max-amount at or above the
+    /// amount the service asks for, and a key file (--x402-key-file, else --key-file).
     #[arg(long, global = true, env = "AGENTSWAP_X402")]
     pub x402: bool,
 
-    /// Pay through x402 even when an API key is configured and the request would be served
+    /// Pay a 402 even when an API key is configured. Requires --x402; a request the service
+    /// serves is never paid for.
     #[arg(long, global = true)]
     pub prefer_x402: bool,
 
-    /// Local key file used for x402 EIP-3009 signatures
+    /// Local key file used for x402 EIP-3009 signatures; falls back to --key-file
     #[arg(long, global = true, env = "AGENTSWAP_X402_KEY_FILE")]
     pub x402_key_file: Option<String>,
 
@@ -50,19 +55,25 @@ pub struct Cli {
     #[arg(long = "x402-chainid", global = true, env = "AGENTSWAP_X402_CHAINID", default_value_t = 8453)]
     pub x402_chain_id: u64,
 
-    /// Maximum x402 payment amount as unsigned decimal digits in raw token units
+    /// Maximum x402 payment as unsigned decimal digits in raw token units. The default 0 refuses
+    /// every payment, so --x402 on its own never pays: set a cap at or above the amount the
+    /// service asks for.
     #[arg(long, global = true, env = "AGENTSWAP_X402_MAX_AMOUNT", default_value = "0")]
     pub x402_max_amount: String,
 
-    /// x402 asset symbol or address selector
+    /// x402 payment asset. Only USDC is supported: the EIP-3009 domain is fixed to USD Coin
+    /// version 2, so any other symbol or address is refused before signing.
     #[arg(long, global = true, env = "AGENTSWAP_X402_ASSET", default_value = "USDC")]
     pub x402_asset: String,
 
-    /// Allow trade execution; otherwise trade is forced to dry-run
+    /// Allow live execution of `trade` and `intent place`; without it both are forced to dry-run,
+    /// and the MCP `trade` and `intent_place` tools cannot execute.
     #[arg(long, global = true)]
     pub allow_trade: bool,
 
-    /// Per-trade cap on amountIn as unsigned decimal digits in raw token units; refuses to sign/self-submit above it. Also bounds MCP trades.
+    /// Cap on amountIn for `trade` and `intent place` as unsigned decimal digits in raw token
+    /// units; refuses to sign or submit above it. Also bounds the MCP `trade` and `intent_place`
+    /// tools.
     #[arg(long = "max-amount", global = true, env = "AGENTSWAP_TRADE_MAX_AMOUNT")]
     pub trade_max_amount: Option<String>,
 
@@ -74,8 +85,7 @@ pub struct Cli {
 pub enum Commands {
     /// Get quotes for multiple token pairs at once
     BatchQuote {
-        /// Chain ID such as 8453; known aliases such as base are also accepted.
-        #[arg(short, long = "chainid")]
+        #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
         chain_id: String,
         #[arg(required = true)]
         pairs: Vec<String>,
@@ -85,10 +95,9 @@ pub enum Commands {
     },
     /// List supported chains and DEX info
     Chains,
-    /// Show wallet call instructions for buying API quota
+    /// Show wallet call instructions for buying API quota (Base and Arbitrum only)
     BuyQuota {
-        /// Chain ID such as 8453; known aliases such as base are also accepted.
-        #[arg(short, long = "chainid")]
+        #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
         chain_id: String,
         #[arg(short, long)]
         token: String,
@@ -98,8 +107,7 @@ pub enum Commands {
     },
     /// Get a swap quote
     Quote {
-        /// Chain ID such as 8453; known aliases such as base are also accepted.
-        #[arg(short, long = "chainid")]
+        #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
         chain_id: String,
         #[arg(short, long)]
         from: String,
@@ -119,24 +127,26 @@ pub enum Commands {
     KeyInfo,
     /// List supported tokens
     Tokens {
-        /// Chain ID such as 8453; known aliases such as base are also accepted.
-        #[arg(short, long = "chainid")]
+        #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
         chain_id: Option<String>,
     },
     /// Inspect a specific pool
     Pools {
-        /// Chain ID such as 8453; known aliases such as base are also accepted.
-        #[arg(short, long = "chainid")]
+        #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
         chain_id: String,
         #[arg(short, long)]
         address: String,
     },
     /// Register a new API key via wallet signature
     Register {
+        /// Owner wallet address the API key is registered for
         #[arg(long)]
         address: String,
+        /// Private key that signs the registration challenge; --key-file takes precedence
         #[arg(long)]
         private_key: Option<String>,
+        /// File holding the private key that signs the registration challenge. This is
+        /// register's own flag: it does not read AGENTSWAP_KEY_FILE.
         #[arg(long)]
         key_file: Option<String>,
     },
@@ -144,8 +154,7 @@ pub enum Commands {
     Pricing,
     /// Claim purchased API quote quota using an on-chain tx hash
     QuotaClaim {
-        /// Chain ID such as 8453; known aliases such as base are also accepted.
-        #[arg(short, long = "chainid")]
+        #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
         chain_id: String,
         #[arg(long)]
         tx_hash: String,
@@ -155,7 +164,8 @@ pub enum Commands {
         #[arg(long)]
         hash: String,
     },
-    /// Run an MCP server over stdio
+    /// Run an MCP server over stdio exposing nine tools: quote, batch_quote, tokens, pools,
+    /// trade, intent_place, intent_list, intent_status and policy
     Mcp,
     /// Place, list, or inspect V6 open intents
     Intent {
@@ -163,23 +173,30 @@ pub enum Commands {
         command: IntentCommands,
     },
     /// Show the V6 policy and token budgets for an agent
+    #[command(after_help = V6_CHAINS_NOTE)]
     Policy {
-        /// Chain ID such as 8453; known aliases such as base are also accepted.
-        #[arg(short, long = "chainid")]
+        #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
         chain_id: String,
+        /// Owner wallet whose proxy holds the policy
         #[arg(long)]
         owner: String,
+        /// Agent wallet the policy authorizes
         #[arg(long)]
         agent: String,
+        /// Blocks scanned for cap events; defaults to 200,000, or 9,000 on BNB Smart Chain with
+        /// the built-in public RPC
         #[arg(long)]
         lookback_blocks: Option<u64>,
+        /// Token address to read a budget for, repeatable; use it when the cap events are older
+        /// than the lookback
         #[arg(long = "token")]
         tokens: Vec<String>,
     },
-    /// Quote and sign an agent order, optionally self-submitting it; dry-run requires a reachable RPC and deployed V6 proxy to verify policy and order hashes before signing
+    /// Quote and sign an AgentOrder, optionally self-submitting it; a dry-run requires a
+    /// reachable RPC and deployed V6 proxy to verify policy and order hashes before signing
+    #[command(after_help = V6_CHAINS_NOTE)]
     Trade {
-        /// Chain ID such as 8453; known aliases such as base are also accepted.
-        #[arg(short, long = "chainid")]
+        #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
         chain_id: String,
         #[arg(short, long)]
         from: String,
@@ -190,21 +207,33 @@ pub enum Commands {
         amount: String,
         #[arg(short, long)]
         slippage: Option<u16>,
-        /// Optional unsigned decimal minimum output in raw token units.
+        /// Minimum output as unsigned decimal digits in raw token units. Required for a live
+        /// trade: without it the trade is refused, because the quote server's output is not
+        /// trusted as the protection floor. Optional in a dry run.
         #[arg(long)]
         min_out: Option<String>,
+        /// Order mode. Only `agent-order` is implemented; any other value is refused.
         #[arg(long, default_value = "agent-order")]
         mode: String,
+        /// Address of the owner's V6 proxy that authorizes the agent
         #[arg(long, env = "AGENTSWAP_PROXY")]
         proxy: String,
+        /// Order nonce; a random one is used when omitted
         #[arg(long)]
         nonce: Option<String>,
+        /// Seconds from now until the signed AgentOrder expires; default 120. This is a different
+        /// deadline from `intent place --deadline-secs`, which defaults to the intent window.
         #[arg(long, default_value_t = 120)]
         deadline_secs: u64,
+        /// Sign and verify against the chain, then stop: no self-submission. Forced on unless
+        /// --allow-trade is set.
         #[arg(long)]
         dry_run: bool,
+        /// Broadcast executeAsAgent to the proxy from the --key-file wallet, which pays the gas.
+        /// Needs --allow-trade; a dry run never sends.
         #[arg(long)]
         self_submit: bool,
+        /// Local signer key file for this trade; falls back to the global --key-file
         #[arg(long)]
         key_file: Option<String>,
     },
@@ -213,10 +242,11 @@ pub enum Commands {
 #[derive(Subcommand)]
 pub enum IntentCommands {
     /// Sign and announce an agent-placed open intent
+    #[command(after_help = V6_CHAINS_NOTE)]
     Place {
-        /// Chain ID such as 8453; known aliases such as base are also accepted.
-        #[arg(short, long = "chainid")]
+        #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
         chain_id: String,
+        /// Owner wallet whose V6 proxy signs the intent
         #[arg(long)]
         proxy_owner: String,
         #[arg(short, long)]
@@ -232,38 +262,58 @@ pub enum IntentCommands {
         /// Unsigned decimal ending output in the token's smallest unit.
         #[arg(long)]
         end_out: String,
+        /// Seconds over which the output decays from --start-out to --end-out; defaults to the
+        /// window and is capped at it. Must be greater than zero.
         #[arg(long)]
         decay_secs: Option<u64>,
+        /// Intent window in seconds from now; default 600.
         #[arg(long)]
         duration_secs: Option<u64>,
+        /// Seconds from now for the agent authorization deadline. Defaults to the end of the
+        /// intent window; a value that lands before the window closes is refused with both
+        /// numbers named.
         #[arg(long)]
         deadline_secs: Option<u64>,
+        /// Have the AgentSwap relay announce the signed intent; it always posts to
+        /// https://app.agentswap.co, not to --url. Mutually exclusive with --self-submit, and a
+        /// live placement needs exactly one of the two.
         #[arg(long)]
         relay: bool,
+        /// Broadcast IntentSettlerV3.announce yourself from the --key-file wallet, which pays the
+        /// gas. Mutually exclusive with --relay.
         #[arg(long)]
         self_submit: bool,
+        /// Sign and verify against the chain, then stop: no relay, no broadcast. Forced on unless
+        /// --allow-trade is set.
         #[arg(long)]
         dry_run: bool,
     },
     /// List announced intents by owner or agent
+    #[command(after_help = V6_CHAINS_NOTE)]
     List {
-        /// Chain ID such as 8453; known aliases such as base are also accepted.
-        #[arg(short, long = "chainid")]
+        #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
         chain_id: String,
+        /// Owner wallet whose intents to list; required unless --agent is given
         #[arg(long, conflicts_with = "agent", required_unless_present = "agent")]
         owner: Option<String>,
+        /// Agent wallet that placed the intents; required unless --owner is given
         #[arg(long, conflicts_with = "owner", required_unless_present = "owner")]
         agent: Option<String>,
+        /// Blocks scanned for IntentAnnounced events; defaults to 200,000, or 9,000 on BNB Smart
+        /// Chain with the built-in public RPC
         #[arg(long)]
         lookback_blocks: Option<u64>,
     },
     /// Inspect an announced intent by bytes32 id
+    #[command(after_help = V6_CHAINS_NOTE)]
     Status {
-        /// Chain ID such as 8453; known aliases such as base are also accepted.
-        #[arg(short, long = "chainid")]
+        #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
         chain_id: String,
+        /// Intent id (bytes32) as announced
         #[arg(long)]
         id: String,
+        /// Blocks scanned for the IntentAnnounced event; defaults to 200,000, or 9,000 on BNB
+        /// Smart Chain with the built-in public RPC
         #[arg(long)]
         lookback_blocks: Option<u64>,
     },
