@@ -4,7 +4,7 @@
 
 use eyre::{eyre, Result};
 use crate::client::Client;
-use crate::tokens::chain_name_to_id;
+use crate::tokens::{chain_name_to_id, unknown_chain_id};
 
 pub struct Args {
     pub chain_id: String,
@@ -13,9 +13,8 @@ pub struct Args {
 }
 
 pub async fn run(client: &Client, args: Args) -> Result<()> {
-    let chain_id = chain_name_to_id(&args.chain_id).ok_or_else(|| {
-        eyre!("unknown chain id: {}. Pass a chain ID such as 8453 (aliases like base are accepted)", args.chain_id)
-    })?;
+    let chain_id = chain_name_to_id(&args.chain_id)
+        .ok_or_else(|| eyre!("{}", unknown_chain_id(&args.chain_id)))?;
     let resp = client.quota_claim(chain_id, &args.tx_hash).await?;
 
     if args.json {

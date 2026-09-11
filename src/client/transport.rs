@@ -27,7 +27,7 @@ impl Client {
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
             if status == reqwest::StatusCode::UNAUTHORIZED {
-                return Err(eyre!("HTTP 401 Unauthorized — set SR_API_KEY env var or register with: agentswap register"));
+                return Err(eyre!("HTTP 401 Unauthorized"));
             }
             return Err(eyre!("HTTP {status}: {body}"));
         }
@@ -54,7 +54,7 @@ impl Client {
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
             if status == reqwest::StatusCode::UNAUTHORIZED {
-                return Err(eyre!("HTTP 401 Unauthorized — set SR_API_KEY env var or register with: agentswap register"));
+                return Err(eyre!("HTTP 401 Unauthorized"));
             }
             return Err(eyre!("HTTP {status}: {body}"));
         }

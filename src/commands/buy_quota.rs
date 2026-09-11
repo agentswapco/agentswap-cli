@@ -7,7 +7,7 @@ use eyre::{eyre, Result};
 
 use crate::client::Client;
 use crate::order_types::parse_raw_amount;
-use crate::tokens::{chain_id_to_name, chain_name_to_id, format_amount, resolve_token};
+use crate::tokens::{chain_id_to_name, chain_name_to_id, format_amount, resolve_token, unknown_chain_id};
 
 pub struct Args {
     pub chain_id: String,
@@ -19,9 +19,8 @@ pub struct Args {
 pub async fn run(client: &Client, args: Args) -> Result<()> {
     // Quota purchase amounts retain their existing zero-accepted policy.
     parse_raw_amount("quota purchase amount", &args.amount)?;
-    let chain_id = chain_name_to_id(&args.chain_id).ok_or_else(|| {
-        eyre!("unknown chain id: {}. Pass a chain ID such as 8453 (aliases like base are accepted)", args.chain_id)
-    })?;
+    let chain_id = chain_name_to_id(&args.chain_id)
+        .ok_or_else(|| eyre!("{}", unknown_chain_id(&args.chain_id)))?;
     let (quota_contract, usdc_address) = quota_config(chain_id)
         .ok_or_else(|| eyre!("quota purchase is only supported on Base and Arbitrum"))?;
     let (token_addr, token_sym, token_dec) = resolve_token(&args.token, chain_id)
@@ -73,7 +72,7 @@ pub async fn run(client: &Client, args: Args) -> Result<()> {
     }
 
     println!(
-        "Buy ~{} quotes for {} {} via buyWithToken",
+        "Estimated ~{} quotes for {} {} via buyWithToken, at 100 raw USDC units per quote (confirm the price with: agentswap pricing)",
         format_amount(&estimated_quotes.to_string(), 0),
         output["amount"]["display"].as_str().unwrap_or("?"),
         token_sym
@@ -106,7 +105,7 @@ fn print_usdc(
         return Ok(());
     }
     println!(
-        "Buy {} quotes for {amount_in} ({amount_display} {token_sym}) via buyWithUSDC",
+        "Estimated {} quotes for {amount_in} ({amount_display} {token_sym}) via buyWithUSDC, at 100 raw USDC units per quote (confirm the price with: agentswap pricing)",
         format_amount(&quotes.to_string(), 0),
     );
     println!("To: {quota_contract}");

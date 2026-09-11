@@ -5,7 +5,7 @@
 use crate::client::Client;
 use crate::service::{intent, market, quote, trade};
 use crate::signer::Signer;
-use crate::tokens::chain_name_to_id;
+use crate::tokens::{chain_name_to_id, unknown_chain_id, CHAIN_ID_HELP};
 use eyre::Result;
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -54,7 +54,7 @@ impl AgentSwapMcp {
 
 #[tool_router(router = tool_router)]
 impl AgentSwapMcp {
-    #[tool(description = "Get a swap quote by chain ID; aliases such as base are accepted as a convenience. Amount is an unsigned decimal integer in the input token's smallest unit.")]
+    #[tool(description = "Get a swap quote. Amount is an unsigned decimal integer in the input token's smallest unit.")]
     async fn quote(
         &self,
         Parameters(input): Parameters<quote::QuoteInput>,
@@ -65,7 +65,7 @@ impl AgentSwapMcp {
             .map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "Get quotes for multiple FROM/TO pairs by chain ID; aliases such as base are accepted as a convenience. Amount is an unsigned decimal integer in the input token's smallest unit.")]
+    #[tool(description = "Get quotes for multiple FROM/TO pairs. Amount is an unsigned decimal integer in the input token's smallest unit.")]
     async fn batch_quote(
         &self,
         Parameters(input): Parameters<BatchQuoteInput>,
@@ -76,15 +76,13 @@ impl AgentSwapMcp {
             .map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "List supported tokens, optionally filtered by chain_id (a chain ID such as 8453; an alias such as base is accepted)")]
+    #[tool(description = "List supported tokens, optionally filtered by chain_id.")]
     async fn tokens(
         &self,
         Parameters(input): Parameters<TokensInput>,
     ) -> std::result::Result<Json<ValueOutput>, String> {
         if let Some(chain_id) = input.chain_id.as_deref() {
-            chain_name_to_id(chain_id).ok_or_else(|| {
-                format!("unknown chain id: {chain_id}. Pass a chain ID such as 8453 (aliases like base are accepted)")
-            })?;
+            chain_name_to_id(chain_id).ok_or_else(|| unknown_chain_id(chain_id))?;
         }
         match market::tokens(&self.client).await {
             Ok(tokens) => filter_tokens(tokens, input.chain_id.as_deref())
@@ -93,7 +91,7 @@ impl AgentSwapMcp {
         }
     }
 
-    #[tool(description = "Inspect a pool by chain ID and address; aliases such as base are accepted as a convenience.")]
+    #[tool(description = "Inspect a pool by chain ID and address.")]
     async fn pools(
         &self,
         Parameters(input): Parameters<PoolsInput>,
@@ -104,7 +102,7 @@ impl AgentSwapMcp {
             .map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "Quote and sign an AgentOrder; chain_id is a chain ID such as 8453 (an alias such as base is accepted) and amount, min_out and max_amount are unsigned decimal integers in raw token units. Dry-run defaults to true and requires a reachable RPC and deployed V6 proxy to verify policy and order hashes before signing")]
+    #[tool(description = "Quote and sign an AgentOrder; amount, min_out and max_amount are unsigned decimal integers in raw token units. A live trade (dry_run=false) is refused without min_out, because the quote server's output is not trusted as the protection floor. dry_run defaults to true and is forced true unless the server was started with --allow-trade. Signing verifies policy and order hashes against a reachable RPC and the deployed V6 proxy.")]
     async fn trade(
         &self,
         Parameters(mut input): Parameters<trade::TradeInput>,
@@ -125,7 +123,7 @@ impl AgentSwapMcp {
             .map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "Sign and announce a V6 open intent; chain_id is a chain ID such as 8453 (an alias such as base is accepted) and amount, start_out, end_out and max_amount are unsigned decimal integers in raw token units. Dry-run is forced without allow_trade")]
+    #[tool(description = "Sign and announce a V6 open intent; amount, start_out, end_out and max_amount are unsigned decimal integers in raw token units. dry_run is forced true unless the server was started with --allow-trade, and a live announcement needs exactly one of relay or self_submit. Announcing needs a V6 deployment: Base (8453), Arbitrum One (42161), BNB Smart Chain (56) or Robinhood Chain (4663).")]
     async fn intent_place(
         &self,
         Parameters(mut input): Parameters<intent::PlaceInput>,
@@ -137,7 +135,7 @@ impl AgentSwapMcp {
             .await.map(Json).map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "List announced V6 intents by owner or agent on chain_id (a chain ID such as 8453; an alias such as base is accepted)")]
+    #[tool(description = "List announced V6 intents on chain_id. Either owner or agent is required; a call with neither is refused.")]
     async fn intent_list(
         &self,
         Parameters(input): Parameters<intent::ListInput>,
@@ -148,7 +146,7 @@ impl AgentSwapMcp {
         intent::list(input).await.map(|intents| Json(IntentListOutput { intents })).map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "Inspect one V6 intent by bytes32 id on chain_id (a chain ID such as 8453; an alias such as base is accepted)")]
+    #[tool(description = "Inspect one V6 intent by bytes32 id on chain_id.")]
     async fn intent_status(
         &self,
         Parameters(input): Parameters<intent::StatusInput>,
@@ -156,7 +154,7 @@ impl AgentSwapMcp {
         intent::status(input).await.map(Json).map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "Read a V6 agent policy and per-token cap/usage on chain_id (a chain ID such as 8453; an alias such as base is accepted)")]
+    #[tool(description = "Read a V6 agent policy and per-token cap/usage on chain_id. Token addresses are discovered from cap events inside the log lookback and current budgets are read from the proxy; pass tokens to include addresses older than the lookback.")]
     async fn policy(
         &self,
         Parameters(input): Parameters<intent::PolicyInput>,
@@ -190,7 +188,7 @@ fn bound_trade_cap(input: &mut trade::TradeInput, server_cap: &str) -> std::resu
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct BatchQuoteInput {
-    /// Chain ID such as 8453; known aliases such as base are also accepted.
+    #[schemars(description = CHAIN_ID_HELP)]
     chain_id: String,
     pairs: Vec<String>,
     /// Unsigned decimal amount in the input token's smallest unit.
@@ -214,13 +212,13 @@ struct ValueOutput {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct TokensInput {
-    /// Chain ID such as 8453; known aliases such as base are also accepted.
+    #[schemars(description = CHAIN_ID_HELP)]
     chain_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct PoolsInput {
-    /// Chain ID such as 8453; known aliases such as base are also accepted.
+    #[schemars(description = CHAIN_ID_HELP)]
     chain_id: String,
     address: String,
 }
@@ -237,7 +235,7 @@ fn filter_tokens(tokens: serde_json::Value, chain_id: Option<&str>) -> std::resu
     let Some(chain_id) = chain_id else {
         return Ok(tokens);
     };
-    let chain_id = chain_name_to_id(chain_id).ok_or_else(|| format!("unknown chain id: {chain_id}. Pass a chain ID such as 8453 (aliases like base are accepted)"))?;
+    let chain_id = chain_name_to_id(chain_id).ok_or_else(|| unknown_chain_id(chain_id))?;
     let Some(object) = tokens.as_object() else {
         return Ok(tokens);
     };

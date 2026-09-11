@@ -1,12 +1,13 @@
 // V6 trade orchestration from quote to signed AgentOrder.
 // Exports: TradeInput, TradeOptions, TradeOutcome, execute_trade.
-// Deps: quote service, order_types, signer trait.
+// Deps: quote service, order_types, signer trait, crate::tokens for the chain-selector copy.
 
 use crate::client::Client;
 use crate::evm;
 use crate::order_types::{self, AgentOrderDto, UserProxyV6};
 use crate::service::quote::{self, QuoteInput, QuoteOutput};
 use crate::signer::Signer;
+use crate::tokens::CHAIN_ID_HELP;
 use alloy::primitives::{Address, Bytes, U256};
 use alloy::network::TransactionBuilder;
 use alloy::providers::Provider;
@@ -18,23 +19,27 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TradeInput {
-    /// Chain ID such as 8453; known aliases such as base are also accepted.
+    #[schemars(description = CHAIN_ID_HELP)]
     pub chain_id: String,
     pub from: String,
     pub to: String,
     /// Unsigned decimal input amount in the token's smallest unit.
     pub amount: String,
     pub slippage: Option<u16>,
-    /// Optional unsigned decimal minimum output in raw token units.
+    /// Minimum output as unsigned decimal digits in raw token units. Required for a live trade:
+    /// without it the trade is refused, because the quote server's output is not trusted as the
+    /// protection floor. Optional in a dry run.
     pub min_out: Option<String>,
     /// Optional unsigned decimal per-trade cap in raw input units.
     #[serde(default)]
     pub max_amount: Option<String>,
+    /// Only `agent-order` is implemented; any other value is refused.
     #[serde(default = "agent_order_mode")]
     pub mode: String,
     pub proxy: String,
     pub nonce: Option<String>,
     pub deadline_secs: Option<u64>,
+    /// Defaults to true, and is forced true unless the server was started with --allow-trade.
     #[serde(default = "default_true")]
     pub dry_run: bool,
     #[serde(default)]

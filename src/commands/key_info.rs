@@ -25,7 +25,7 @@ pub async fn run(client: &Client, json: bool) -> Result<()> {
     table.load_preset(UTF8_FULL_CONDENSED);
     table.set_header(vec!["API Key Info", ""]);
     table.add_row(vec!["Status", status]);
-    table.add_row(vec!["Wallet", wallet]);
+    table.add_row(vec!["Owner wallet", wallet]);
     table.add_row(vec!["Quota Total", &quota_total.to_string()]);
     table.add_row(vec!["Quota Used", &quota_used.to_string()]);
     table.add_row(vec!["Quota Remaining", &quota_remaining.to_string()]);

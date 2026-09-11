@@ -18,7 +18,7 @@ pub async fn run(client: &Client, json: bool) -> Result<()> {
 
     let mut table = Table::new();
     table.load_preset(UTF8_FULL_CONDENSED);
-    table.set_header(vec!["Chain", "ID", "DEXes", "Pools", "Executor"]);
+    table.set_header(vec!["Chain", "ID", "DEXes", "Pools", "Solver"]);
 
     for chain in chains {
         let name = chain["name"].as_str().unwrap_or("?");

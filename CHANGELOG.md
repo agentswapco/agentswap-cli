@@ -12,11 +12,6 @@
   authorization deadline, and the gas paid to announce it was already spent. Anyone passing a
   `--deadline-secs` shorter than their order window now gets an error instead of a signature.
 
-### Added
-
-- Offline golden-vector tests for the `IntentAuthorization` EIP-712 digest and for the
-  authorization envelope bytes, so domain, typehash and encoding are pinned without an RPC.
-
 ## 0.6.0 — 2026-09-07
 
 ### Breaking
@@ -48,7 +43,7 @@
 
 ## 0.4.0 — 2026-09-06
 
-The CLI is now a client for the V6 protocol generation, live since 2026-09-06 at one address set
+The CLI is now a client for the V6 protocol generation, deployed at one address set
 on Base, Arbitrum, BNB Smart Chain and Robinhood Chain: `UserProxyFactoryV6`
 `0xc1660e4BbC825f8367dA92b60dccc17E4E10bc26`, `IntentSettlerV3`
 `0x2dd81c4fD1FC38b009Ab10D5C9b1f01Ca51cE462`, `IntentLensV3`
@@ -77,9 +72,7 @@ token) before an agent can place or trade for them.
 
 ### Notes
 
-- No V6 fill is possible on chain until the solver in open-intent-filler ships and is allowlisted
-  on the system filler gate. `list` and `status` were validated against the published lens
-  captures and the live lens, not against a filled V6 order.
+- `list` and `status` read the lens; they do not depend on a fill having happened.
 
 ## 0.3.0 — 2026-09-05
 

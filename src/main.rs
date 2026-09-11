@@ -33,8 +33,8 @@ async fn main() {
         eprintln!("Error: {msg}");
         if msg.contains("401") {
             eprintln!();
-            eprintln!("No API key found. To get started:");
-            eprintln!("  agentswap register --address <YOUR_WALLET> --key-file <PRIVATE_KEY_FILE>");
+            eprintln!("This endpoint needs a valid API key. To get one:");
+            eprintln!("  agentswap register --address <OWNER_WALLET> --key-file <KEY_FILE>");
             eprintln!("  (or set SR_API_KEY if you already have a key)");
         }
         std::process::exit(1);

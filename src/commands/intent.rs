@@ -57,7 +57,7 @@ fn print_place(result: &intent::PlaceOutcome) {
     table.load_preset(UTF8_FULL_CONDENSED);
     table.set_header(vec!["AgentSwap Intent", ""]);
     table.add_row(vec!["Dry Run", &result.dry_run.to_string()]);
-    table.add_row(vec!["Order ID", result.id.as_str()]);
+    table.add_row(vec!["Intent ID", result.id.as_str()]);
     table.add_row(vec!["Order", &format!("{} -> {} amount={} out={}..{}", result.order.token_in, result.order.token_out, result.order.amount_in, result.order.start_amount_out, result.order.end_amount_out)]);
     table.add_row(vec!["Agent", result.authorization.agent.as_str()]);
     table.add_row(vec!["Envelope", result.envelope.as_str()]);
