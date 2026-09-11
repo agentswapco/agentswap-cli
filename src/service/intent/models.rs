@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 pub struct PlaceInput {
     #[schemars(description = CHAIN_ID_HELP)]
     pub chain_id: String,
-    /// Owner wallet whose V6 proxy signs the intent.
+    /// Owner wallet whose User Proxy authorizes the agent to place the intent.
     pub proxy_owner: String,
     pub from: String,
     pub to: String,

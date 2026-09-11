@@ -36,7 +36,7 @@ pub fn chain_id_to_name(chain_id: u64) -> &'static str {
         1 => "Ethereum",
         10 => "Optimism",
         8453 => "Base",
-        42161 => "Arbitrum",
+        42161 => "Arbitrum One",
         56 => "BNB Smart Chain",
         4663 => "Robinhood Chain",
         _ => "Unknown",
@@ -175,7 +175,7 @@ mod tests {
         assert_eq!(chain_id_to_name(1), "Ethereum");
         assert_eq!(chain_id_to_name(10), "Optimism");
         assert_eq!(chain_id_to_name(8453), "Base");
-        assert_eq!(chain_id_to_name(42161), "Arbitrum");
+        assert_eq!(chain_id_to_name(42161), "Arbitrum One");
         assert_eq!(chain_id_to_name(56), "BNB Smart Chain");
         assert_eq!(chain_id_to_name(4663), "Robinhood Chain");
         assert_eq!(chain_id_to_name(999), "Unknown");

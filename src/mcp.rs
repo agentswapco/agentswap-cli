@@ -154,7 +154,7 @@ impl AgentSwapMcp {
         intent::status(input).await.map(Json).map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "Read a V6 agent policy and per-token cap/usage on chain_id. Budgets come from cap events inside the log lookback; name the tokens you want budgets for in tokens.")]
+    #[tool(description = "Read a V6 agent policy and per-token cap/usage on chain_id. Token addresses are discovered from cap events inside the log lookback and current budgets are read from the proxy; pass tokens to include addresses older than the lookback.")]
     async fn policy(
         &self,
         Parameters(input): Parameters<intent::PolicyInput>,

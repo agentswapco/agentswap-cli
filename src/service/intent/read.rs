@@ -121,7 +121,7 @@ pub async fn policy(input: PolicyInput) -> Result<PolicyOutput> {
         token_out.push(TokenPolicy { token: format!("{token:?}"), allowed: info.allowed, cap: info.cap.to_string(), used: info.used.to_string(), epoch_start: info.epochStart.to_string() });
     }
     let note = if event_tokens.is_empty() && !explicit_tokens && generation != 0 && policy.expiry > super::now()? {
-        Some(format!("no cap events within {lookback} blocks; name the tokens you want budgets for (`policy --token`, MCP `tokens`)"))
+        Some(format!("no cap events within {lookback} blocks; pass the token addresses to read (`policy --tokens`, MCP `policy.tokens`)"))
     } else {
         None
     };

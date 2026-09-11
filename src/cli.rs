@@ -9,7 +9,7 @@ use clap::{Parser, Subcommand};
 #[command(
     name = "agentswap",
     version,
-    about = "AgentSwap CLI for requesting quotes, inspecting tokens and pools, managing V6 intents, and registering an API key against the AgentSwap service."
+    about = "AgentSwap CLI for requesting quotes, inspecting tokens and pools, managing intents, and registering an API key against the AgentSwap service."
 )]
 pub struct Cli {
     /// Output raw JSON instead of formatted tables
@@ -154,8 +154,7 @@ pub enum Commands {
         /// Private key that signs the registration challenge; --key-file takes precedence
         #[arg(long)]
         private_key: Option<String>,
-        /// File holding the private key that signs the registration challenge. This is
-        /// register's own flag: it does not read AGENTSWAP_KEY_FILE.
+        /// File holding the private key that signs the registration challenge.
         #[arg(long)]
         key_file: Option<String>,
     },
@@ -203,8 +202,9 @@ pub enum Commands {
         #[arg(long = "token")]
         tokens: Vec<String>,
     },
-    /// Quote and sign an AgentOrder, optionally self-submitting it; a dry-run requires a
-    /// reachable RPC and deployed V6 proxy to verify policy and order hashes before signing
+    /// Quote and sign an AgentOrder, optionally self-submitting it. A dry-run needs a reachable
+    /// RPC and a deployed proxy: it reads the agent policy generation and checks the AgentOrder
+    /// digest against the proxy before signing; it does not prove the trade would execute
     #[command(after_help = V6_CHAINS_NOTE)]
     Trade {
         #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
@@ -262,7 +262,7 @@ pub enum IntentCommands {
     Place {
         #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
         chain_id: String,
-        /// Owner wallet whose V6 proxy signs the intent
+        /// Owner wallet whose User Proxy authorizes the agent to place the intent
         #[arg(long)]
         proxy_owner: String,
         /// Input token symbol or raw address; a raw address must answer decimals() on that chain

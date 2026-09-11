@@ -2,7 +2,7 @@
 name = "agentswap"
 version = "0.7.0"
 edition = "2024"
-description = "AgentSwap CLI for requesting quotes, inspecting tokens and pools, managing V6 intents, and registering an API key against the AgentSwap service."
+description = "AgentSwap CLI for requesting quotes, inspecting tokens and pools, managing intents, and registering an API key against the AgentSwap service."
 license = "MIT"
 repository = "https://github.com/agentswapco/agentswap-cli"
 keywords = ["defi", "dex", "swap", "aggregator", "cli"]

@@ -1,6 +1,6 @@
 # agentswap
 
-AgentSwap CLI for requesting quotes, inspecting tokens and pools, managing V6 intents, and registering an API key against the AgentSwap service.
+AgentSwap CLI for requesting quotes, inspecting tokens and pools, managing intents, and registering an API key against the AgentSwap service.
 
 ## Install
 
@@ -22,9 +22,13 @@ agentswap chains
 agentswap tokens --chainid 8453
 agentswap quote --chainid 8453 --from USDC --to WETH --amount 1000000
 agentswap batch-quote --chainid 42161 --amount 1000000 USDC/WETH WETH/ARB
-agentswap trade --chainid 8453 --from USDC --to WETH --amount 1000000 --dry-run
+agentswap trade --chainid 8453 --from USDC --to WETH --amount 1000000 \
+  --proxy 0xYourProxy --key-file ./private-key.txt --dry-run
 agentswap route-explain --hash 0xYourQuoteHash
 ```
+
+Replace `0xYourProxy` with your User Proxy address and `./private-key.txt` with the agent's signing
+key file; `--dry-run` signs locally and never broadcasts.
 
 Use `--chainid` with a numeric chain ID such as `8453`; known aliases such as `base`, `arb`,
 `bsc`, `robinhood` and `ethereum` are also accepted. Quotes, tokens and pools resolve any of
@@ -57,9 +61,9 @@ unit; `--max-amount` bounds the raw input amount before signing or sending. A tr
 verifies policy and order hashes against the chain before signing, and may sign locally but never
 broadcasts or relays.
 
-`agentswap mcp` exposes nine tools — quote, batch_quote, tokens, pools, trade, intent_place,
-intent_list, intent_status and policy — under the same `--allow-trade` gate; intent listing
-requires an owner or agent filter. MCP `trade` additionally defaults `dry_run` to true, while the
+`agentswap mcp` exposes nine tools: quote, batch_quote, tokens, pools, trade, intent_place,
+intent_list, intent_status and policy. `--allow-trade` permits live execution by trade and
+intent_place; without it those two run as dry-runs. Intent listing requires an owner or agent filter. MCP `trade` additionally defaults `dry_run` to true, while the
 CLI defaults to a live trade once `--allow-trade` is set.
 
 Intent and policy reads inspect the latest 200,000 blocks on Base, Arbitrum One, BNB Smart Chain
