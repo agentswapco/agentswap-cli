@@ -87,6 +87,7 @@ pub enum Commands {
     BatchQuote {
         #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
         chain_id: String,
+        /// Token pairs as FROM/TO, one or more, such as USDC/WETH WETH/ARB
         #[arg(required = true)]
         pairs: Vec<String>,
         /// Unsigned decimal amount in the input token's smallest unit.
@@ -99,6 +100,8 @@ pub enum Commands {
     BuyQuota {
         #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
         chain_id: String,
+        /// Token to pay with, symbol or address. USDC buys quota directly; any other token is
+        /// quoted to USDC first and bought through the token path.
         #[arg(short, long)]
         token: String,
         /// Unsigned decimal amount in the input token's smallest unit.
@@ -109,15 +112,20 @@ pub enum Commands {
     Quote {
         #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
         chain_id: String,
+        /// Input token symbol or address on that chain
         #[arg(short, long)]
         from: String,
+        /// Output token symbol or address on that chain
         #[arg(short, long)]
         to: String,
         /// Unsigned decimal amount in the input token's smallest unit.
         #[arg(short, long)]
         amount: String,
+        /// Slippage tolerance in basis points, sent as slippage_bps; omitted from the request
+        /// when not given
         #[arg(short, long)]
         slippage: Option<u16>,
+        /// Ask the service to verify the quoted output; prints the verified output and deviation
         #[arg(long)]
         verify: bool,
     },
@@ -134,6 +142,7 @@ pub enum Commands {
     Pools {
         #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
         chain_id: String,
+        /// Pool address to inspect
         #[arg(short, long)]
         address: String,
     },
@@ -156,11 +165,13 @@ pub enum Commands {
     QuotaClaim {
         #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
         chain_id: String,
+        /// Transaction hash of the quota purchase
         #[arg(long)]
         tx_hash: String,
     },
     /// Explain a saved quote route by hash
     RouteExplain {
+        /// Hash of the saved quote whose route to explain
         #[arg(long)]
         hash: String,
     },
@@ -198,13 +209,18 @@ pub enum Commands {
     Trade {
         #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
         chain_id: String,
+        /// Input token symbol or address on that chain
         #[arg(short, long)]
         from: String,
+        /// Output token symbol or address on that chain
         #[arg(short, long)]
         to: String,
         /// Unsigned decimal amount in the input token's smallest unit.
         #[arg(short, long)]
         amount: String,
+        /// Slippage tolerance in basis points, sent as slippage_bps. In a dry run without
+        /// --min-out it also derives the protection floor, which falls back to 50 bps when
+        /// --slippage is omitted.
         #[arg(short, long)]
         slippage: Option<u16>,
         /// Minimum output as unsigned decimal digits in raw token units. Required for a live
@@ -249,8 +265,10 @@ pub enum IntentCommands {
         /// Owner wallet whose V6 proxy signs the intent
         #[arg(long)]
         proxy_owner: String,
+        /// Input token symbol or raw address; a raw address must answer decimals() on that chain
         #[arg(short, long)]
         from: String,
+        /// Output token symbol or raw address; a raw address must answer decimals() on that chain
         #[arg(short, long)]
         to: String,
         /// Unsigned decimal input amount in the token's smallest unit.
