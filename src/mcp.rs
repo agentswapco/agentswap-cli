@@ -18,6 +18,12 @@ use std::sync::Arc;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod cli_dry_run_tests;
+#[cfg(test)]
+mod dry_run_fixture;
+#[cfg(test)]
+mod dry_run_tests;
 
 #[derive(Clone)]
 pub struct Config {
@@ -102,7 +108,7 @@ impl AgentSwapMcp {
             .map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "Quote and sign an AgentOrder; amount, min_out and max_amount are unsigned decimal integers in raw token units. A live trade (dry_run=false) is refused without min_out, because the quote server's output is not trusted as the protection floor. dry_run defaults to true and is forced true unless the server was started with --allow-trade. Signing verifies policy and order hashes against a reachable RPC and the deployed V6 proxy.")]
+    #[tool(description = "Preview an unsigned AgentOrder or sign a live trade; amount, min_out and max_amount are unsigned decimal integers in raw token units. A live trade (dry_run=false) requires --allow-trade and min_out, because the quote server's output is not trusted as the protection floor. dry_run defaults to true and is forced true without --allow-trade. A dry-run returns the quote, unsigned AgentOrder and digest after reading policy generation and checking hash parity against a reachable RPC and deployed V6 proxy. It never signs or returns a signature or signed calldata, and never broadcasts.")]
     async fn trade(
         &self,
         Parameters(mut input): Parameters<trade::TradeInput>,
@@ -123,7 +129,7 @@ impl AgentSwapMcp {
             .map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "Sign and announce a V6 open intent; amount, start_out, end_out and max_amount are unsigned decimal integers in raw token units. dry_run is forced true unless the server was started with --allow-trade, and a live announcement needs exactly one of relay or self_submit. Announcing needs a V6 deployment: Base (8453), Arbitrum One (42161), BNB Smart Chain (56) or Robinhood Chain (4663).")]
+    #[tool(description = "Preview an unsigned V6 intent and authorization or sign and announce live; amount, start_out, end_out and max_amount are unsigned decimal integers in raw token units. dry_run is forced true without --allow-trade. A dry-run returns the unsigned intent, authorization and digest after on-chain intent-id and authorization-digest parity checks; it never signs, creates or returns a signature or envelope, relays or broadcasts. Signature-based authorization validation runs only live. A live announcement requires --allow-trade and exactly one of relay or self_submit. Requires a reachable RPC and V6 deployment on Base (8453), Arbitrum One (42161), BNB Smart Chain (56) or Robinhood Chain (4663).")]
     async fn intent_place(
         &self,
         Parameters(mut input): Parameters<intent::PlaceInput>,

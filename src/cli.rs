@@ -66,8 +66,9 @@ pub struct Cli {
     #[arg(long, global = true, env = "AGENTSWAP_X402_ASSET", default_value = "USDC")]
     pub x402_asset: String,
 
-    /// Allow live execution of `trade` and `intent place`; without it both are forced to dry-run,
-    /// and the MCP `trade` and `intent_place` tools cannot execute.
+    /// Allow signing and live execution of `trade`, `intent place` and the MCP `trade` and
+    /// `intent_place` tools. Without it they return unsigned dry-run previews: no intent or
+    /// AgentOrder signatures, authorization envelopes, signed calldata, relay or broadcast.
     #[arg(long, global = true)]
     pub allow_trade: bool,
 
@@ -202,9 +203,10 @@ pub enum Commands {
         #[arg(long = "token")]
         tokens: Vec<String>,
     },
-    /// Quote and sign an AgentOrder, optionally self-submitting it. A dry-run needs a reachable
-    /// RPC and a deployed proxy: it reads the agent policy generation and checks the AgentOrder
-    /// digest against the proxy before signing; it does not prove the trade would execute
+    /// Preview an unsigned AgentOrder or, with --allow-trade, sign and optionally self-submit.
+    /// A dry-run returns the quote, unsigned AgentOrder and digest, with no signature or signed
+    /// calldata. It needs a reachable RPC and deployed proxy for policy generation and digest
+    /// parity checks; those checks do not prove the trade would execute.
     #[command(after_help = V6_CHAINS_NOTE)]
     Trade {
         #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
@@ -241,8 +243,8 @@ pub enum Commands {
         /// deadline from `intent place --deadline-secs`, which defaults to the intent window.
         #[arg(long, default_value_t = 120)]
         deadline_secs: u64,
-        /// Sign and verify against the chain, then stop: no self-submission. Forced on unless
-        /// --allow-trade is set.
+        /// Return the quote, unsigned AgentOrder and digest after on-chain hash parity checks.
+        /// Never sign, return signed calldata or broadcast. Forced on unless --allow-trade is set.
         #[arg(long)]
         dry_run: bool,
         /// Broadcast executeAsAgent to the proxy from the --key-file wallet, which pays the gas.
@@ -257,7 +259,7 @@ pub enum Commands {
 
 #[derive(Subcommand)]
 pub enum IntentCommands {
-    /// Sign and announce an agent-placed open intent
+    /// Preview an unsigned intent and authorization, or sign and announce with --allow-trade.
     #[command(after_help = V6_CHAINS_NOTE)]
     Place {
         #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
@@ -301,8 +303,9 @@ pub enum IntentCommands {
         /// gas. Mutually exclusive with --relay.
         #[arg(long)]
         self_submit: bool,
-        /// Sign and verify against the chain, then stop: no relay, no broadcast. Forced on unless
-        /// --allow-trade is set.
+        /// Return the unsigned intent, authorization and digest after on-chain hash parity checks.
+        /// Never sign, create an envelope, relay or broadcast. Signature-based authorization
+        /// validation runs only on the live path. Forced on unless --allow-trade is set.
         #[arg(long)]
         dry_run: bool,
     },

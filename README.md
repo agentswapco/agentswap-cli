@@ -28,7 +28,7 @@ agentswap route-explain --hash 0xYourQuoteHash
 ```
 
 Replace `0xYourProxy` with your User Proxy address and `./private-key.txt` with the agent's signing
-key file; `--dry-run` signs locally and never broadcasts.
+key file; `--dry-run` returns an unsigned preview and never signs or broadcasts.
 
 Use `--chainid` with a numeric chain ID such as `8453`; known aliases such as `base`, `arb`,
 `bsc`, `robinhood` and `ethereum` are also accepted. Quotes, tokens and pools resolve any of
@@ -41,7 +41,9 @@ refused by those commands.
 V6 open intents are signed against the owner's V6 proxy and can be inspected before they are
 announced. A live `intent place` needs exactly one submission mode: `--relay` hands the signed
 intent to the AgentSwap relay, `--self-submit` broadcasts it from the `--key-file` wallet.
-`--dry-run` signs and verifies against the chain, then stops. Use `intent list --owner <address>`
+`--dry-run` returns the unsigned intent, authorization and digest after on-chain hash parity
+checks, without signing, creating an envelope, relaying or broadcasting. Signature-based
+authorization validation runs only on the live path. Use `intent list --owner <address>`
 and `intent status --id <bytes32>` to inspect them. Raw token addresses are accepted on supported
 chains, and every amount is given in the token's smallest unit.
 
@@ -58,8 +60,9 @@ gates the MCP `trade` and `intent_place` tools. A live trade also needs `--min-o
 explicit floor the trade is refused, because the quote server's output is not trusted as the
 protection floor. Every monetary input is an unsigned decimal integer in the asset's smallest
 unit; `--max-amount` bounds the raw input amount before signing or sending. A trade dry-run
-verifies policy and order hashes against the chain before signing, and may sign locally but never
-broadcasts or relays.
+reads policy generation and verifies the AgentOrder digest against the chain, then returns the quote,
+unsigned AgentOrder and digest. Dry-run outputs omit signatures, authorization envelopes and
+signed calldata; neither command signs, broadcasts or relays in dry-run.
 
 `agentswap mcp` exposes nine tools: quote, batch_quote, tokens, pools, trade, intent_place,
 intent_list, intent_status and policy. `--allow-trade` permits live execution by trade and

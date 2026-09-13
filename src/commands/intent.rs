@@ -60,9 +60,9 @@ fn print_place(result: &intent::PlaceOutcome) {
     table.add_row(vec!["Intent ID", result.id.as_str()]);
     table.add_row(vec!["Order", &format!("{} -> {} amount={} out={}..{}", result.order.token_in, result.order.token_out, result.order.amount_in, result.order.start_amount_out, result.order.end_amount_out)]);
     table.add_row(vec!["Agent", result.authorization.agent.as_str()]);
-    table.add_row(vec!["Envelope", result.envelope.as_str()]);
+    if let Some(envelope) = &result.envelope { table.add_row(vec!["Envelope", envelope.as_str()]); }
     table.add_row(vec!["Digest", result.digest.as_str()]);
-    table.add_row(vec!["Signature", result.signature.as_str()]);
+    if let Some(signature) = &result.signature { table.add_row(vec!["Signature", signature.as_str()]); }
     if let Some(relay) = &result.relay { table.add_row(vec!["Relay", &relay.to_string()]); }
     if let Some(tx_hash) = &result.tx_hash { table.add_row(vec!["Tx Hash", tx_hash.as_str()]); }
     println!("{table}");
