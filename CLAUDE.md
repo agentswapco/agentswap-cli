@@ -15,7 +15,7 @@
 
 ## Identity
 - Every commit, tag, issue, PR and release on this repository is made by the project identity
-  `agentswapco <274458467+agentswapco@users.noreply.github.com>`, never by an individual. Do not
+  `agentswapco <dev@agentswap.co>`, never by an individual. Do not
   add `authors` to `Cargo.toml`, and do not put a person's name, email or machine path in any file.
 - Agents never push; the maintainer pushes from the project account.
 - Commit messages carry no URL that identifies a person, an account or a chat session.
