@@ -37,6 +37,8 @@ pub struct PlaceInput {
     #[serde(default)]
     pub self_submit: bool,
     #[serde(default)]
+    /// Return an unsigned intent and authorization with digest and on-chain parity checks.
+    /// Forced without --allow-trade; produces no signature or authorization envelope.
     pub dry_run: bool,
     #[serde(default)]
     /// Optional unsigned decimal cap in raw input units.
@@ -50,9 +52,11 @@ pub struct PlaceOutcome {
     pub order: order_types::OrderDto,
     pub id: String,
     pub authorization: order_types::IntentAuthorizationDto,
-    pub envelope: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub envelope: Option<String>,
     pub digest: String,
-    pub signature: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
     pub relay: Option<serde_json::Value>,
     pub tx_hash: Option<String>,
 }

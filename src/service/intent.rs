@@ -27,7 +27,7 @@ pub use read::{list, policy, status};
 
 pub async fn place(
     relay_client: &Client,
-    input: PlaceInput,
+    mut input: PlaceInput,
     signer: Arc<dyn Signer>,
     allow_trade: bool,
 ) -> Result<PlaceOutcome> {
@@ -56,15 +56,37 @@ pub async fn place(
         nonce: fresh_agent_nonce(&proxy, agent).await?,
         deadline,
     };
-    let settler = IntentSettlerV3::new(config.settler, provider.clone());
+    input.dry_run = input.dry_run || !allow_trade;
+    finish_place(relay_client, input, signer, config, proxy, order, auth).await
+}
+
+async fn finish_place(
+    relay_client: &Client,
+    input: PlaceInput,
+    signer: Arc<dyn Signer>,
+    config: ChainConfig,
+    proxy: UserProxyV6::UserProxyV6Instance<alloy::providers::DynProvider>,
+    order: Order,
+    auth: IntentAuthorization,
+) -> Result<PlaceOutcome> {
+    let settler = IntentSettlerV3::new(config.settler, proxy.provider().clone());
     let chain_id = settler.orderHash(order.clone()).call().await?;
     if chain_id != auth.orderHash {
         return Err(eyre!("local intent id does not match settler.orderHash"));
     }
-    let digest = order_types::signing_hash(&auth, &order_types::proxy_domain(config.id, proxy_address));
+    let digest = order_types::signing_hash(&auth, &order_types::proxy_domain(config.id, *proxy.address()));
     let chain_digest = proxy.hashIntentAuthorization(auth.clone()).call().await?;
     if digest != chain_digest {
         return Err(eyre!("local authorization digest does not match proxy.hashIntentAuthorization"));
+    }
+    let mut outcome = PlaceOutcome {
+        dry_run: input.dry_run, chain_id: config.id, order: order_types::dto_from_order(&order),
+        id: format!("{:?}", order_types::order_id(&order)),
+        authorization: order_types::dto_from_authorization(&auth),
+        envelope: None, digest: format!("{digest:?}"), signature: None, relay: None, tx_hash: None,
+    };
+    if outcome.dry_run {
+        return Ok(outcome);
     }
     let sig = signer.sign_hash(digest).await?;
     let sig_bytes: Bytes = sig.as_bytes().to_vec().into();
@@ -73,12 +95,23 @@ pub async fn place(
         .call()
         .await
         .map_err(authorization_error)?;
-    let dry_run = input.dry_run || !allow_trade;
-    let (relay, tx_hash) = if dry_run {
-        (None, None)
-    } else if input.relay {
-        let result = relay_client.announce_intent(&announce_body(config, &order, &envelope)).await?;
-        (Some(result), None)
+    (outcome.relay, outcome.tx_hash) = announce_intent(relay_client, &input, signer, config, &order, &envelope).await?;
+    outcome.envelope = Some(hex_bytes(&envelope));
+    outcome.signature = Some(format!("0x{}", hex::encode(sig.as_bytes())));
+    Ok(outcome)
+}
+
+async fn announce_intent(
+    relay_client: &Client,
+    input: &PlaceInput,
+    signer: Arc<dyn Signer>,
+    config: ChainConfig,
+    order: &Order,
+    envelope: &Bytes,
+) -> Result<(Option<serde_json::Value>, Option<String>)> {
+    if input.relay {
+        let result = relay_client.announce_intent(&announce_body(config, order, envelope)).await?;
+        Ok((Some(result), None))
     } else {
         let wallet = evm::wallet_provider(&evm::rpc_url(config), signer)?;
         let pending = IntentSettlerV3::new(config.settler, wallet.clone())
@@ -86,15 +119,8 @@ pub async fn place(
             .send().await?;
         let hash = *pending.tx_hash();
         pending.get_receipt().await?;
-        (None, Some(format!("{hash:?}")))
-    };
-    Ok(PlaceOutcome {
-        dry_run, chain_id: config.id, order: order_types::dto_from_order(&order),
-        id: format!("{:?}", order_types::order_id(&order)),
-        authorization: order_types::dto_from_authorization(&auth),
-        envelope: hex_bytes(&envelope), digest: format!("{digest:?}"),
-        signature: format!("0x{}", hex::encode(sig.as_bytes())), relay, tx_hash,
-    })
+        Ok((None, Some(format!("{hash:?}"))))
+    }
 }
 
 fn announce_body(config: ChainConfig, order: &Order, envelope: &Bytes) -> serde_json::Value {

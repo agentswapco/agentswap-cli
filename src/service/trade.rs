@@ -8,7 +8,7 @@ use crate::order_types::{self, AgentOrderDto, UserProxyV6};
 use crate::service::quote::{self, QuoteInput, QuoteOutput};
 use crate::signer::Signer;
 use crate::tokens::CHAIN_ID_HELP;
-use alloy::primitives::{Address, Bytes, U256};
+use alloy::primitives::{Address, B256, Bytes, U256};
 use alloy::network::TransactionBuilder;
 use alloy::providers::Provider;
 use alloy::sol_types::SolCall;
@@ -39,7 +39,8 @@ pub struct TradeInput {
     pub proxy: String,
     pub nonce: Option<String>,
     pub deadline_secs: Option<u64>,
-    /// Defaults to true, and is forced true unless the server was started with --allow-trade.
+    /// Preview the quote, unsigned AgentOrder and digest with on-chain hash parity checks.
+    /// Never signs or returns signed calldata. Defaults to true; forced without --allow-trade.
     #[serde(default = "default_true")]
     pub dry_run: bool,
     #[serde(default)]
@@ -53,7 +54,9 @@ pub struct TradeOutcome {
     pub quote: serde_json::Value,
     pub order: AgentOrderDto,
     pub digest: String,
-    pub signature: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub self_submit: Option<SelfSubmitPreview>,
 }
 
@@ -97,15 +100,36 @@ pub async fn execute_trade(
     if digest != chain_digest {
         return Err(eyre!("local AgentOrder digest does not match proxy.hashAgentOrder"));
     }
+    let (signature, self_submit) = if input.dry_run {
+        (None, None)
+    } else {
+        let (signature, preview) = sign_and_submit(signer, &input, &order, digest, &quote_out).await?;
+        (Some(signature), preview)
+    };
+    Ok(TradeOutcome {
+        dry_run: input.dry_run, mode: input.mode, quote: quote_out.response,
+        order: order_types::dto_from_agent_order(&order), digest: format!("{digest:?}"),
+        signature, self_submit,
+    })
+}
+
+async fn sign_and_submit(
+    signer: Arc<dyn Signer>,
+    input: &TradeInput,
+    order: &UserProxyV6::AgentOrder,
+    digest: B256,
+    quote_out: &QuoteOutput,
+) -> Result<(String, Option<SelfSubmitPreview>)> {
+    let proxy_address = order_types::parse_address(&input.proxy)?;
     let sig = signer.sign_hash(digest).await?;
     let sig_hex = format!("0x{}", hex::encode(sig.as_bytes()));
-    let mut self_submit = self_submit_preview(proxy_address, &order, &sig_hex, &quote_out)?;
-    let order_dto = order_types::dto_from_agent_order(&order);
-    if input.self_submit && !input.dry_run {
+    let mut self_submit = self_submit_preview(proxy_address, order, &sig_hex, quote_out)?;
+    if input.self_submit {
+        let config = evm::chain_config(&input.chain_id)?;
         let wallet = evm::wallet_provider(&evm::rpc_url(config), signer.clone())?;
         let preview = self_submit.as_mut().ok_or_else(|| eyre!("missing self-submit calldata"))?;
         let call = UserProxyV6::executeAsAgentCall {
-            o: order,
+            o: order.clone(),
             agentSig: hex_bytes(&sig_hex)?,
             spender: order_types::parse_address(&preview.spender)?,
             routerData: hex_bytes(&preview.router_data)?,
@@ -120,15 +144,7 @@ pub async fn execute_trade(
         pending.get_receipt().await?;
         preview.tx_hash = Some(format!("{hash:?}"));
     }
-    Ok(TradeOutcome {
-        dry_run: input.dry_run,
-        mode: input.mode,
-        quote: quote_out.response,
-        order: order_dto,
-        digest: format!("{digest:?}"),
-        signature: sig_hex,
-        self_submit,
-    })
+    Ok((sig_hex, self_submit))
 }
 
 fn quote_input(input: &TradeInput) -> QuoteInput {
