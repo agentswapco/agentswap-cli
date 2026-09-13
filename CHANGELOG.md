@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.8.0 — 2026-09-13
+
+### Breaking
+
+- A dry-run never signs. `trade` and `intent place` — requested with `--dry-run`, or forced to
+  dry-run because `--allow-trade` is not set, on the CLI and through the MCP `trade` and
+  `intent_place` tools — now return an unsigned preview: the quote, the unsigned `AgentOrder` or
+  intent and authorization, and the digest, after the on-chain hash parity checks. 0.7.x signed in
+  a dry-run and returned the signature, the signed `executeAsAgent` calldata or the authorization
+  envelope; `executeAsAgent` and `IntentSettlerV3.announce` accept those from any sender, so a
+  dry-run output was executable by whoever saw it. In dry-run JSON the `signature`, `envelope` and
+  `self_submit` fields are now absent; they are present only on the live path. An intent dry-run
+  no longer calls `isIntentAuthorized`, which needs a signature.
+
+### Changed
+
+- `health` reports service status, version and uptime only; the pool, sync-lag, memory and
+  capacity rows are gone.
+- Help text, MCP tool descriptions and the README state what each command enforces; every flag
+  has a help line. Unknown-chain, missing-API-key and quota-estimate messages name the accepted
+  inputs and the command that confirms the price.
+
 ## 0.7.0 — 2026-09-09
 
 ### Breaking
