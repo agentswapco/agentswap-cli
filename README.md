@@ -38,6 +38,13 @@ refused by those commands.
 
 ## Intents and policy
 
+Run [examples/daily-sell.sh](examples/daily-sell.sh) for one fraction-of-balance sale preview:
+`AGENTSWAP_KEY_FILE=/path/to/key examples/daily-sell.sh --owner "$OWNER" --agent "$AGENT" --token WETH --quote-token USDC`.
+It requires Bash, curl, bc and jq, checks the token budget and unsigned intent, and stops at the
+authorization digest by default. Its example parameters select chain 8453, a 1000 bps fraction,
+outputs at +100/-20 bps from the quote, a 300-second decay and a 600-second duration;
+`--live` enables signing and relaying and requires sufficient budget and on-chain authorization.
+
 V6 open intents are signed against the owner's V6 proxy and can be inspected before they are
 announced. A live `intent place` needs exactly one submission mode: `--relay` hands the signed
 intent to the AgentSwap relay, `--self-submit` broadcasts it from the `--key-file` wallet.
