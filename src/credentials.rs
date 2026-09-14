@@ -1,9 +1,11 @@
 // Credential caching helpers for the standalone AgentSwap CLI.
 // Exports: credentials_path, load_api_key, save_api_key.
-// Deps: std::env, std::fs, std::path, eyre.
+// Deps: std file creation/rename, getrandom, zeroize, eyre.
 
 use eyre::Result;
 use std::path::PathBuf;
+use std::io::{Read, Write};
+use zeroize::Zeroizing;
 
 /// Returns the ~/.agentswap/credentials path, using $HOME if available.
 pub fn credentials_path() -> Option<PathBuf> {
@@ -14,7 +16,8 @@ pub fn credentials_path() -> Option<PathBuf> {
 /// Loads the cached API key, trimming whitespace and ignoring empty files.
 pub fn load_api_key() -> Option<String> {
     let path = credentials_path()?;
-    let content = std::fs::read_to_string(&path).ok()?;
+    let mut content = Zeroizing::new(String::new());
+    std::fs::File::open(&path).ok()?.read_to_string(&mut content).ok()?;
     let trimmed = content.trim().to_string();
     if trimmed.is_empty() {
         None
@@ -23,21 +26,38 @@ pub fn load_api_key() -> Option<String> {
     }
 }
 
-/// Saves the provided API key, creating directories and securing permissions on Unix.
+/// Atomically replaces the cache with a file private from creation on Unix.
 pub fn save_api_key(api_key: &str) -> Result<()> {
     let path = credentials_path().ok_or_else(|| eyre::eyre!("cannot determine home directory"))?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(&path, api_key)?;
+    let mut nonce = [0u8; 16];
+    getrandom::fill(&mut nonce).map_err(|e| eyre::eyre!("credential nonce failed: {e}"))?;
+    let temporary = path.with_file_name(format!(".credentials-{}.tmp", hex::encode(nonce)));
+    let mut file = create_private_file(&temporary)?;
+    let result = (|| -> Result<()> {
+        file.write_all(api_key.as_bytes())?;
+        file.sync_all()?;
+        // Rename replaces the directory entry, never the target of a symlink/hard link.
+        std::fs::rename(&temporary, &path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
 
+fn create_private_file(path: &std::path::Path) -> std::io::Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
     }
-
-    Ok(())
+    options.open(path)
 }
 
 #[cfg(test)]
@@ -61,7 +81,7 @@ mod tests {
 
     impl HomeGuard {
         fn set(path: &Path) -> Self {
-            let lock = HOME_LOCK.lock().expect("lock HOME mutex");
+            let lock = HOME_LOCK.lock().unwrap_or_else(|error| error.into_inner());
             let previous = env::var_os("HOME");
             unsafe { env::set_var("HOME", path) };
             Self {
@@ -71,7 +91,7 @@ mod tests {
         }
 
         fn unset() -> Self {
-            let lock = HOME_LOCK.lock().expect("lock HOME mutex");
+            let lock = HOME_LOCK.lock().unwrap_or_else(|error| error.into_inner());
             let previous = env::var_os("HOME");
             unsafe { env::remove_var("HOME") };
             Self {
@@ -124,5 +144,75 @@ mod tests {
     fn credentials_path_none_without_home() {
         let _guard = HomeGuard::unset();
         assert!(credentials_path().is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_replaces_inode_without_exposing_new_key_through_old_links() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = unique_temp_dir("atomic");
+        let _guard = HomeGuard::set(&dir);
+        fs::create_dir_all(dir.join(".agentswap")).unwrap();
+        let path = credentials_path().unwrap();
+        fs::write(&path, "old-inert-canary").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        let link = dir.join("old-link");
+        fs::hard_link(&path, &link).unwrap();
+        save_api_key("new-inert-canary").unwrap();
+        assert!(fs::read_to_string(link).unwrap() == "old-inert-canary", "old inode was clobbered");
+        assert!(load_api_key().as_deref() == Some("new-inert-canary"));
+        assert_eq!(fs::metadata(path).unwrap().permissions().mode() & 0o777, 0o600);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_does_not_clobber_symlink_target() {
+        use std::os::unix::fs::symlink;
+        let dir = unique_temp_dir("symlink");
+        let _guard = HomeGuard::set(&dir);
+        fs::create_dir_all(dir.join(".agentswap")).unwrap();
+        let target = dir.join("unrelated");
+        fs::write(&target, "unrelated-inert-canary").unwrap();
+        symlink(&target, credentials_path().unwrap()).unwrap();
+        save_api_key("new-inert-canary").unwrap();
+        assert!(fs::read_to_string(target).unwrap() == "unrelated-inert-canary", "symlink target was clobbered");
+        assert!(!fs::symlink_metadata(credentials_path().unwrap()).unwrap().file_type().is_symlink());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn new_credential_file_is_private_and_failed_save_leaves_no_temporary_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = unique_temp_dir("private");
+        let _guard = HomeGuard::set(&dir);
+        save_api_key("inert-canary").unwrap();
+        let path = credentials_path().unwrap();
+        assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        fs::remove_file(&path).unwrap();
+        fs::create_dir(&path).unwrap();
+        assert!(save_api_key("inert-canary").is_err());
+        assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_creation_precedes_first_write_and_refuses_existing_paths() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let dir = unique_temp_dir("creation");
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("new");
+        let mut file = create_private_file(&path).unwrap();
+        assert_eq!(file.metadata().unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(file.metadata().unwrap().len(), 0);
+        file.write_all(b"inert-canary").unwrap();
+        assert!(create_private_file(&path).is_err());
+        let link = dir.join("link");
+        symlink(&path, &link).unwrap();
+        assert!(create_private_file(&link).is_err());
+        assert!(fs::read_to_string(&path).unwrap() == "inert-canary");
+        fs::remove_dir_all(dir).unwrap();
     }
 }

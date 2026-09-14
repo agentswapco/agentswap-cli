@@ -1,9 +1,11 @@
 // Register command for API-key onboarding via wallet signature.
 // Exports: Args, run.
-// Deps: crate::{client, credentials}, alloy signers, eyre, hex.
+// Deps: crate::{client, credentials, signer}, zeroize, eyre, hex.
 
 use eyre::{eyre, Result};
 use crate::client::Client;
+use crate::signer::{local::LocalKey, Signer};
+use zeroize::Zeroizing;
 
 pub struct Args {
     pub address: String,
@@ -13,6 +15,7 @@ pub struct Args {
 }
 
 pub async fn run(client: &Client, args: Args) -> Result<()> {
+    let signer = registration_signer(args.key_file.as_deref(), args.private_key)?;
     let challenge_resp = client.challenge(&args.address).await?;
     let message = challenge_resp["message"]
         .as_str()
@@ -21,27 +24,8 @@ pub async fn run(client: &Client, args: Args) -> Result<()> {
         .as_str()
         .ok_or_else(|| eyre!("missing 'nonce' in challenge response"))?;
 
-    let pk_value = if let Some(path) = &args.key_file {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| eyre!("failed to read key file '{path}': {e}"))?;
-        let trimmed = content.trim().to_string();
-        if trimmed.is_empty() {
-            return Err(eyre!("key file '{path}' is empty"));
-        }
-        if args.private_key.is_some() {
-            eprintln!("Warning: --key-file takes precedence over --private-key");
-        }
-        Some(trimmed)
-    } else {
-        args.private_key.clone()
-    };
-
-    let signature = if let Some(pk) = &pk_value {
-        use alloy::signers::{local::PrivateKeySigner, SignerSync};
-        let signer: PrivateKeySigner = pk.parse().map_err(|e| eyre!("invalid private key: {e}"))?;
-        let sig = signer
-            .sign_message_sync(message.as_bytes())
-            .map_err(|e| eyre!("signing failed: {e}"))?;
+    let signature = if let Some(signer) = signer {
+        let sig = signer.sign_message(message.as_bytes()).await?;
         format!("0x{}", hex::encode(sig.as_bytes()))
     } else {
         eprintln!("Sign this message with your wallet:\n");
@@ -63,15 +47,9 @@ pub async fn run(client: &Client, args: Args) -> Result<()> {
     } else {
         let api_key = register_resp["api_key"].as_str().unwrap_or("?");
         let quota = register_resp["quota_total"].as_i64().unwrap_or(0);
-        let scopes = register_resp["scopes"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|v| v.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            })
-            .unwrap_or_default();
+        let scopes = register_resp["scopes"].as_array().map(|a| {
+            a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(", ")
+        }).unwrap_or_default();
 
         eprintln!("Registration successful.");
         println!("Scopes:   {scopes}");
@@ -85,4 +63,34 @@ pub async fn run(client: &Client, args: Args) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn registration_signer(key_file: Option<&str>, private_key: Option<String>) -> Result<Option<LocalKey>> {
+    let private_key = private_key.map(Zeroizing::new);
+    if let Some(path) = key_file {
+        if private_key.is_some() {
+            eprintln!("Warning: --key-file takes precedence over --private-key");
+        }
+        return LocalKey::from_key_file(path).map(Some);
+    }
+    private_key.as_ref().map(|key| LocalKey::from_private_key(key)).transpose()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn registration_key_sources_preserve_precedence_and_manual_signing() {
+        assert!(registration_signer(None, None).unwrap().is_none());
+        assert!(registration_signer(None, Some("invalid".into())).is_err());
+        let canary = "01".repeat(32);
+        let expected = registration_signer(None, Some(canary.clone())).unwrap().unwrap();
+        let path = std::env::temp_dir().join(format!("agentswap-register-key-{}", std::process::id()));
+        std::fs::write(&path, format!(" \n{canary}\n")).unwrap();
+        let loaded = registration_signer(path.to_str(), Some("invalid".into())).unwrap().unwrap();
+        assert_eq!(loaded.address(), expected.address());
+        std::fs::remove_file(&path).unwrap();
+        assert!(registration_signer(path.to_str(), Some(canary)).is_err());
+    }
 }

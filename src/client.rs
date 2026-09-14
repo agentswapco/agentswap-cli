@@ -2,6 +2,10 @@
 // Exports: Client.
 // Deps: reqwest, serde_json, eyre, crate::{routes, signer, x402}.
 mod transport;
+#[cfg(test)]
+mod redirect_tests;
+#[cfg(test)]
+mod test_server;
 
 use eyre::Result;
 use std::sync::Arc;
@@ -19,7 +23,12 @@ pub struct Client {
 impl Client {
     pub fn new(base_url: &str, api_key: Option<String>) -> Self {
         Self {
-            http: reqwest::Client::new(),
+            // Custom API/payment headers are not stripped by reqwest on redirects.
+            // This also covers payment retries enabled later by with_x402.
+            http: reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .expect("HTTP client initialization failed"),
             base_url: base_url.trim_end_matches('/').to_string(),
             api_key,
             x402: crate::x402::Config::disabled(),
