@@ -2,7 +2,7 @@
 // Exports: Fixture with endpoint and observed request paths/selectors for MCP/CLI tests.
 // Deps: std TCP/thread primitives, serde_json, existing protocol ABI and hashes.
 
-use crate::order_types::{self, IntentSettlerV3, UserProxyFactoryV6, UserProxyV6};
+use crate::order_types::{self, IntentLensV3, IntentSettlerV3, UserProxyFactoryV6, UserProxyV6};
 use alloy::primitives::{Address, U256};
 use alloy::sol_types::{SolCall, SolValue};
 use serde_json::{Value, json};
@@ -76,6 +76,13 @@ fn response(path: &str, body: &Value, calls: &Mutex<Vec<String>>, bad_digest: Op
         return json!({"router": format!("{:?}", Address::repeat_byte(3)), "output": "1000", "calldata": "0x1234"});
     }
     if path == crate::routes::INTENT_ANNOUNCE { return json!({"accepted": true}); }
+    if body["method"] == "eth_blockNumber" {
+        return json!({"jsonrpc": "2.0", "id": body["id"], "result": "0x3d090"});
+    }
+    if body["method"] == "eth_getLogs" {
+        calls.lock().unwrap().push(body.to_string());
+        return json!({"jsonrpc": "2.0", "id": body["id"], "result": []});
+    }
     assert_eq!(body["method"], "eth_call", "unexpected RPC request: {body}");
     let transaction = &body["params"][0];
     let data = transaction.get("input").or_else(|| transaction.get("data")).unwrap().as_str().unwrap();
@@ -90,6 +97,7 @@ fn response(path: &str, body: &Value, calls: &Mutex<Vec<String>>, bad_digest: Op
 
 fn rpc_result(data: &[u8], proxy: Address) -> Vec<u8> {
     let selector = &data[..4];
+    if selector == IntentLensV3::PREVIEW_LAYOUTCall::SELECTOR { return U256::from(3).abi_encode(); }
     if selector == UserProxyV6::policyOfCall::SELECTOR {
         return (U256::from(u64::MAX), U256::from(60), U256::from(3), U256::from(7)).abi_encode();
     }

@@ -20,7 +20,7 @@ pub struct ChainConfig {
     pub lens: Address,
 }
 
-// V6: one address set on Base 8453, Arbitrum 42161, BSC 56 and Robinhood 4663.
+// V6: one address set on Base 8453, Arbitrum 42161, BSC 56, Robinhood 4663 and Arc Testnet 5042002.
 const FACTORY: Address = alloy::primitives::address!("0xc1660e4BbC825f8367dA92b60dccc17E4E10bc26");
 const SETTLER: Address = alloy::primitives::address!("0x2dd81c4fD1FC38b009Ab10D5C9b1f01Ca51cE462");
 const INTENT_GENERATION: &str = "v6";
@@ -37,6 +37,7 @@ pub fn chain_config(chain_id: &str) -> Result<ChainConfig> {
         42161 => "https://arb1.arbitrum.io/rpc",
         56 => "https://bsc-rpc.publicnode.com",
         4663 => "https://rpc.mainnet.chain.robinhood.com",
+        5042002 => "https://rpc.testnet.arc.io",
         _ => return Err(eyre!("V6 intent protocol is unavailable on chain id {id}")),
     };
     Ok(ChainConfig { id, rpc, factory: FACTORY, settler: SETTLER, generation: INTENT_GENERATION, lens: LENS })
@@ -129,6 +130,24 @@ impl TxSigner<Signature> for WalletSigner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn arc_testnet_rpc_uses_the_shared_v6_contracts() {
+        for alias in ["arc-testnet", "arct", "5042002"] {
+            let arc = chain_config(alias).expect("Arc Testnet config");
+            assert_eq!(arc.id, 5042002);
+            assert_eq!(arc.rpc, "https://rpc.testnet.arc.io");
+            for chain in ["base", "arbitrum", "bsc", "robinhood"] {
+                let existing = chain_config(chain).unwrap();
+                assert_eq!(arc.factory, existing.factory);
+                assert_eq!(arc.settler, existing.settler);
+                assert_eq!(arc.lens, existing.lens);
+                assert_eq!(arc.generation, existing.generation);
+            }
+            assert_eq!(event_lookback_blocks(arc, None), 200_000);
+            assert_eq!(event_lookback_blocks(arc, Some(300_000)), 300_000);
+        }
+    }
 
     #[test]
     fn resolved_chain_without_v6_deployment_reports_unavailability() {

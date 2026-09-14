@@ -10,7 +10,7 @@ pub const CHAIN_ID_HELP: &str = "Chain ID such as 8453; known aliases such as ba
 
 /// The chains carrying a V6 deployment, stated on every command that needs one. An alias that
 /// resolves to a chain without one is accepted by the quote commands and refused by these.
-pub const V6_CHAINS_NOTE: &str = "V6 intents, policy and trade are available on Base (8453), Arbitrum One (42161), BNB Smart Chain (56) and Robinhood Chain (4663) only; an alias that resolves to another chain is refused by those commands.";
+pub const V6_CHAINS_NOTE: &str = "V6 intents, policy and trade are available on Base (8453), Arbitrum One (42161), BNB Smart Chain (56), Robinhood Chain (4663) and Arc Testnet (5042002) only; an alias that resolves to another chain is refused by those commands.";
 
 /// The one published error for a chain selector that named no chain.
 pub fn unknown_chain_id(value: &str) -> String {
@@ -24,6 +24,7 @@ pub fn chain_name_to_id(chain_id_or_alias: &str) -> Option<u64> {
         "arbitrum" | "arb" => Some(42161),
         "bsc" | "bnb" | "binance" => Some(56),
         "robinhood" | "robinhood-chain" | "rh" => Some(4663),
+        "arc-testnet" | "arct" => Some(5042002),
         "ethereum" | "eth" | "mainnet" => Some(1),
         "optimism" | "op" => Some(10),
         _ => chain_id_or_alias.parse::<u64>().ok(),
@@ -39,6 +40,7 @@ pub fn chain_id_to_name(chain_id: u64) -> &'static str {
         42161 => "Arbitrum One",
         56 => "BNB Smart Chain",
         4663 => "Robinhood Chain",
+        5042002 => "Arc Testnet",
         _ => "Unknown",
     }
 }
@@ -52,7 +54,15 @@ pub fn chain_id_to_short(chain_id: u64) -> &'static str {
         42161 => "Arb",
         56 => "BSC",
         4663 => "Robinhood",
+        5042002 => "Arc Testnet",
         _ => "?",
+    }
+}
+
+pub fn chain_id_to_explorer(chain_id: u64) -> Option<&'static str> {
+    match chain_id {
+        5042002 => Some("https://testnet.arcscan.app"),
+        _ => None,
     }
 }
 
@@ -160,6 +170,35 @@ mod tests {
         assert_eq!(chain_name_to_id("10"), Some(10));
         assert_eq!(chain_name_to_id("999"), Some(999));
         assert_eq!(chain_name_to_id("unknown"), None);
+    }
+
+    #[test]
+    fn arc_testnet_chain_tables_and_v6_help() {
+        for alias in ["arc-testnet", "arct", "5042002", "ARC-TESTNET", "ARCT"] {
+            assert_eq!(chain_name_to_id(alias), Some(5042002));
+        }
+        assert_eq!(chain_id_to_name(5042002), "Arc Testnet");
+        assert_eq!(chain_id_to_short(5042002), "Arc Testnet");
+        assert!(V6_CHAINS_NOTE.contains("Arc Testnet (5042002)"));
+        use clap::CommandFactory;
+        let mut cli = crate::cli::Cli::command();
+        for name in ["policy", "trade"] {
+            let help = cli.find_subcommand_mut(name).unwrap().render_long_help().to_string();
+            assert!(help.contains("Arc Testnet (5042002)"), "{name}: {help}");
+        }
+        let intent = cli.find_subcommand_mut("intent").unwrap();
+        for name in ["place", "list", "status"] {
+            let help = intent.find_subcommand_mut(name).unwrap().render_long_help().to_string();
+            assert!(help.contains("Arc Testnet (5042002)"), "intent {name}: {help}");
+        }
+    }
+
+    #[test]
+    fn arc_testnet_explorer_table() {
+        assert_eq!(chain_id_to_explorer(5042002), Some("https://testnet.arcscan.app"));
+        for chain in [8453, 42161, 56, 4663, 999] {
+            assert_eq!(chain_id_to_explorer(chain), None);
+        }
     }
 
     #[test]
