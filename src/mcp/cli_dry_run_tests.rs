@@ -76,3 +76,40 @@ fn requested_intent_cli_dry_run() { check_cli(true, true); }
 #[test]
 #[ignore = "requires remote AGENTSWAP_E2E_BIN"]
 fn forced_intent_cli_dry_run() { check_cli(true, false); }
+
+#[test]
+#[ignore = "requires a CLI binary built on an authorized remote host"]
+fn arc_testnet_cli_log_windows_preserve_other_v6_chains() {
+    let executable = std::env::current_exe().unwrap().parent().unwrap().parent().unwrap().join("agentswap");
+    for alias in ["arc-testnet", "arct", "5042002", "base", "arb", "bsc", "rh"] {
+        let chain_id = crate::tokens::chain_name_to_id(alias).unwrap();
+        for policy in [false, true] {
+            let fixture = Fixture::start();
+            let mut command = Command::new(&executable);
+            command.env_clear().env(format!("AGENTSWAP_RPC_URL_{chain_id}"), &fixture.url);
+            command.arg("--json");
+            if policy { command.arg("policy"); } else { command.args(["intent", "list"]); }
+            command.args(["--chainid", alias, "--owner", &format!("{:?}", Address::repeat_byte(4))]);
+            if policy { command.args(["--agent", &format!("{:?}", Address::repeat_byte(5))]); }
+            let output = command.output().expect("CLI process");
+            assert!(output.status.success(), "{alias}: {}", String::from_utf8_lossy(&output.stderr));
+            let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+            if policy { assert_eq!(value["tokens"], serde_json::json!([])); }
+            else { assert_eq!(value, serde_json::json!([])); }
+            let calls = fixture.calls.lock().unwrap();
+            let queries: Vec<serde_json::Value> = calls.iter()
+                .filter_map(|call| serde_json::from_str(call).ok()).collect();
+            assert_eq!(queries.len(), 41, "{alias}: default lookback changed");
+            let mut next_block = 50_000;
+            for query in queries {
+                let filter = &query["params"][0];
+                let from = u64::from_str_radix(filter["fromBlock"].as_str().unwrap().trim_start_matches("0x"), 16).unwrap();
+                let to = u64::from_str_radix(filter["toBlock"].as_str().unwrap().trim_start_matches("0x"), 16).unwrap();
+                assert_eq!(from, next_block, "{alias}: gap or overlap");
+                assert!(to >= from && to - from < 5_000, "{alias}: oversized log request");
+                next_block = to + 1;
+            }
+            assert_eq!(next_block, 250_001, "{alias}: incomplete lookback");
+        }
+    }
+}

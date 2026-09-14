@@ -33,9 +33,11 @@ pub async fn run(
     allow_trade: bool,
 ) -> Result<()> {
     let json = args.json;
+    let chain_id = crate::tokens::chain_name_to_id(&args.chain_id)
+        .ok_or_else(|| eyre::eyre!("{}", crate::tokens::unknown_chain_id(&args.chain_id)))?;
     let outcome = trade::execute_trade(client, signer, input(args), allow_trade).await?;
     if outcome.dry_run || outcome.self_submit.is_some() {
-        print_outcome(outcome, json)?;
+        print_outcome(outcome, chain_id, json)?;
     }
     Ok(())
 }
@@ -58,7 +60,7 @@ fn input(args: Args) -> TradeInput {
     }
 }
 
-fn print_outcome(outcome: trade::TradeOutcome, json: bool) -> Result<()> {
+fn print_outcome(outcome: trade::TradeOutcome, chain_id: u64, json: bool) -> Result<()> {
     if json {
         println!("{}", serde_json::to_string_pretty(&outcome)?);
         return Ok(());
@@ -80,6 +82,9 @@ fn print_outcome(outcome: trade::TradeOutcome, json: bool) -> Result<()> {
         table.add_row(vec!["Self Submit Calldata", preview.calldata.as_str()]);
         if let Some(hash) = &preview.tx_hash {
             table.add_row(vec!["Self Submit Tx", hash.as_str()]);
+            if let Some(explorer) = crate::tokens::chain_id_to_explorer(chain_id) {
+                table.add_row(vec!["Explorer", &format!("{explorer}/tx/{hash}")]);
+            }
         }
     }
     println!("{table}");

@@ -64,7 +64,12 @@ fn print_place(result: &intent::PlaceOutcome) {
     table.add_row(vec!["Digest", result.digest.as_str()]);
     if let Some(signature) = &result.signature { table.add_row(vec!["Signature", signature.as_str()]); }
     if let Some(relay) = &result.relay { table.add_row(vec!["Relay", &relay.to_string()]); }
-    if let Some(tx_hash) = &result.tx_hash { table.add_row(vec!["Tx Hash", tx_hash.as_str()]); }
+    if let Some(tx_hash) = &result.tx_hash {
+        table.add_row(vec!["Tx Hash", tx_hash.as_str()]);
+        if let Some(explorer) = crate::tokens::chain_id_to_explorer(result.chain_id) {
+            table.add_row(vec!["Explorer", &format!("{explorer}/tx/{tx_hash}")]);
+        }
+    }
     println!("{table}");
 }
 

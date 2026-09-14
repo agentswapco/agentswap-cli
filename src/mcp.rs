@@ -47,8 +47,15 @@ struct AgentSwapMcp {
 
 impl AgentSwapMcp {
     fn new(config: Config) -> Self {
+        let mut tool_router = Self::tool_router();
+        for route in tool_router.map.values_mut().filter(|route| matches!(
+            route.attr.name.as_ref(), "trade" | "intent_place" | "intent_list" | "intent_status" | "policy"
+        )) {
+            route.attr.description = Some(format!("{} {}",
+                route.attr.description.as_deref().unwrap_or_default(), crate::tokens::V6_CHAINS_NOTE).into());
+        }
         Self {
-            tool_router: Self::tool_router(),
+            tool_router,
             client: config.client,
             intent_client: config.intent_client,
             signer: config.signer,
@@ -129,7 +136,7 @@ impl AgentSwapMcp {
             .map_err(|e| format!("{e}"))
     }
 
-    #[tool(description = "Preview an unsigned V6 intent and authorization or sign and announce live; amount, start_out, end_out and max_amount are unsigned decimal integers in raw token units. dry_run is forced true without --allow-trade. A dry-run returns the unsigned intent, authorization and digest after on-chain intent-id and authorization-digest parity checks; it never signs, creates or returns a signature or envelope, relays or broadcasts. Signature-based authorization validation runs only live. A live announcement requires --allow-trade and exactly one of relay or self_submit. Requires a reachable RPC and V6 deployment on Base (8453), Arbitrum One (42161), BNB Smart Chain (56) or Robinhood Chain (4663).")]
+    #[tool(description = "Preview an unsigned V6 intent and authorization or sign and announce live; amount, start_out, end_out and max_amount are unsigned decimal integers in raw token units. dry_run is forced true without --allow-trade. A dry-run returns the unsigned intent, authorization and digest after on-chain intent-id and authorization-digest parity checks; it never signs, creates or returns a signature or envelope, relays or broadcasts. Signature-based authorization validation runs only live. A live announcement requires --allow-trade and exactly one of relay or self_submit. Requires a reachable RPC and V6 deployment.")]
     async fn intent_place(
         &self,
         Parameters(mut input): Parameters<intent::PlaceInput>,

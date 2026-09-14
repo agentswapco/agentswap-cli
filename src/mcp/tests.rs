@@ -7,6 +7,22 @@ use alloy::primitives::{Address, B256, Signature};
 use async_trait::async_trait;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[test]
+fn arc_testnet_is_in_the_mcp_v6_chain_description() {
+    let server = AgentSwapMcp::new(Config {
+        client: Client::new("http://127.0.0.1:1", None),
+        intent_client: Client::new("http://127.0.0.1:1", None),
+        signer: None, allow_trade: false, trade_max_amount: None,
+    });
+    let tools = server.tool_router.list_all();
+    for name in ["trade", "intent_place", "intent_list", "intent_status", "policy"] {
+        let tool = tools.iter().find(|tool| tool.name == name).unwrap();
+        let description = tool.description.as_deref().unwrap();
+        assert!(description.contains(crate::tokens::V6_CHAINS_NOTE), "{name}");
+        assert!(description.contains("Arc Testnet (5042002)"), "{name}");
+    }
+}
+
 struct CountingSigner {
     calls: AtomicUsize,
 }
