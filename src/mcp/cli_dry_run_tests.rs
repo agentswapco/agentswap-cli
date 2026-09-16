@@ -81,7 +81,7 @@ fn forced_intent_cli_dry_run() { check_cli(true, false); }
 #[ignore = "requires a CLI binary built on an authorized remote host"]
 fn arc_testnet_cli_log_windows_preserve_other_v6_chains() {
     let executable = std::env::current_exe().unwrap().parent().unwrap().parent().unwrap().join("agentswap");
-    for alias in ["arc-testnet", "arct", "5042002", "base", "arb", "bsc", "rh"] {
+    for alias in ["arc", "arc-mainnet", "5042", "arc-testnet", "arct", "5042002", "base", "arb", "bsc", "rh"] {
         let chain_id = crate::tokens::chain_name_to_id(alias).unwrap();
         for policy in [false, true] {
             let fixture = Fixture::start();

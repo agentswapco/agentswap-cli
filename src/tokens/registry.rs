@@ -3,6 +3,7 @@
 // Deps: chain-specific registry modules.
 
 mod arbitrum;
+mod arc;
 mod base;
 mod ethereum;
 
@@ -13,4 +14,5 @@ pub(super) fn iter() -> impl Iterator<Item = &'static TokenInfo> {
         .iter()
         .chain(base::TOKENS.iter())
         .chain(arbitrum::TOKENS.iter())
+        .chain(arc::TOKENS.iter())
 }
