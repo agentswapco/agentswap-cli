@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.9.0 — 2026-09-16
+
+### Added
+
+- Arc (chain id 5042) joins the V6 chain tables beside Base, Arbitrum One, BNB Smart Chain and
+  Robinhood Chain: `--chain arc` / `arc-mainnet` / `5042`, RPC `https://rpc.mainnet.arc.io`,
+  explorer links on `https://explorer.arc.io`, USDC as the gas symbol (the 6-decimal ERC-20 at
+  `0x3600000000000000000000000000000000000000` over the 18-decimal native balance) and EURC
+  `0xbEf5f6d51CB62b58e6A8f77868681825C6fe21c1` in the built-in token registry. Event scans run in
+  5,000-block chunks, inside the 10,000-block `eth_getLogs` limit of that RPC. The V6 registry
+  addresses are the ones every other chain uses. Arc Testnet (5042002, `--chain arc-testnet` /
+  `arct`) is available the same way, with `https://testnet.arcscan.app` links. Every command and
+  MCP tool description that lists chains names them.
+- `examples/daily-sell.sh`: a fraction-of-balance sale previewed through a decaying intent — checks
+  the token budget and the unsigned intent and stops at the authorization digest unless `--live`.
+
+### Changed
+
+- Credentials are written with `create_new` and mode `0600` into a random temporary name and
+  renamed into place, so a symlink or hard link at the target path is never followed; private key
+  material is held in zeroizing buffers. The HTTP client follows no redirects, so an API key or
+  payment header is never replayed to another destination. `register` reads the key through the
+  same local signer as every other command.
+- Releases: a tag push runs the test suite first, every binary build and the crate publish depend
+  on it, and the tag must name the `Cargo.toml` version.
+
 ## 0.8.0 — 2026-09-13
 
 ### Breaking
