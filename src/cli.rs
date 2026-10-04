@@ -1,15 +1,20 @@
 // Clap argument definitions for the AgentSwap binary.
-// Exports: Cli and Commands.
-// Deps: clap derive macros, crate::tokens for the published chain-selector copy.
+// Exports: Cli, Commands and IntentCommands.
+// Deps: clap derive macros, crate::tokens for the published chain-selector copy, the exit statuses.
 
+use crate::service::submit::EXIT_STATUS_HELP;
 use crate::tokens::{CHAIN_ID_HELP, V6_CHAINS_NOTE};
 use clap::{Parser, Subcommand};
+
+mod intent;
+pub use intent::IntentCommands;
 
 #[derive(Parser)]
 #[command(
     name = "agentswap",
     version,
-    about = "AgentSwap CLI for requesting quotes, inspecting tokens and pools, managing intents, and registering an API key against the AgentSwap service."
+    about = "AgentSwap CLI for requesting quotes, inspecting tokens and pools, managing intents, and registering an API key against the AgentSwap service.",
+    after_help = EXIT_STATUS_HELP
 )]
 pub struct Cli {
     /// Output raw JSON instead of formatted tables
@@ -113,10 +118,12 @@ pub enum Commands {
     Quote {
         #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
         chain_id: String,
-        /// Input token symbol or address on that chain
+        /// Input token symbol or raw address; a raw address outside the built-in registry must
+        /// answer decimals() on that chain and is accepted only on the chains `trade` supports
         #[arg(short, long)]
         from: String,
-        /// Output token symbol or address on that chain
+        /// Output token symbol or raw address; a raw address outside the built-in registry must
+        /// answer decimals() on that chain and is accepted only on the chains `trade` supports
         #[arg(short, long)]
         to: String,
         /// Unsigned decimal amount in the input token's smallest unit.
@@ -211,10 +218,12 @@ pub enum Commands {
     Trade {
         #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
         chain_id: String,
-        /// Input token symbol or address on that chain
+        /// Input token symbol or raw address; a raw address outside the built-in registry must
+        /// answer decimals() on that chain
         #[arg(short, long)]
         from: String,
-        /// Output token symbol or address on that chain
+        /// Output token symbol or raw address; a raw address outside the built-in registry must
+        /// answer decimals() on that chain
         #[arg(short, long)]
         to: String,
         /// Unsigned decimal amount in the input token's smallest unit.
@@ -247,8 +256,10 @@ pub enum Commands {
         /// Never sign, return signed calldata or broadcast. Forced on unless --allow-trade is set.
         #[arg(long)]
         dry_run: bool,
-        /// Broadcast executeAsAgent to the proxy from the --key-file wallet, which pays the gas.
-        /// Needs --allow-trade; a dry run never sends.
+        /// Broadcast executeAsAgent to the proxy from the --key-file wallet, which pays the gas,
+        /// and wait a bounded time for the receipt. Needs --allow-trade; a dry run never sends.
+        /// Exits 3 when the transaction reverts and 4 when it was sent but no receipt was read;
+        /// both print its hash and status.
         #[arg(long)]
         self_submit: bool,
         /// Local signer key file for this trade; falls back to the global --key-file
@@ -257,142 +268,5 @@ pub enum Commands {
     },
 }
 
-#[derive(Subcommand)]
-pub enum IntentCommands {
-    /// Preview an unsigned intent and authorization, or sign and announce with --allow-trade.
-    #[command(after_help = V6_CHAINS_NOTE)]
-    Place {
-        #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
-        chain_id: String,
-        /// Owner wallet whose User Proxy authorizes the agent to place the intent
-        #[arg(long)]
-        proxy_owner: String,
-        /// Input token symbol or raw address; a raw address must answer decimals() on that chain
-        #[arg(short, long)]
-        from: String,
-        /// Output token symbol or raw address; a raw address must answer decimals() on that chain
-        #[arg(short, long)]
-        to: String,
-        /// Unsigned decimal input amount in the token's smallest unit.
-        #[arg(short, long)]
-        amount: String,
-        /// Unsigned decimal starting output in the token's smallest unit.
-        #[arg(long)]
-        start_out: String,
-        /// Unsigned decimal ending output in the token's smallest unit.
-        #[arg(long)]
-        end_out: String,
-        /// Seconds over which the output decays from --start-out to --end-out; defaults to the
-        /// window and is capped at it. Must be greater than zero.
-        #[arg(long)]
-        decay_secs: Option<u64>,
-        /// Intent window in seconds from now; default 600.
-        #[arg(long)]
-        duration_secs: Option<u64>,
-        /// Seconds from now for the agent authorization deadline. Defaults to the end of the
-        /// intent window; a value that lands before the window closes is refused with both
-        /// numbers named.
-        #[arg(long)]
-        deadline_secs: Option<u64>,
-        /// Have the AgentSwap relay announce the signed intent; it always posts to
-        /// https://app.agentswap.co, not to --url. Mutually exclusive with --self-submit, and a
-        /// live placement needs exactly one of the two.
-        #[arg(long)]
-        relay: bool,
-        /// Broadcast IntentSettlerV3.announce yourself from the --key-file wallet, which pays the
-        /// gas. Mutually exclusive with --relay.
-        #[arg(long)]
-        self_submit: bool,
-        /// Return the unsigned intent, authorization and digest after on-chain hash parity checks.
-        /// Never sign, create an envelope, relay or broadcast. Signature-based authorization
-        /// validation runs only on the live path. Forced on unless --allow-trade is set.
-        #[arg(long)]
-        dry_run: bool,
-    },
-    /// List announced intents by owner or agent
-    #[command(after_help = V6_CHAINS_NOTE)]
-    List {
-        #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
-        chain_id: String,
-        /// Owner wallet whose intents to list; required unless --agent is given
-        #[arg(long, conflicts_with = "agent", required_unless_present = "agent")]
-        owner: Option<String>,
-        /// Agent wallet that placed the intents; required unless --owner is given
-        #[arg(long, conflicts_with = "owner", required_unless_present = "owner")]
-        agent: Option<String>,
-        /// Blocks scanned for IntentAnnounced events; defaults to 200,000, or 9,000 on BNB Smart
-        /// Chain with the built-in public RPC
-        #[arg(long)]
-        lookback_blocks: Option<u64>,
-    },
-    /// Inspect an announced intent by bytes32 id
-    #[command(after_help = V6_CHAINS_NOTE)]
-    Status {
-        #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
-        chain_id: String,
-        /// Intent id (bytes32) as announced
-        #[arg(long)]
-        id: String,
-        /// Blocks scanned for the IntentAnnounced event; defaults to 200,000, or 9,000 on BNB
-        /// Smart Chain with the built-in public RPC
-        #[arg(long)]
-        lookback_blocks: Option<u64>,
-    },
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn chainid_is_the_only_chain_selector_flag() {
-        let cli = Cli::try_parse_from([
-            "agentswap", "quote", "--chainid", "8453", "--from", "USDC", "--to", "WETH",
-            "--amount", "1",
-        ])
-        .expect("--chainid should parse");
-        let Commands::Quote { chain_id, .. } = cli.command else {
-            panic!("expected quote command");
-        };
-        assert_eq!(chain_id, "8453");
-        assert!(Cli::try_parse_from([
-            "agentswap", "quote", "--chain", "base", "--from", "USDC", "--to", "WETH",
-            "--amount", "1",
-        ])
-        .is_err());
-    }
-
-    #[test]
-    fn no_subcommand_still_takes_the_old_chain_flag() {
-        // One rename that is only half done would leave the old flag alive on a command nobody
-        // exercises, so every subcommand that selects a chain is probed here.
-        let cases: [&[&str]; 6] = [
-            &["agentswap", "tokens", "--chain", "base"],
-            &["agentswap", "pools", "--chain", "base", "--address", "0x1"],
-            &["agentswap", "batch-quote", "--chain", "base", "--amount", "1", "USDC/WETH"],
-            &["agentswap", "policy", "--chain", "base", "--owner", "0x1", "--agent", "0x2"],
-            &["agentswap", "intent", "list", "--chain", "base", "--owner", "0x1"],
-            &["agentswap", "quota-claim", "--chain", "base", "--tx-hash", "0x1"],
-        ];
-        for case in cases {
-            assert!(
-                Cli::try_parse_from(case).is_err(),
-                "--chain still parses for {:?}",
-                case[1]
-            );
-        }
-    }
-
-    #[test]
-    fn the_x402_payment_chain_is_selected_by_chainid() {
-        let cli = Cli::try_parse_from([
-            "agentswap", "--x402-chainid", "42161", "tokens", "--chainid", "8453",
-        ])
-        .expect("--x402-chainid should parse");
-        assert_eq!(cli.x402_chain_id, 42161);
-        assert!(Cli::try_parse_from([
-            "agentswap", "--x402-chain", "42161", "tokens", "--chainid", "8453",
-        ])
-        .is_err());
-    }
-}
+mod tests;

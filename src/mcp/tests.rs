@@ -104,3 +104,21 @@ fn mcp_json_keeps_large_raw_amount_as_a_string() {
     let json = serde_json::to_value(output).expect("MCP JSON");
     assert_eq!(json["request"]["amount_in"], amount);
 }
+
+#[test]
+fn a_sent_transaction_that_did_not_confirm_is_a_tool_error_carrying_the_outcome() {
+    use crate::service::submit::TxStatus;
+    let outcome = serde_json::json!({"txHash": "0xab", "txStatus": "reverted"});
+    let failure = NotConfirmed::check(Some("0xab"), Some(TxStatus::Reverted), None);
+    let error = confirmed(outcome.clone(), failure).err().expect("a revert is not success");
+    assert!(error.starts_with("transaction 0xab was mined and reverted\n"), "{error}");
+    assert!(error.contains(r#""txStatus":"reverted""#), "{error}");
+    let Json(value) = confirmed(outcome.clone(), None).expect("confirmed or not sent");
+    assert_eq!(value, outcome);
+}
+
+#[test]
+fn tool_errors_keep_the_rpc_host_and_drop_its_keyed_path() {
+    let error = tool_error(eyre::eyre!("error sending request for url (https://rpc.example/v2/KEY)"));
+    assert_eq!(error, "error sending request for url (https://rpc.example/[redacted])");
+}

@@ -1,10 +1,11 @@
 // Quote service logic shared by human CLI, MCP tools, and trade orchestration.
 // Exports: QuoteInput, QuoteOutput, quote, batch_quote, build_quote_body.
-// Deps: crate::{client, tokens}, serde, eyre.
+// Deps: crate::{client, redact, service::token, tokens}, serde, eyre.
 
 use crate::client::Client;
 use crate::order_types::parse_raw_amount;
-use crate::tokens::{chain_name_to_id, format_amount, resolve_token, unknown_chain_id, CHAIN_ID_HELP};
+use crate::service::token::{self, Token};
+use crate::tokens::{chain_name_to_id, format_amount, unknown_chain_id, CHAIN_ID_HELP};
 use eyre::{eyre, Result};
 use serde::{Deserialize, Serialize};
 
@@ -47,20 +48,17 @@ pub struct BatchQuoteResult {
     pub error: Option<String>,
 }
 
-pub fn build_quote_body(input: &QuoteInput) -> Result<(serde_json::Value, QuoteContext)> {
-    // Quote amounts retain their existing zero-accepted policy.
-    parse_raw_amount("quote amount", &input.amount)?;
-    let chain_id = chain_name_to_id(&input.chain_id)
-        .ok_or_else(|| eyre!("{}", unknown_chain_id(&input.chain_id)))?;
-    let (from_addr, from_sym, from_dec) = resolve_token(&input.from, chain_id)
-        .ok_or_else(|| eyre!("unknown token '{}' on chain id {}", input.from, chain_id))?;
-    let (to_addr, to_sym, to_dec) = resolve_token(&input.to, chain_id)
-        .ok_or_else(|| eyre!("unknown token '{}' on chain id {}", input.to, chain_id))?;
+pub fn build_quote_body(
+    input: &QuoteInput,
+    chain_id: u64,
+    from: &Token,
+    to: &Token,
+) -> (serde_json::Value, QuoteContext) {
     let amount_in = input.amount.clone();
     let mut body = serde_json::json!({
         "chain_id": chain_id,
-        "token_in": from_addr,
-        "token_out": to_addr,
+        "token_in": from.address,
+        "token_out": to.address,
         "amount_in": amount_in,
     });
     if let Some(slippage) = input.slippage {
@@ -71,19 +69,27 @@ pub fn build_quote_body(input: &QuoteInput) -> Result<(serde_json::Value, QuoteC
     }
     let context = QuoteContext {
         chain_id,
-        token_in: from_addr.to_string(),
-        token_in_symbol: from_sym.to_string(),
-        token_in_decimals: from_dec,
-        token_out: to_addr.to_string(),
-        token_out_symbol: to_sym.to_string(),
-        token_out_decimals: to_dec,
+        token_in: from.address.clone(),
+        token_in_symbol: from.symbol.clone(),
+        token_in_decimals: from.decimals,
+        token_out: to.address.clone(),
+        token_out_symbol: to.symbol.clone(),
+        token_out_decimals: to.decimals,
         amount_in,
     };
-    Ok((body, context))
+    (body, context)
 }
 
+/// Validate the amount and chain, resolve both tokens (an address outside the registry is read on
+/// chain), then request the quote.
 pub async fn quote(client: &Client, input: QuoteInput) -> Result<QuoteOutput> {
-    let (body, request) = build_quote_body(&input)?;
+    // Quote amounts retain their existing zero-accepted policy.
+    parse_raw_amount("quote amount", &input.amount)?;
+    let chain_id = chain_name_to_id(&input.chain_id)
+        .ok_or_else(|| eyre!("{}", unknown_chain_id(&input.chain_id)))?;
+    let from = token::resolve(&input.from, chain_id).await?;
+    let to = token::resolve(&input.to, chain_id).await?;
+    let (body, request) = build_quote_body(&input, chain_id, &from, &to);
     let response = client.quote(&body).await?;
     Ok(QuoteOutput { request, response })
 }
@@ -124,7 +130,7 @@ async fn batch_one(
     };
     match quote(client, input).await {
         Ok(out) => format_batch_success(pair, chain_id, out),
-        Err(err) => batch_error(pair, format!("{err}")),
+        Err(err) => batch_error(pair, crate::redact::urls(&format!("{err}"))),
     }
 }
 
@@ -159,6 +165,13 @@ mod tests {
     use super::*;
     use clap::Parser;
 
+    fn registry_body(input: &QuoteInput) -> (serde_json::Value, QuoteContext) {
+        let chain_id = chain_name_to_id(&input.chain_id).expect("known chain");
+        let from = token::from_registry(&input.from, chain_id).expect("registry token in");
+        let to = token::from_registry(&input.to, chain_id).expect("registry token out");
+        build_quote_body(input, chain_id, &from, &to)
+    }
+
     #[test]
     fn quote_body_preserves_raw_digits_without_float_fields() {
         let input = QuoteInput {
@@ -169,7 +182,7 @@ mod tests {
             slippage: None,
             verify: false,
         };
-        let (body, context) = build_quote_body(&input).expect("quote body");
+        let (body, context) = registry_body(&input);
         assert_eq!(body["amount_in"], "1000000");
         assert!(body.get("amount_usd").is_none());
         assert_eq!(context.amount_in, "1000000");
@@ -198,8 +211,8 @@ mod tests {
         assert_eq!(numeric_config.settler, alias_config.settler);
         assert_eq!(numeric_config.generation, alias_config.generation);
         assert_eq!(numeric_config.lens, alias_config.lens);
-        let numeric_body = build_quote_body(&numeric).expect("numeric quote body");
-        let alias_body = build_quote_body(&alias).expect("alias quote body");
+        let numeric_body = registry_body(&numeric);
+        let alias_body = registry_body(&alias);
         assert_eq!(numeric_body.0, alias_body.0);
         assert_eq!(numeric_body.1.chain_id, alias_body.1.chain_id);
         assert_eq!(numeric_body.1.token_in, alias_body.1.token_in);
@@ -236,7 +249,7 @@ mod tests {
                 slippage: None,
                 verify: false,
             };
-            let (body, context) = build_quote_body(&input).expect("quote body");
+            let (body, context) = registry_body(&input);
             assert_eq!(context.token_in_decimals, expected_decimals);
             assert_eq!(body["amount_in"], "1");
         }

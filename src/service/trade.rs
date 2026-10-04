@@ -1,21 +1,22 @@
 // V6 trade orchestration from quote to signed AgentOrder.
-// Exports: TradeInput, TradeOptions, TradeOutcome, execute_trade.
+// Exports: TradeInput, TradeOutcome, SelfSubmitPreview, execute_trade.
 // Deps: quote service, order_types, signer trait, crate::tokens for the chain-selector copy.
 
 use crate::client::Client;
 use crate::evm;
 use crate::order_types::{self, AgentOrderDto, UserProxyV6};
 use crate::service::quote::{self, QuoteInput, QuoteOutput};
+use crate::service::submit::{NotConfirmed, Wait};
 use crate::signer::Signer;
 use crate::tokens::CHAIN_ID_HELP;
-use alloy::primitives::{Address, B256, Bytes, U256};
-use alloy::network::TransactionBuilder;
-use alloy::providers::Provider;
-use alloy::sol_types::SolCall;
+use alloy::primitives::{Address, U256};
 use eyre::{eyre, Result};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+mod self_submit;
+pub use self_submit::SelfSubmitPreview;
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TradeInput {
@@ -60,15 +61,11 @@ pub struct TradeOutcome {
     pub self_submit: Option<SelfSubmitPreview>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct SelfSubmitPreview {
-    pub to: String,
-    pub function: String,
-    pub calldata: String,
-    pub spender: String,
-    pub router_data: String,
-    pub tx_hash: Option<String>,
+impl TradeOutcome {
+    /// The error to report after printing this outcome when its broadcast did not confirm.
+    pub fn not_confirmed(&self) -> Option<NotConfirmed> {
+        self.self_submit.as_ref().and_then(SelfSubmitPreview::not_confirmed)
+    }
 }
 
 pub async fn execute_trade(
@@ -76,6 +73,7 @@ pub async fn execute_trade(
     signer: Arc<dyn Signer>,
     input: TradeInput,
     allow_trade: bool,
+    wait: Wait,
 ) -> Result<TradeOutcome> {
     let mut input = input;
     validate_input_amounts(&input)?;
@@ -103,48 +101,15 @@ pub async fn execute_trade(
     let (signature, self_submit) = if input.dry_run {
         (None, None)
     } else {
-        let (signature, preview) = sign_and_submit(signer, &input, &order, digest, &quote_out).await?;
-        (Some(signature), preview)
+        let (signature, preview) =
+            self_submit::sign_and_submit(signer, &input, &order, digest, &quote_out, wait).await?;
+        (Some(signature), Some(preview))
     };
     Ok(TradeOutcome {
         dry_run: input.dry_run, mode: input.mode, quote: quote_out.response,
         order: order_types::dto_from_agent_order(&order), digest: format!("{digest:?}"),
         signature, self_submit,
     })
-}
-
-async fn sign_and_submit(
-    signer: Arc<dyn Signer>,
-    input: &TradeInput,
-    order: &UserProxyV6::AgentOrder,
-    digest: B256,
-    quote_out: &QuoteOutput,
-) -> Result<(String, Option<SelfSubmitPreview>)> {
-    let proxy_address = order_types::parse_address(&input.proxy)?;
-    let sig = signer.sign_hash(digest).await?;
-    let sig_hex = format!("0x{}", hex::encode(sig.as_bytes()));
-    let mut self_submit = self_submit_preview(proxy_address, order, &sig_hex, quote_out)?;
-    if input.self_submit {
-        let config = evm::chain_config(&input.chain_id)?;
-        let wallet = evm::wallet_provider(&evm::rpc_url(config), signer.clone())?;
-        let preview = self_submit.as_mut().ok_or_else(|| eyre!("missing self-submit calldata"))?;
-        let call = UserProxyV6::executeAsAgentCall {
-            o: order.clone(),
-            agentSig: hex_bytes(&sig_hex)?,
-            spender: order_types::parse_address(&preview.spender)?,
-            routerData: hex_bytes(&preview.router_data)?,
-        };
-        let pending = wallet.send_transaction(
-            alloy::rpc::types::TransactionRequest::default()
-                .with_from(signer.address())
-                .with_kind(alloy::primitives::TxKind::Call(proxy_address))
-                .with_input(call.abi_encode()),
-        ).await?;
-        let hash = *pending.tx_hash();
-        pending.get_receipt().await?;
-        preview.tx_hash = Some(format!("{hash:?}"));
-    }
-    Ok((sig_hex, self_submit))
 }
 
 fn quote_input(input: &TradeInput) -> QuoteInput {
@@ -186,34 +151,6 @@ fn build_order(input: &TradeInput, agent: Address, generation: u64, quote: &Quot
         nonce: next_nonce(input.nonce.as_deref())?,
         deadline: deadline(input.deadline_secs.unwrap_or(120))?,
     })
-}
-
-fn self_submit_preview(
-    proxy: Address,
-    order: &UserProxyV6::AgentOrder,
-    sig_hex: &str,
-    quote: &QuoteOutput,
-) -> Result<Option<SelfSubmitPreview>> {
-    let router_data = field(&quote.response, &["execution", "calldata"])
-        .or_else(|| field(&quote.response, &["calldata"]))
-        .ok_or_else(|| eyre!("quote response missing router calldata"))?;
-    let spender_value = field(&quote.response, &["execution", "spender"])
-        .map(String::from)
-        .unwrap_or_else(|| format!("{:?}", order.router));
-    let call = UserProxyV6::executeAsAgentCall {
-        o: order.clone(),
-        agentSig: hex_bytes(sig_hex)?,
-        spender: order_types::parse_address(&spender_value)?,
-        routerData: hex_bytes(router_data)?,
-    };
-    Ok(Some(SelfSubmitPreview {
-        to: format!("{proxy:?}"),
-        function: "executeAsAgent".to_string(),
-        calldata: format!("0x{}", hex::encode(call.abi_encode())),
-        spender: spender_value,
-        router_data: router_data.to_string(),
-        tx_hash: None,
-    }))
 }
 
 fn slippage_min_out(response: &serde_json::Value, bps: u16) -> Result<U256> {
@@ -278,12 +215,6 @@ fn field<'a>(value: &'a serde_json::Value, path: &[&str]) -> Option<&'a str> {
         current = current.get(*key)?;
     }
     current.as_str()
-}
-
-fn hex_bytes(value: &str) -> Result<Bytes> {
-    let trimmed = value.strip_prefix("0x").unwrap_or(value);
-    let bytes = hex::decode(trimmed).map_err(|e| eyre!("invalid hex bytes: {e}"))?;
-    Ok(bytes.into())
 }
 
 fn agent_order_mode() -> String {

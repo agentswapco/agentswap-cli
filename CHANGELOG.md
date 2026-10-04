@@ -1,5 +1,45 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- `--self-submit` on `trade` and `intent place` reads the receipt status, and the exit status
+  tells the outcomes apart: 3 when the transaction was mined and reverted, 4 when it was sent but
+  its receipt was not read because the RPC failed or the bounded receipt wait ended, 1 when the
+  command failed and no `--self-submit` transaction was broadcast. A reverted transaction used to
+  exit 0, and an RPC error after the broadcast used to exit 1 without the hash. `--help` and the
+  README list every exit status.
+- `--self-submit` signs the transaction before sending it and prints `sending transaction <hash>`
+  on stderr first, so a caller that stops waiting still has the hash. With exit status 3 or 4 the
+  table and `--json` output also print the hash, with `tx_status` (`confirmed`, `reverted` or
+  `unknown`), `tx_error` for `unknown`, and the explorer URL on chains with a known explorer:
+  `tx_hash`, `tx_status`, `tx_error` and `tx_explorer_url` for `intent place`;
+  `self_submit.txHash`, `txStatus`, `txError` and `txExplorerUrl` for `trade`. A failed receipt
+  poll is retried until the wait ends.
+- An error answer to the broadcast exits 1 only when it is a refusal a node gives before it
+  accepts a transaction: insufficient funds, intrinsic gas too low, a fee cap below the block base
+  fee, an invalid sender or chain id, a gas limit above the block's, oversized data or an
+  unsupported transaction type. An `already known` or `already imported` answer counts as sent and
+  the receipt is awaited. After any other answer, such as `nonce too low` or an internal error from
+  an RPC front that retried the send, the hash is looked up once: if the RPC has the transaction
+  its receipt is awaited, otherwise the outcome is unknown and the exit status is 4.
+- The MCP `trade` and `intent_place` tools return a reverted or unknown outcome as a tool error
+  whose text carries the full outcome. Their receipt wait is shorter than the command line's and
+  ends before common MCP request timeouts, so the client receives the hash as an unknown outcome
+  instead of a timeout.
+- `quote`, `trade` and `buy-quota` accept a token address outside the built-in registry on the
+  chains `trade` supports. The address must answer `decimals()` on that chain. Displays label it
+  with its shortened address, beside its `symbol()` when that is short printable text, so it does
+  not read like a registry token. Such an address used to be refused as an unknown token, so
+  `trade` could not run on BNB Smart Chain, Robinhood Chain or Arc Testnet.
+- The RPC-gated deployed-contract parity test is marked ignored, so a run without its
+  environment reports it as ignored instead of passed.
+- Error text on stderr, in `--json` output and in MCP tool errors keeps a URL's scheme, host and
+  port and replaces its path, query and user info, where RPC keys live, with `[redacted]`.
+- The API key remediation is printed for an HTTP 401 answer only, not for any error text that
+  contains "401", such as a transaction hash.
+
 ## 0.9.0 — 2026-09-16
 
 ### Added

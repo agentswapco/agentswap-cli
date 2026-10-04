@@ -1,8 +1,12 @@
 // Shared service handlers used by CLI commands and MCP tools.
-// Exports: quote, market, and trade service modules.
+// Exports: quote, market, trade, intent, submit and token service modules.
 // Deps: crate::client plus feature-specific helpers.
 
 pub mod market;
 pub mod intent;
 pub mod quote;
+pub mod submit;
+#[cfg(test)]
+mod test_rpc;
+pub mod token;
 pub mod trade;

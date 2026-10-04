@@ -1,9 +1,10 @@
 // V6 intent placement, discovery, status, and policy service operations.
 // Exports: place, list, status, policy and their typed request/response models.
-// Deps: crate::{evm, order_types, signer, tokens}, alloy RPC bindings, Client.
+// Deps: crate::{evm, order_types, service::submit, signer, tokens}, alloy RPC bindings, Client.
 
 use crate::client::Client;
 use crate::evm::{self, ChainConfig};
+use crate::service::submit::{self, Submission};
 use crate::order_types::{self, Erc20Metadata, IntentAuthorization, IntentSettlerV3, Order, UserProxyFactoryV6, UserProxyV6, UserProxyV6Errors};
 use crate::signer::Signer;
 use crate::order_types::parse_raw_amount;
@@ -24,9 +25,15 @@ pub use models::{
 };
 pub use read::{list, policy, status};
 
+/// Where a live intent goes: the relay client for --relay, the receipt wait for --self-submit.
+#[derive(Clone, Copy)]
+pub struct Announcer<'a> {
+    pub relay: &'a Client,
+    pub wait: submit::Wait,
+}
 
 pub async fn place(
-    relay_client: &Client,
+    announcer: Announcer<'_>,
     mut input: PlaceInput,
     signer: Arc<dyn Signer>,
     allow_trade: bool,
@@ -57,11 +64,11 @@ pub async fn place(
         deadline,
     };
     input.dry_run = input.dry_run || !allow_trade;
-    finish_place(relay_client, input, signer, config, proxy, order, auth).await
+    finish_place(announcer, input, signer, config, proxy, order, auth).await
 }
 
 async fn finish_place(
-    relay_client: &Client,
+    announcer: Announcer<'_>,
     input: PlaceInput,
     signer: Arc<dyn Signer>,
     config: ChainConfig,
@@ -84,6 +91,7 @@ async fn finish_place(
         id: format!("{:?}", order_types::order_id(&order)),
         authorization: order_types::dto_from_authorization(&auth),
         envelope: None, digest: format!("{digest:?}"), signature: None, relay: None, tx_hash: None,
+        tx_status: None, tx_error: None, tx_explorer_url: None,
     };
     if outcome.dry_run {
         return Ok(outcome);
@@ -95,32 +103,30 @@ async fn finish_place(
         .call()
         .await
         .map_err(authorization_error)?;
-    (outcome.relay, outcome.tx_hash) = announce_intent(relay_client, &input, signer, config, &order, &envelope).await?;
+    let (relay, submission) = announce_intent(announcer, &input, signer, config, &order, &envelope).await?;
+    outcome.relay = relay;
+    if let Some(submission) = submission { outcome.record(submission); }
     outcome.envelope = Some(hex_bytes(&envelope));
     outcome.signature = Some(format!("0x{}", hex::encode(sig.as_bytes())));
     Ok(outcome)
 }
 
 async fn announce_intent(
-    relay_client: &Client,
+    announcer: Announcer<'_>,
     input: &PlaceInput,
     signer: Arc<dyn Signer>,
     config: ChainConfig,
     order: &Order,
     envelope: &Bytes,
-) -> Result<(Option<serde_json::Value>, Option<String>)> {
+) -> Result<(Option<serde_json::Value>, Option<Submission>)> {
     if input.relay {
-        let result = relay_client.announce_intent(&announce_body(config, order, envelope)).await?;
-        Ok((Some(result), None))
-    } else {
-        let wallet = evm::wallet_provider(&evm::rpc_url(config), signer)?;
-        let pending = IntentSettlerV3::new(config.settler, wallet.clone())
-            .announce(order.clone(), envelope.clone())
-            .send().await?;
-        let hash = *pending.tx_hash();
-        pending.get_receipt().await?;
-        Ok((None, Some(format!("{hash:?}"))))
+        let result = announcer.relay.announce_intent(&announce_body(config, order, envelope)).await?;
+        return Ok((Some(result), None));
     }
+    let call = IntentSettlerV3::announceCall { o: order.clone(), auth: envelope.clone() };
+    let rpc = evm::rpc_url(config);
+    let submission = submit::send(&rpc, signer, config.settler, call.abi_encode().into(), announcer.wait).await?;
+    Ok((None, Some(submission)))
 }
 
 fn announce_body(config: ChainConfig, order: &Order, envelope: &Bytes) -> serde_json::Value {

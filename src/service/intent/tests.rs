@@ -101,3 +101,39 @@ fn caller_supplied_deadline_after_end_time_is_accepted() {
         .expect("valid deadline");
     assert_eq!(deadline, 1_700_000_700);
 }
+
+#[test]
+fn a_recorded_announce_keeps_its_hash_and_only_a_confirmed_one_succeeds() {
+    let order = build_order_for_record();
+    let auth = IntentAuthorization {
+        orderHash: order_types::order_id(&order), agent: Address::ZERO, generation: 1,
+        nonce: U256::from(1), deadline: 5,
+    };
+    let mut outcome = PlaceOutcome {
+        dry_run: false, chain_id: 8453, order: order_types::dto_from_order(&order), id: String::new(),
+        authorization: order_types::dto_from_authorization(&auth), envelope: None, digest: String::new(),
+        signature: None, relay: None, tx_hash: None, tx_status: None, tx_error: None,
+        tx_explorer_url: None,
+    };
+    assert!(outcome.not_confirmed().is_none());
+    let hash = B256::repeat_byte(9);
+    outcome.record(Submission { hash, status: submit::TxStatus::Unknown, error: Some("no receipt before the wait ended".into()) });
+    let value = serde_json::to_value(&outcome).unwrap();
+    assert_eq!(value["tx_hash"], format!("{hash:?}"));
+    assert_eq!(value["tx_status"], "unknown");
+    assert_eq!(value["tx_error"], "no receipt before the wait ended");
+    assert!(value.get("tx_explorer_url").is_none(), "no explorer is known for chain 8453");
+    assert_eq!(outcome.not_confirmed().expect("not confirmed").exit_code(), submit::EXIT_UNKNOWN);
+    outcome.record(Submission { hash, status: submit::TxStatus::Confirmed, error: None });
+    assert!(outcome.not_confirmed().is_none());
+    assert!(serde_json::to_value(&outcome).unwrap().get("tx_error").is_none());
+}
+
+fn build_order_for_record() -> Order {
+    Order {
+        owner: Address::ZERO, recipient: Address::ZERO, tokenIn: Address::ZERO, amountIn: U256::from(1),
+        tokenOut: Address::ZERO, startAmountOut: U256::from(2), endAmountOut: U256::from(1),
+        startTime: U256::from(3), decayEndTime: U256::from(4), endTime: U256::from(5),
+        appData: B256::ZERO, nonce: U256::from(6),
+    }
+}
