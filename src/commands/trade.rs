@@ -37,9 +37,10 @@ pub async fn run(
         .ok_or_else(|| eyre::eyre!("{}", crate::tokens::unknown_chain_id(&args.chain_id)))?;
     let outcome = trade::execute_trade(client, signer, input(args), allow_trade).await?;
     if outcome.dry_run || outcome.self_submit.is_some() {
-        print_outcome(outcome, chain_id, json)?;
+        print_outcome(&outcome, chain_id, json)?;
     }
-    Ok(())
+    // Printed first, so a reverted or unknown broadcast still leaves its hash on stdout.
+    outcome.not_confirmed().map_or(Ok(()), |failure| Err(failure.into()))
 }
 
 fn input(args: Args) -> TradeInput {
@@ -60,9 +61,9 @@ fn input(args: Args) -> TradeInput {
     }
 }
 
-fn print_outcome(outcome: trade::TradeOutcome, chain_id: u64, json: bool) -> Result<()> {
+fn print_outcome(outcome: &trade::TradeOutcome, chain_id: u64, json: bool) -> Result<()> {
     if json {
-        println!("{}", serde_json::to_string_pretty(&outcome)?);
+        println!("{}", serde_json::to_string_pretty(outcome)?);
         return Ok(());
     }
     let mut table = Table::new();
@@ -82,6 +83,7 @@ fn print_outcome(outcome: trade::TradeOutcome, chain_id: u64, json: bool) -> Res
         table.add_row(vec!["Self Submit Calldata", preview.calldata.as_str()]);
         if let Some(hash) = &preview.tx_hash {
             table.add_row(vec!["Self Submit Tx", hash.as_str()]);
+            crate::display::add_tx_status_rows(&mut table, preview.tx_status, preview.tx_error.as_deref());
             if let Some(explorer) = crate::tokens::chain_id_to_explorer(chain_id) {
                 table.add_row(vec!["Explorer", &format!("{explorer}/tx/{hash}")]);
             }

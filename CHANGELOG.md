@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- `--self-submit` on `trade` and `intent place` reads the receipt status, and the exit status
+  tells the outcomes apart: 3 when the transaction was mined and reverted, 4 when it was sent but
+  its receipt was not read because the RPC failed or the bounded receipt wait ended, 1 when the
+  command failed and no `--self-submit` transaction was broadcast. A reverted transaction used to
+  exit 0, and an RPC error after the broadcast used to exit 1 without the hash. `--help` and the
+  README list every exit status.
+- `--self-submit` signs the transaction before sending it, so its hash is known first. With exit
+  status 3 or 4 the table and `--json` output still print the hash, with `tx_status`
+  (`confirmed`, `reverted` or `unknown`) and, for `unknown`, `tx_error`: `tx_hash`, `tx_status`
+  and `tx_error` for `intent place`, `self_submit.txHash`, `txStatus` and `txError` for `trade`.
+  A failed receipt poll is retried until the wait ends. A JSON-RPC refusal of the raw transaction
+  exits 1, since nothing was broadcast. The MCP `trade` and `intent_place` tools return a
+  reverted or unknown outcome as a tool error whose text carries the full outcome.
+- `quote`, `trade` and `buy-quota` accept a token address outside the built-in registry on the
+  chains `trade` supports. The address must answer `decimals()` on that chain, and its `symbol()`
+  labels displays when it is short printable text. Such an address used to be refused as an
+  unknown token, so `trade` could not run on BNB Smart Chain, Robinhood Chain or Arc Testnet.
+- Error text on stderr, in `--json` output and in MCP tool errors keeps a URL's scheme, host and
+  port and replaces its path, query and user info, where RPC keys live, with `[redacted]`.
+- The API key remediation is printed for an HTTP 401 answer only, not for any error text that
+  contains "401", such as a transaction hash.
+
 ## 0.9.0 — 2026-09-16
 
 ### Added

@@ -1,13 +1,13 @@
 // Buy quota command for preparing quota purchase wallet calls.
 // Exports: Args, run.
-// Deps: crate::{client, tokens}, alloy::primitives::U256, eyre, serde_json.
+// Deps: crate::{client, service::token, tokens}, alloy::primitives::U256, eyre, serde_json.
 
 use alloy::primitives::U256;
 use eyre::{eyre, Result};
 
 use crate::client::Client;
 use crate::order_types::parse_raw_amount;
-use crate::tokens::{chain_id_to_name, chain_name_to_id, format_amount, resolve_token, unknown_chain_id};
+use crate::tokens::{chain_id_to_name, chain_name_to_id, format_amount, unknown_chain_id};
 
 pub struct Args {
     pub chain_id: String,
@@ -23,8 +23,8 @@ pub async fn run(client: &Client, args: Args) -> Result<()> {
         .ok_or_else(|| eyre!("{}", unknown_chain_id(&args.chain_id)))?;
     let (quota_contract, usdc_address) = quota_config(chain_id)
         .ok_or_else(|| eyre!("quota purchase is only supported on Base and Arbitrum"))?;
-    let (token_addr, token_sym, token_dec) = resolve_token(&args.token, chain_id)
-        .ok_or_else(|| eyre!("unknown token '{}' on chain id {}", args.token, chain_id))?;
+    let token = crate::service::token::resolve(&args.token, chain_id).await?;
+    let (token_addr, token_sym, token_dec) = (token.address.as_str(), token.symbol.as_str(), token.decimals);
     let amount_in = args.amount.clone();
 
     if token_addr.eq_ignore_ascii_case(usdc_address) {

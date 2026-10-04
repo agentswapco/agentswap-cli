@@ -1,10 +1,12 @@
-// RPC/provider helpers for V6 reads and signed transaction submission.
-// Exports: chain_config, rpc_url, read_provider, wallet_provider.
+// RPC/provider helpers for V6 reads and for signing a transaction before it is broadcast.
+// Exports: chain_config, rpc_url, read_provider, sign_transaction.
 // Deps: alloy providers/network, crate::signer and crate::tokens.
 
 use crate::signer::Signer;
+use alloy::consensus::TxEnvelope;
 use alloy::network::{EthereumWallet, TxSigner};
 use alloy::primitives::{Address, Signature};
+use alloy::rpc::types::TransactionRequest;
 use alloy::providers::{DynProvider, Provider, ProviderBuilder};
 use alloy::signers::Error as SignerError;
 use eyre::{eyre, Result};
@@ -96,10 +98,22 @@ fn has_rpc_override(chain_id: u64) -> bool {
     std::env::var_os(chain_key).is_some() || std::env::var_os("AGENTSWAP_RPC_URL").is_some()
 }
 
-pub fn wallet_provider(url: &str, signer: Arc<dyn Signer>) -> Result<DynProvider> {
+/// Fill nonce, gas, fees and chain id from the RPC and sign with the signer's wallet, without
+/// sending: the hash is known before the broadcast. Returns a provider for the same RPC.
+pub async fn sign_transaction(
+    url: &str,
+    signer: Arc<dyn Signer>,
+    request: TransactionRequest,
+) -> Result<(DynProvider, TxEnvelope)> {
     let url = url.parse().map_err(|e| eyre!("invalid RPC URL: {e}"))?;
     let wallet = EthereumWallet::new(WalletSigner(signer));
-    Ok(ProviderBuilder::new().wallet(wallet).connect_http(url).erased())
+    let provider = ProviderBuilder::new().wallet(wallet).connect_http(url);
+    let envelope = provider
+        .fill(request)
+        .await?
+        .try_into_envelope()
+        .map_err(|_| eyre!("the transaction was filled but not signed"))?;
+    Ok((provider.erased(), envelope))
 }
 
 #[derive(Clone)]

@@ -75,10 +75,12 @@ sol! {
         ) external;
     }
 
-    /// Read only to prove a raw token address is an ERC-20 before its order is signed.
+    /// Read to prove a raw token address is an ERC-20 before it is quoted or signed, and to
+    /// label it in displays.
     #[sol(rpc)]
     contract Erc20Metadata {
         function decimals() external view returns (uint8);
+        function symbol() external view returns (string);
     }
 
     #[sol(rpc)]

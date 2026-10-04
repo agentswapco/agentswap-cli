@@ -1,6 +1,6 @@
 // AgentSwap CLI entrypoint for the standalone published crate.
-// Exports: binary command parsing and dispatch.
-// Deps: clap, tokio, crate::commands, crate::{client, credentials}
+// Exports: binary command parsing, dispatch, and the exit status of a failed run.
+// Deps: clap, tokio, crate::commands, crate::{client, credentials, redact, service::submit}
 
 mod commands;
 mod client;
@@ -10,6 +10,7 @@ mod display;
 mod evm;
 mod mcp;
 mod order_types;
+mod redact;
 mod routes;
 mod service;
 mod signer;
@@ -29,16 +30,24 @@ async fn main() {
     let result = run_cli(cli).await;
 
     if let Err(e) = result {
-        let msg = format!("{e}");
+        let msg = redact::urls(&format!("{e}"));
         eprintln!("Error: {msg}");
-        if msg.contains("401") {
+        if msg.contains("HTTP 401") {
             eprintln!();
             eprintln!("This endpoint needs a valid API key. To get one:");
             eprintln!("  agentswap register --address <OWNER_WALLET> --key-file <KEY_FILE>");
             eprintln!("  (or set SR_API_KEY if you already have a key)");
         }
-        std::process::exit(1);
+        std::process::exit(exit_code(&e));
     }
+}
+
+/// 1 for anything refused or failed before a transaction was sent; a sent transaction that did
+/// not confirm carries its own status. Argument errors exit 2 from clap.
+fn exit_code(error: &eyre::Report) -> i32 {
+    error
+        .downcast_ref::<service::submit::NotConfirmed>()
+        .map_or(1, service::submit::NotConfirmed::exit_code)
 }
 
 async fn run_cli(cli: Cli) -> Result<()> {
@@ -271,5 +280,20 @@ fn signer_from_file(path: Option<&str>) -> Result<Option<Arc<dyn signer::Signer>
             Ok(Some(Arc::new(key)))
         }
         None => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use service::submit::{NotConfirmed, TxStatus, EXIT_REVERTED, EXIT_UNKNOWN};
+
+    #[test]
+    fn exit_status_tells_refused_from_reverted_from_unknown() {
+        assert_eq!(exit_code(&eyre::eyre!("refused before signing")), 1);
+        for (status, code) in [(TxStatus::Reverted, EXIT_REVERTED), (TxStatus::Unknown, EXIT_UNKNOWN)] {
+            let failure = NotConfirmed::check(Some("0xab"), Some(status), None).unwrap();
+            assert_eq!(exit_code(&eyre::Report::new(failure)), code);
+        }
     }
 }

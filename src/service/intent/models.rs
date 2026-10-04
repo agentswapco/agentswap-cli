@@ -4,6 +4,7 @@
 // Deps: serde, schemars, crate::order_types DTOs, crate::tokens for the chain-selector copy.
 
 use crate::order_types;
+use crate::service::submit::{NotConfirmed, Submission, TxStatus};
 use crate::tokens::CHAIN_ID_HELP;
 use serde::{Deserialize, Serialize};
 
@@ -58,7 +59,28 @@ pub struct PlaceOutcome {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
     pub relay: Option<serde_json::Value>,
+    /// Hash of the self-submitted announce transaction, set as soon as it was sent.
     pub tx_hash: Option<String>,
+    /// Receipt outcome of the self-submitted announce: confirmed, reverted, or unknown when no
+    /// receipt was read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tx_status: Option<TxStatus>,
+    /// Why tx_status is unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tx_error: Option<String>,
+}
+
+impl PlaceOutcome {
+    pub(super) fn record(&mut self, submission: Submission) {
+        self.tx_hash = Some(submission.hash_hex());
+        self.tx_status = Some(submission.status);
+        self.tx_error = submission.error;
+    }
+
+    /// The error to report after printing this outcome when its announce did not confirm.
+    pub fn not_confirmed(&self) -> Option<NotConfirmed> {
+        NotConfirmed::check(self.tx_hash.as_deref(), self.tx_status, self.tx_error.as_deref())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
