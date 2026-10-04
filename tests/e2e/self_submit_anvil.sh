@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # End-to-end outcome reporting of `intent place --self-submit` on a local anvil fork of Base:
 # a mined announce exits 0, an announce that reverts on chain exits 3 and reports its hash, and an
-# RPC that stops answering after the broadcast exits 4 and reports the hash it broadcast.
+# RPC that stops answering after the broadcast exits 4 and reports the hash it broadcast, which is
+# on stderr while the receipt wait still runs.
 # Needs anvil, cast and python3. BIN is the agentswap binary; FORK_URL is a Base RPC to fork from.
 # Every write goes to the local fork; fresh keys are generated and funded there.
 set -u
@@ -107,6 +108,9 @@ cast rpc evm_setAutomine false --rpc-url "$RPC" > /dev/null
 place "$WORK/unknown" & CLI=$!
 wait_for_pending && POOL_TX=$(pending_hash)
 stop_anvil
+sleep 2
+expect "unknown: CLI still in its receipt wait" "$(kill -0 $CLI 2>/dev/null && echo waiting)" waiting
+expect "unknown: hash already on stderr" "$(grep -o "${POOL_TX:-none}" "$WORK/unknown.err" | head -1)" "${POOL_TX:-none}"
 wait $CLI; report "$WORK/unknown"
 expect "unknown: exit" "$(cat "$WORK/unknown.code")" 4
 expect "unknown: reported hash is the broadcast one" "$(field "$WORK/unknown.json" tx_hash)" "${POOL_TX:-none}"

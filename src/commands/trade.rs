@@ -3,6 +3,7 @@
 // Deps: crate::{client, service::trade, signer}.
 
 use crate::client::Client;
+use crate::service::submit::Wait;
 use crate::service::trade::{self, TradeInput};
 use crate::signer::Signer;
 use comfy_table::{presets::UTF8_FULL_CONDENSED, Table};
@@ -33,11 +34,11 @@ pub async fn run(
     allow_trade: bool,
 ) -> Result<()> {
     let json = args.json;
-    let chain_id = crate::tokens::chain_name_to_id(&args.chain_id)
+    crate::tokens::chain_name_to_id(&args.chain_id)
         .ok_or_else(|| eyre::eyre!("{}", crate::tokens::unknown_chain_id(&args.chain_id)))?;
-    let outcome = trade::execute_trade(client, signer, input(args), allow_trade).await?;
+    let outcome = trade::execute_trade(client, signer, input(args), allow_trade, Wait::CLI).await?;
     if outcome.dry_run || outcome.self_submit.is_some() {
-        print_outcome(&outcome, chain_id, json)?;
+        print_outcome(&outcome, json)?;
     }
     // Printed first, so a reverted or unknown broadcast still leaves its hash on stdout.
     outcome.not_confirmed().map_or(Ok(()), |failure| Err(failure.into()))
@@ -61,7 +62,7 @@ fn input(args: Args) -> TradeInput {
     }
 }
 
-fn print_outcome(outcome: &trade::TradeOutcome, chain_id: u64, json: bool) -> Result<()> {
+fn print_outcome(outcome: &trade::TradeOutcome, json: bool) -> Result<()> {
     if json {
         println!("{}", serde_json::to_string_pretty(outcome)?);
         return Ok(());
@@ -84,8 +85,8 @@ fn print_outcome(outcome: &trade::TradeOutcome, chain_id: u64, json: bool) -> Re
         if let Some(hash) = &preview.tx_hash {
             table.add_row(vec!["Self Submit Tx", hash.as_str()]);
             crate::display::add_tx_status_rows(&mut table, preview.tx_status, preview.tx_error.as_deref());
-            if let Some(explorer) = crate::tokens::chain_id_to_explorer(chain_id) {
-                table.add_row(vec!["Explorer", &format!("{explorer}/tx/{hash}")]);
+            if let Some(url) = &preview.tx_explorer_url {
+                table.add_row(vec!["Explorer", url.as_str()]);
             }
         }
     }

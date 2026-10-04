@@ -7,19 +7,12 @@ use crate::evm;
 use alloy::primitives::{address, b256, Address, B256, Bytes, U256};
 
 #[tokio::test]
+#[ignore = "requires AGENTSWAP_INTENT_PARITY_RPC_URL, AGENTSWAP_INTENT_PARITY_OWNER and AGENTSWAP_INTENT_PARITY_PROXY"]
 async fn deployed_digest_parity() {
-    let Ok(rpc) = std::env::var("AGENTSWAP_INTENT_PARITY_RPC_URL") else {
-        eprintln!("deployed_digest_parity skipped: AGENTSWAP_INTENT_PARITY_RPC_URL is not set");
-        return;
-    };
-    let Some(owner_raw) = std::env::var("AGENTSWAP_INTENT_PARITY_OWNER").ok() else {
-        eprintln!("deployed_digest_parity skipped: AGENTSWAP_INTENT_PARITY_OWNER is not set");
-        return;
-    };
-    let Some(proxy_raw) = std::env::var("AGENTSWAP_INTENT_PARITY_PROXY").ok() else {
-        eprintln!("deployed_digest_parity skipped: AGENTSWAP_INTENT_PARITY_PROXY is not set");
-        return;
-    };
+    let required = |name: &str| std::env::var(name).unwrap_or_else(|_| panic!("deployed_digest_parity needs {name}"));
+    let rpc = required("AGENTSWAP_INTENT_PARITY_RPC_URL");
+    let owner_raw = required("AGENTSWAP_INTENT_PARITY_OWNER");
+    let proxy_raw = required("AGENTSWAP_INTENT_PARITY_PROXY");
     let chain_id = std::env::var("AGENTSWAP_INTENT_PARITY_CHAIN_ID")
         .ok()
         .and_then(|value| value.parse().ok())

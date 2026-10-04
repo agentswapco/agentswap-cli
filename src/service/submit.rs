@@ -1,4 +1,4 @@
-// Self-submitted transactions: sign first, broadcast, then a bounded receipt wait.
+// Self-submitted transactions: sign first, print the hash, broadcast, then a bounded receipt wait.
 // Exports: TxStatus, Submission, NotConfirmed, Wait, send.
 // Deps: crate::{evm, redact, signer}, alloy provider/network types, tokio time.
 
@@ -24,7 +24,7 @@ pub const EXIT_REVERTED: i32 = 3;
 pub const EXIT_UNKNOWN: i32 = 4;
 
 /// The exit statuses, stated once for `--help` and the README.
-pub const EXIT_STATUS_HELP: &str = "Exit status: 0 success; 1 the command failed, and no --self-submit transaction was broadcast; 2 invalid arguments; 3 a --self-submit transaction was mined and reverted; 4 a --self-submit transaction was sent but its receipt was not read, because the RPC failed or the bounded wait ended, so it may still be mined. With 3 and 4 the output, --json included, carries the transaction hash and its status; look the hash up before sending again. A --relay error exits 1 without showing whether the relay broadcast the announce; check intent list --agent before placing again.";
+pub const EXIT_STATUS_HELP: &str = "Exit status: 0 success; 1 the command failed, and no --self-submit transaction was broadcast; 2 invalid arguments; 3 a --self-submit transaction was mined and reverted; 4 a --self-submit transaction was sent but its receipt was not read, because the RPC failed or the bounded wait ended, so it may still be mined. --self-submit prints the transaction hash on stderr before it sends the transaction; with 3 and 4 the output, --json included, also carries the hash and its status. Look the hash up before sending again. A --relay error exits 1 without showing whether the relay broadcast the announce; check intent list --agent before placing again.";
 
 /// What is known about a transaction after it left this process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -58,7 +58,7 @@ pub struct Submission {
     pub error: Option<String>,
 }
 
-/// How long the broadcast and the receipt wait may take.
+/// How long the broadcast, the hash lookup and the receipt wait may take.
 #[derive(Debug, Clone, Copy)]
 pub struct Wait {
     pub receipt: Duration,
@@ -67,15 +67,62 @@ pub struct Wait {
 }
 
 impl Wait {
-    pub const DEFAULT: Self = Self {
+    /// The command line: long enough for a congested block.
+    pub const CLI: Self = Self {
         receipt: Duration::from_secs(120),
         poll: Duration::from_secs(2),
         call: Duration::from_secs(20),
     };
+    /// MCP tools: the broadcast, the lookup and the receipt wait together end well inside a 60 s
+    /// client request timeout, so the client receives the hash as an unknown outcome instead of
+    /// timing out without it.
+    pub const MCP: Self = Self {
+        receipt: Duration::from_secs(30),
+        poll: Duration::from_secs(2),
+        call: Duration::from_secs(8),
+    };
 }
 
-/// Sign `input` to `to` from the signer's wallet, broadcast it and wait for its receipt. An error
-/// means nothing was broadcast; once the RPC may hold the transaction, the result carries its hash.
+/// Error answers to eth_sendRawTransaction that a node gives only before it accepts a transaction,
+/// so none of them can follow a broadcast. Matched case-insensitively within the message.
+const REFUSALS: [&str; 10] = [
+    "insufficient funds",
+    "intrinsic gas too low",
+    "less than block base fee",
+    "invalid sender",
+    "invalid chain id",
+    "chain id mismatch",
+    "exceeds block gas limit",
+    "oversized data",
+    "transaction type not supported",
+    "tx type not supported",
+];
+
+/// How an error answer to eth_sendRawTransaction is read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SendAnswer {
+    /// A refusal from `REFUSALS`: nothing was broadcast.
+    Refused,
+    /// The RPC already holds this transaction.
+    AlreadyKnown,
+    /// Any other answer, which may follow an accepted send: look the hash up.
+    Ambiguous,
+}
+
+fn classify(message: &str) -> SendAnswer {
+    let message = message.to_ascii_lowercase();
+    if message.contains("already known") || message.contains("already imported") || message.starts_with("known transaction") {
+        SendAnswer::AlreadyKnown
+    } else if REFUSALS.iter().any(|refusal| message.contains(refusal)) {
+        SendAnswer::Refused
+    } else {
+        SendAnswer::Ambiguous
+    }
+}
+
+/// Sign `input` to `to` from the signer's wallet, print its hash on stderr, broadcast it and wait
+/// for its receipt. An error means nothing was broadcast; once the RPC may hold the transaction,
+/// the result carries its hash.
 pub async fn send(url: &str, signer: Arc<dyn Signer>, to: Address, input: Bytes, wait: Wait) -> Result<Submission> {
     let request = TransactionRequest::default()
         .with_from(signer.address())
@@ -83,17 +130,32 @@ pub async fn send(url: &str, signer: Arc<dyn Signer>, to: Address, input: Bytes,
         .with_input(input);
     let (provider, envelope) = evm::sign_transaction(url, signer, request).await?;
     let hash = *envelope.tx_hash();
-    let raw = envelope.encoded_2718();
-    let sent = timeout(wait.call, provider.send_raw_transaction(&raw)).await;
-    let error = match sent {
+    eprintln!("sending transaction {hash:?}");
+    let sent = timeout(wait.call, provider.send_raw_transaction(&envelope.encoded_2718())).await;
+    let failure = match sent {
         Ok(Ok(_)) => return Ok(await_receipt(&provider, hash, wait).await),
         Ok(Err(error)) => match error.as_error_resp() {
-            Some(refusal) => return Err(eyre!("the RPC refused transaction {hash:?}, so it was not broadcast: {refusal}")),
+            Some(answer) => match classify(&answer.message) {
+                SendAnswer::Refused => {
+                    return Err(eyre!("the RPC refused transaction {hash:?}, so it was not broadcast: {answer}"));
+                }
+                SendAnswer::AlreadyKnown => return Ok(await_receipt(&provider, hash, wait).await),
+                SendAnswer::Ambiguous => format!("eth_sendRawTransaction answered {answer}"),
+            },
             None => format!("eth_sendRawTransaction failed: {error}"),
         },
-        Err(_) => format!("eth_sendRawTransaction gave no answer within {} s", wait.call.as_secs()),
+        Err(_) => "eth_sendRawTransaction gave no answer".to_string(),
     };
-    Ok(Submission::unknown(hash, error))
+    if rpc_knows(&provider, hash, wait.call).await {
+        return Ok(await_receipt(&provider, hash, wait).await);
+    }
+    Ok(Submission::unknown(hash, format!("{failure}; a lookup by hash did not find it")))
+}
+
+/// One eth_getTransactionByHash; any non-null answer counts, whatever the chain's format.
+async fn rpc_knows(provider: &DynProvider, hash: B256, limit: Duration) -> bool {
+    let lookup = provider.raw_request::<_, serde_json::Value>("eth_getTransactionByHash".into(), (hash,));
+    matches!(timeout(limit, lookup).await, Ok(Ok(found)) if !found.is_null())
 }
 
 /// Poll for the receipt until `wait.receipt` has passed. A failed poll is retried, so one
@@ -110,8 +172,8 @@ async fn await_receipt(provider: &DynProvider, hash: B256, wait: Wait) -> Submis
             Err(_) => last_error = Some("eth_getTransactionReceipt gave no answer".to_string()),
         }
         if Instant::now() + wait.poll >= deadline {
-            let waited = format!("no receipt within {} s", wait.receipt.as_secs());
-            let error = last_error.map_or(waited.clone(), |error| format!("{waited}; last error: {error}"));
+            let waited = "no receipt before the wait ended";
+            let error = last_error.map_or(waited.to_string(), |error| format!("{waited}; last error: {error}"));
             return Submission::unknown(hash, error);
         }
         sleep(wait.poll).await;

@@ -15,7 +15,8 @@ pub async fn run_place(
     allow_trade: bool,
     json: bool,
 ) -> Result<()> {
-    let result = intent::place(client, input, signer, allow_trade).await?;
+    let announcer = intent::Announcer { relay: client, wait: crate::service::submit::Wait::CLI };
+    let result = intent::place(announcer, input, signer, allow_trade).await?;
     if json { println!("{}", serde_json::to_string_pretty(&result)?); } else { print_place(&result); }
     // Printed first, so a reverted or unknown announce still leaves its hash on stdout.
     result.not_confirmed().map_or(Ok(()), |failure| Err(failure.into()))
@@ -68,8 +69,8 @@ fn print_place(result: &intent::PlaceOutcome) {
     if let Some(tx_hash) = &result.tx_hash {
         table.add_row(vec!["Tx Hash", tx_hash.as_str()]);
         crate::display::add_tx_status_rows(&mut table, result.tx_status, result.tx_error.as_deref());
-        if let Some(explorer) = crate::tokens::chain_id_to_explorer(result.chain_id) {
-            table.add_row(vec!["Explorer", &format!("{explorer}/tx/{tx_hash}")]);
+        if let Some(url) = &result.tx_explorer_url {
+            table.add_row(vec!["Explorer", url.as_str()]);
         }
     }
     println!("{table}");

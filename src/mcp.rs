@@ -3,7 +3,7 @@
 // Deps: rmcp, crate::{client, redact, service, signer}.
 
 use crate::client::Client;
-use crate::service::submit::NotConfirmed;
+use crate::service::submit::{NotConfirmed, Wait};
 use crate::service::{intent, market, quote, trade};
 use crate::signer::Signer;
 use crate::tokens::{chain_name_to_id, unknown_chain_id, CHAIN_ID_HELP};
@@ -116,7 +116,7 @@ impl AgentSwapMcp {
             .map_err(tool_error)
     }
 
-    #[tool(description = "Preview an unsigned AgentOrder or sign a live trade; amount, min_out and max_amount are unsigned decimal integers in raw token units. A live trade (dry_run=false) requires --allow-trade and min_out, because the quote server's output is not trusted as the protection floor. dry_run defaults to true and is forced true without --allow-trade. A dry-run returns the quote, unsigned AgentOrder and digest after reading policy generation and checking hash parity against a reachable RPC and deployed V6 proxy. It never signs or returns a signature or signed calldata, and never broadcasts.")]
+    #[tool(description = "Preview an unsigned AgentOrder or sign a live trade; amount, min_out and max_amount are unsigned decimal integers in raw token units. A live trade (dry_run=false) requires --allow-trade and min_out, because the quote server's output is not trusted as the protection floor. dry_run defaults to true and is forced true without --allow-trade. A dry-run returns the quote, unsigned AgentOrder and digest after reading policy generation and checking hash parity against a reachable RPC and deployed V6 proxy. It never signs or returns a signature or signed calldata, and never broadcasts. With self_submit, the result carries self_submit.txHash and txStatus; the receipt wait ends before common MCP request timeouts, and a reverted transaction, or one sent whose receipt was not read, is a tool error that carries the full outcome.")]
     async fn trade(
         &self,
         Parameters(mut input): Parameters<trade::TradeInput>,
@@ -131,14 +131,14 @@ impl AgentSwapMcp {
         let Some(signer) = self.signer.clone() else {
             return Err("trade requires --key-file".to_string());
         };
-        let outcome = trade::execute_trade(&self.client, signer, input, self.allow_trade)
+        let outcome = trade::execute_trade(&self.client, signer, input, self.allow_trade, Wait::MCP)
             .await
             .map_err(tool_error)?;
         let failure = outcome.not_confirmed();
         confirmed(outcome, failure)
     }
 
-    #[tool(description = "Preview an unsigned V6 intent and authorization or sign and announce live; amount, start_out, end_out and max_amount are unsigned decimal integers in raw token units. dry_run is forced true without --allow-trade. A dry-run returns the unsigned intent, authorization and digest after on-chain intent-id and authorization-digest parity checks; it never signs, creates or returns a signature or envelope, relays or broadcasts. Signature-based authorization validation runs only live. A live announcement requires --allow-trade and exactly one of relay or self_submit. Requires a reachable RPC and V6 deployment.")]
+    #[tool(description = "Preview an unsigned V6 intent and authorization or sign and announce live; amount, start_out, end_out and max_amount are unsigned decimal integers in raw token units. dry_run is forced true without --allow-trade. A dry-run returns the unsigned intent, authorization and digest after on-chain intent-id and authorization-digest parity checks; it never signs, creates or returns a signature or envelope, relays or broadcasts. Signature-based authorization validation runs only live. A live announcement requires --allow-trade and exactly one of relay or self_submit. With self_submit, the result carries tx_hash and tx_status; the receipt wait ends before common MCP request timeouts, and a reverted announce, or one sent whose receipt was not read, is a tool error that carries the full outcome. Requires a reachable RPC and V6 deployment.")]
     async fn intent_place(
         &self,
         Parameters(mut input): Parameters<intent::PlaceInput>,
@@ -146,7 +146,8 @@ impl AgentSwapMcp {
         if !self.allow_trade { input.dry_run = true; }
         bound_intent_cap(&mut input, self.trade_max_amount.as_deref())?;
         let Some(signer) = self.signer.clone() else { return Err("intent_place requires --key-file".to_string()); };
-        let outcome = intent::place(&self.intent_client, input, signer, self.allow_trade)
+        let announcer = intent::Announcer { relay: &self.intent_client, wait: Wait::MCP };
+        let outcome = intent::place(announcer, input, signer, self.allow_trade)
             .await.map_err(tool_error)?;
         let failure = outcome.not_confirmed();
         confirmed(outcome, failure)

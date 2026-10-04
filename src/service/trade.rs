@@ -6,7 +6,7 @@ use crate::client::Client;
 use crate::evm;
 use crate::order_types::{self, AgentOrderDto, UserProxyV6};
 use crate::service::quote::{self, QuoteInput, QuoteOutput};
-use crate::service::submit::NotConfirmed;
+use crate::service::submit::{NotConfirmed, Wait};
 use crate::signer::Signer;
 use crate::tokens::CHAIN_ID_HELP;
 use alloy::primitives::{Address, U256};
@@ -73,6 +73,7 @@ pub async fn execute_trade(
     signer: Arc<dyn Signer>,
     input: TradeInput,
     allow_trade: bool,
+    wait: Wait,
 ) -> Result<TradeOutcome> {
     let mut input = input;
     validate_input_amounts(&input)?;
@@ -101,7 +102,7 @@ pub async fn execute_trade(
         (None, None)
     } else {
         let (signature, preview) =
-            self_submit::sign_and_submit(signer, &input, &order, digest, &quote_out).await?;
+            self_submit::sign_and_submit(signer, &input, &order, digest, &quote_out, wait).await?;
         (Some(signature), Some(preview))
     };
     Ok(TradeOutcome {

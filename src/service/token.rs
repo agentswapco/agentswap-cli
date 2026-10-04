@@ -44,20 +44,19 @@ pub async fn resolve(input: &str, chain_id: u64) -> Result<Token> {
     read_metadata(&provider, address, chain_id).await
 }
 
-/// decimals() is required; symbol() is shown only when it is short printable ASCII, since it is
-/// text chosen by the token's deployer. Otherwise the shortened address stands in for it.
+/// decimals() is required. symbol() is text chosen by the token's deployer, so it is shown only
+/// when it is short printable ASCII, and always beside the shortened address, so an off-registry
+/// token that calls itself USDC never reads like the registry's USDC.
 async fn read_metadata(provider: &DynProvider, address: Address, chain_id: u64) -> Result<Token> {
     let token = Erc20Metadata::new(address, provider.clone());
     let decimals = token.decimals().call().await.map_err(|error| {
         eyre!("token {address} does not answer decimals() on {}: {error}", chain_id_to_name(chain_id))
     })?;
-    let symbol = token
-        .symbol()
-        .call()
-        .await
-        .ok()
-        .filter(|symbol| is_display_symbol(symbol))
-        .unwrap_or_else(|| crate::display::short_addr(&address.to_string()));
+    let short = crate::display::short_addr(&address.to_string());
+    let symbol = match token.symbol().call().await {
+        Ok(symbol) if is_display_symbol(&symbol) => format!("{symbol} ({short})"),
+        _ => short,
+    };
     Ok(Token { address: address.to_string(), symbol, decimals })
 }
 
@@ -96,7 +95,7 @@ mod tests {
         let provider = evm::read_provider(&rpc.url).unwrap();
         let address = Address::repeat_byte(0x55);
         let token = read_metadata(&provider, address, 56).await.expect("an ERC-20");
-        assert_eq!(token, Token { address: address.to_string(), symbol: "USDT".to_string(), decimals: 18 });
+        assert_eq!(token, Token { address: address.to_string(), symbol: "USDT (0x5555...5555)".to_string(), decimals: 18 });
     }
 
     #[tokio::test]

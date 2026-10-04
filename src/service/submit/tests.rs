@@ -1,5 +1,5 @@
-// Tests for sign-first submission against a scripted JSON-RPC server: refused, unanswered,
-// reverted, confirmed and never-mined transactions, and the redaction of the RPC URL.
+// Tests for sign-first submission against a scripted JSON-RPC server: refused, already known,
+// ambiguous, unanswered, reverted, confirmed and never-mined transactions, and URL redaction.
 // Exports: no production symbols.
 // Deps: parent submit module, crate::service::test_rpc, crate::signer::local, serde_json.
 
@@ -11,14 +11,18 @@ use serde_json::{json, Value};
 use std::sync::Mutex;
 
 #[derive(Clone, Copy)]
-enum Broadcast { Accept, Refuse, Drop }
+enum Broadcast { Accept, Answer(&'static str), Drop }
 
 #[derive(Clone, Copy)]
 enum Receipt { Pending, Status(u8), Fail }
 
-/// Starts a chain whose broadcast and receipt polls follow the script; the last receipt step
-/// repeats. Returns the server and the hash of the raw transaction it received.
 fn chain(broadcast: Broadcast, receipts: Vec<Receipt>) -> (TestRpc, Arc<Mutex<Option<B256>>>) {
+    chain_with(broadcast, false, receipts)
+}
+
+/// Starts a chain whose broadcast, hash lookup and receipt polls follow the script; the last
+/// receipt step repeats. Returns the server and the hash of the raw transaction it received.
+fn chain_with(broadcast: Broadcast, known: bool, receipts: Vec<Receipt>) -> (TestRpc, Arc<Mutex<Option<B256>>>) {
     let sent = Arc::new(Mutex::new(None));
     let seen = Arc::clone(&sent);
     let mut polls = 0;
@@ -28,10 +32,11 @@ fn chain(broadcast: Broadcast, receipts: Vec<Receipt>) -> (TestRpc, Arc<Mutex<Op
             *seen.lock().unwrap() = Some(keccak256(&raw));
             match broadcast {
                 Broadcast::Accept => Some(ok(body, json!(keccak256(&raw)))),
-                Broadcast::Refuse => Some(failure(body, "insufficient funds for gas * price + value")),
+                Broadcast::Answer(message) => Some(failure(body, message)),
                 Broadcast::Drop => None,
             }
         }
+        "eth_getTransactionByHash" => Some(ok(body, if known { json!({"hash": body["params"][0]}) } else { Value::Null })),
         "eth_getTransactionReceipt" => {
             let step = receipts[polls.min(receipts.len() - 1)];
             polls += 1;
@@ -101,7 +106,7 @@ async fn a_mined_receipt_with_status_zero_is_reverted_and_keeps_the_hash() {
 
 #[tokio::test]
 async fn a_refused_broadcast_is_an_error_and_no_receipt_is_awaited() {
-    let (rpc, _) = chain(Broadcast::Refuse, vec![Receipt::Status(1)]);
+    let (rpc, _) = chain(Broadcast::Answer("insufficient funds for gas * price + value"), vec![Receipt::Status(1)]);
     let error = submit(&rpc).await.expect_err("the RPC refused the transaction");
     assert!(format!("{error}").contains("not broadcast"), "{error}");
     assert_eq!(rpc.called("eth_getTransactionReceipt"), 0);
@@ -126,7 +131,7 @@ async fn a_failed_receipt_poll_is_retried_until_the_receipt_arrives() {
 
 #[tokio::test]
 async fn a_receipt_wait_that_ends_without_a_receipt_is_unknown() {
-    for (step, expected) in [(Receipt::Pending, "no receipt within"), (Receipt::Fail, "last error")] {
+    for (step, expected) in [(Receipt::Pending, "no receipt before the wait ended"), (Receipt::Fail, "last error")] {
         let (rpc, sent) = chain(Broadcast::Accept, vec![step]);
         let submission = submit(&rpc).await.expect("sent");
         assert_eq!((submission.hash, submission.status), (sent_hash(&sent), TxStatus::Unknown));
@@ -143,9 +148,9 @@ fn not_confirmed_maps_reverted_and_unknown_to_their_exit_statuses() {
     let reverted = NotConfirmed::check(Some("0xab"), Some(TxStatus::Reverted), None).unwrap();
     assert_eq!(reverted.exit_code(), EXIT_REVERTED);
     assert_eq!(reverted.to_string(), "transaction 0xab was mined and reverted");
-    let unknown = NotConfirmed::check(Some("0xcd"), Some(TxStatus::Unknown), Some("no receipt within 120 s")).unwrap();
+    let unknown = NotConfirmed::check(Some("0xcd"), Some(TxStatus::Unknown), Some("no receipt before the wait ended")).unwrap();
     assert_eq!(unknown.exit_code(), EXIT_UNKNOWN);
-    assert!(unknown.to_string().starts_with("transaction 0xcd was sent but its outcome is unknown (no receipt within 120 s)"));
+    assert!(unknown.to_string().starts_with("transaction 0xcd was sent but its outcome is unknown (no receipt before the wait ended)"));
     assert_ne!(EXIT_REVERTED, EXIT_UNKNOWN);
     assert!(![0, 1, 2].contains(&EXIT_REVERTED) && ![0, 1, 2].contains(&EXIT_UNKNOWN));
 }
@@ -165,4 +170,81 @@ fn the_exit_status_help_names_every_status_the_code_returns() {
     use clap::CommandFactory;
     let help = crate::cli::Cli::command().render_long_help().to_string();
     assert!(help.contains(EXIT_STATUS_HELP), "{help}");
+}
+
+const REFUSED: [&str; 8] = [
+    "insufficient funds for gas * price + value",
+    "intrinsic gas too low",
+    "max fee per gas less than block base fee: address 0x01, maxFeePerGas: 1, baseFee: 2",
+    "invalid sender",
+    "invalid chain id for signer",
+    "exceeds block gas limit",
+    "oversized data",
+    "transaction type not supported",
+];
+const ALREADY_KNOWN: [&str; 3] = ["already known", "Transaction already imported", "known transaction: 0xab"];
+const AMBIGUOUS: [&str; 4] = ["nonce too low", "replacement transaction underpriced", "internal error", "upstream timeout"];
+
+#[test]
+fn broadcast_answers_are_classified_by_whether_they_can_follow_acceptance() {
+    for message in REFUSED { assert_eq!(classify(message), SendAnswer::Refused, "{message}"); }
+    for message in ALREADY_KNOWN { assert_eq!(classify(message), SendAnswer::AlreadyKnown, "{message}"); }
+    for message in AMBIGUOUS { assert_eq!(classify(message), SendAnswer::Ambiguous, "{message}"); }
+    assert_eq!(classify("unknown transaction"), SendAnswer::Ambiguous);
+}
+
+#[tokio::test]
+async fn a_refusal_that_cannot_follow_a_broadcast_exits_before_any_lookup() {
+    for message in REFUSED {
+        let (rpc, _) = chain_with(Broadcast::Answer(message), true, vec![Receipt::Status(1)]);
+        let error = submit(&rpc).await.expect_err("refused");
+        assert!(format!("{error}").contains("not broadcast"), "{message}: {error}");
+        assert_eq!(rpc.called("eth_getTransactionByHash") + rpc.called("eth_getTransactionReceipt"), 0, "{message}");
+    }
+}
+
+#[tokio::test]
+async fn an_already_known_answer_counts_as_sent_and_waits_for_the_receipt() {
+    for message in ALREADY_KNOWN {
+        let (rpc, sent) = chain(Broadcast::Answer(message), vec![Receipt::Status(1)]);
+        let submission = submit(&rpc).await.expect("the RPC holds the transaction");
+        assert_eq!((submission.hash, submission.status), (sent_hash(&sent), TxStatus::Confirmed), "{message}");
+        assert_eq!(rpc.called("eth_getTransactionByHash"), 0, "{message}");
+    }
+}
+
+#[tokio::test]
+async fn another_error_answer_looks_the_hash_up_and_waits_when_the_rpc_has_it() {
+    for message in AMBIGUOUS {
+        let (rpc, sent) = chain_with(Broadcast::Answer(message), true, vec![Receipt::Status(1)]);
+        let submission = submit(&rpc).await.expect("mined despite the error answer");
+        assert_eq!((submission.hash, submission.status), (sent_hash(&sent), TxStatus::Confirmed), "{message}");
+        assert_eq!(rpc.called("eth_getTransactionByHash"), 1, "{message}");
+    }
+}
+
+#[tokio::test]
+async fn another_error_answer_the_lookup_cannot_confirm_is_unknown_with_the_hash() {
+    for message in AMBIGUOUS {
+        let (rpc, sent) = chain_with(Broadcast::Answer(message), false, vec![Receipt::Pending]);
+        let submission = submit(&rpc).await.expect("possibly sent");
+        assert_eq!((submission.hash, submission.status), (sent_hash(&sent), TxStatus::Unknown), "{message}");
+        let error = submission.error.expect("why the outcome is unknown");
+        assert!(error.contains(message) && error.contains("lookup by hash"), "{error}");
+        assert_eq!(rpc.called("eth_getTransactionReceipt"), 0, "{message}");
+    }
+}
+
+#[tokio::test]
+async fn an_unanswered_broadcast_the_rpc_holds_waits_for_the_receipt() {
+    let (rpc, sent) = chain_with(Broadcast::Drop, true, vec![Receipt::Status(0)]);
+    let submission = submit(&rpc).await.expect("sent");
+    assert_eq!((submission.hash, submission.status), (sent_hash(&sent), TxStatus::Reverted));
+}
+
+#[test]
+fn the_mcp_wait_ends_inside_a_sixty_second_client_timeout() {
+    let worst = Wait::MCP.call * 2 + Wait::MCP.receipt + Wait::MCP.poll;
+    assert!(worst < Duration::from_secs(50), "{worst:?}");
+    assert!(Wait::CLI.receipt > Wait::MCP.receipt);
 }

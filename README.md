@@ -73,7 +73,8 @@ signed calldata; neither command signs, broadcasts or relays in dry-run.
 
 A token is a symbol from the built-in registry or a raw address. A raw address outside the
 registry is accepted by `quote`, `trade` and `buy-quota` on the chains `trade` supports, where it
-must answer `decimals()`; it is read on chain before any quote or order.
+must answer `decimals()`; it is read on chain before any quote or order, and displays label it
+with its shortened address.
 
 `agentswap mcp` exposes nine tools: quote, batch_quote, tokens, pools, trade, intent_place,
 intent_list, intent_status and policy. `--allow-trade` permits live execution by trade and
@@ -95,11 +96,15 @@ pass `--lookback-blocks`.
 | 3 | A `--self-submit` transaction was mined and reverted |
 | 4 | A `--self-submit` transaction was sent but its receipt was not read, because the RPC failed or the bounded wait ended; it may still be mined |
 
-`--self-submit` signs the transaction before sending it, so its hash is known first. With 3 and
-4 the output, `--json` included, carries the hash and its status (`tx_hash` and `tx_status` for
-`intent place`, `self_submit.txHash` and `self_submit.txStatus` for `trade`); look the hash up
-before sending again. The MCP `trade` and `intent_place` tools return such an outcome as a tool
-error that carries the same fields. A `--relay` error exits 1 without showing whether the relay
+`--self-submit` signs the transaction before sending it and prints `sending transaction <hash>`
+on stderr first. With 3 and 4 the output, `--json` included, also carries the hash and its status
+(`tx_hash` and `tx_status` for `intent place`, `self_submit.txHash` and `self_submit.txStatus` for
+`trade`); look the hash up before sending again. An error answer to the broadcast exits 1 only
+when it is a refusal a node gives before accepting a transaction, such as insufficient funds;
+after any other answer the hash is looked up, and a transaction the RPC does not have is reported
+with exit 4. The MCP `trade` and `intent_place` tools wait a shorter time, ending before common
+MCP request timeouts, and return a reverted or unknown outcome as a tool error that carries the
+same fields. A `--relay` error exits 1 without showing whether the relay
 broadcast the announce; check `intent list --agent` before placing again. Error text shows a
 URL's scheme, host and port only, never its path or query.
 

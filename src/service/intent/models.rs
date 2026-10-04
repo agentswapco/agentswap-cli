@@ -68,11 +68,16 @@ pub struct PlaceOutcome {
     /// Why tx_status is unknown.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tx_error: Option<String>,
+    /// Explorer page of the announce transaction, on chains with a known explorer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tx_explorer_url: Option<String>,
 }
 
 impl PlaceOutcome {
     pub(super) fn record(&mut self, submission: Submission) {
-        self.tx_hash = Some(submission.hash_hex());
+        let hash = submission.hash_hex();
+        self.tx_explorer_url = crate::display::tx_url(self.chain_id, &hash);
+        self.tx_hash = Some(hash);
         self.tx_status = Some(submission.status);
         self.tx_error = submission.error;
     }
