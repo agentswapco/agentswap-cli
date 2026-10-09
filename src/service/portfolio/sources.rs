@@ -67,7 +67,7 @@ fn holding_row(address: Address, token: Holding) -> super::Row {
         balance_raw: Some(token.balance_raw), price_usd: price.map(|p| super::amount::render(&p.to_string(), 18)),
         value_usd: None, source: price.map(|_| "alchemy".into()), confidence: None, basis: None, observed: None,
         source_count: None, floor_eligible: false, sources: vec!["wallet-tokens".into()],
-        status: if token.decimals.is_some() { "unpriced" } else { "metadata_error" }.into(), quote_out_raw: None, dust: false }
+        status: if token.decimals.is_some() { "unpriced" } else { "metadata_error" }.into(), quote_out_raw: None, error: None, dust: false }
 }
 
 pub async fn catalog(client: &Client, chain: u64, out: &mut Candidates) -> eyre::Result<()> {

@@ -22,6 +22,7 @@ pub async fn run(client: &Client, args: Args) -> Result<()> {
     let json = args.json;
     let verify = args.verify;
     let out = quote::quote(client, QuoteInput {
+        taker: None,
         chain_id: args.chain_id,
         from: args.from,
         to: args.to,

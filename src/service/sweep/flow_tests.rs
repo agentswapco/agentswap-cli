@@ -121,7 +121,7 @@ fn sweep_sale_reaches_digest_with_actual_pinned_request() {
 async fn pinned_sale(context: Context<'_>, budget: &crate::service::intent::TokenPolicy) {
     let input = sale::trade_input(&context, budget, U256::from(1_000_000), U256::from(990_000_000_000_000_000u64));
     let request = crate::service::quote::QuoteInput { chain_id: input.chain_id.clone(), from: input.from.clone(),
-        to: input.to.clone(), amount: input.amount.clone(), slippage: input.slippage, verify: false };
+        to: input.to.clone(), amount: input.amount.clone(), slippage: input.slippage, verify: false, taker: Some(input.proxy.clone()) };
     let from = token::from_registry("USDC", 8453).unwrap();
     let (body, _) = crate::service::quote::build_quote_body(&request, 8453, &from, &context.receive);
     let checked = crate::service::quote::quote(context.client, request).await.unwrap();

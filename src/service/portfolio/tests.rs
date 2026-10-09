@@ -91,7 +91,7 @@ async fn exact_price_boundary_unpriced_and_quote_errors() {
         assert_eq!(output.tokens[0].quote_out_raw.is_some(), quoted);
     }
     let output = read(&Client::new("http://127.0.0.1:1", None), input("4663"), &provider, "unused").await.unwrap();
-    assert_eq!(output.tokens[0].status, "no_route");
+    assert_eq!(output.tokens[0].status, "quote_failed");
     assert!(!output.tokens[0].dust);
 }
 
@@ -127,7 +127,7 @@ async fn missing_default_quote_symbol_explains_receive_address_remedy() {
     let mut request = input("4663");
     request.quote_token = None;
     let output = read(&Client::new(&rpc.url, None), request, &provider, "unused").await.unwrap();
-    assert_eq!(output.tokens[0].status, "no_route");
+    assert_eq!(output.tokens[0].status, "quote_failed");
     for remedy in ["--token", "--quote-token", "does not establish"] {
         assert!(output.warning.contains(remedy), "{remedy}");
     }

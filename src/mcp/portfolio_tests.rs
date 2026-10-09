@@ -55,7 +55,8 @@ async fn configured_client_case(portfolio_only: bool) {
         assert!(requests[0].target.starts_with("/api/tokens"));
         assert_eq!(requests[1].target, "/quote");
         assert!(requests.iter().all(|r| !r.paid && !r.keyed));
-        assert_eq!(output.tokens[0].status, "no_route");
+        assert_eq!(output.tokens[0].status, "quote_failed");
+        assert!(output.tokens[0].error.as_deref().unwrap().contains("HTTP 402 Payment Required"));
         assert!(output.tokens[0].quote_out_raw.is_none());
     } else {
         assert_eq!(client.quote(&json!({})).await.unwrap()["output"], "123");
