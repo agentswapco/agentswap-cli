@@ -15,6 +15,10 @@ fn arc_is_in_the_mcp_v6_chain_description() {
         signer: None, allow_trade: false, trade_max_amount: None,
     });
     let tools = server.tool_router.list_all();
+    for name in ["portfolio", "grant_link"] {
+        let tool = tools.iter().find(|tool| tool.name == name).unwrap();
+        assert!(tool.description.as_deref().unwrap().contains(crate::tokens::HOLDINGS_CHAINS_NOTE));
+    }
     for name in ["trade", "intent_place", "intent_list", "intent_status", "policy"] {
         let tool = tools.iter().find(|tool| tool.name == name).unwrap();
         let description = tool.description.as_deref().unwrap();

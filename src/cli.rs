@@ -90,12 +90,12 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Discover ERC-20 holdings and optionally quote balances below a USD threshold.
-    #[command(after_help = crate::service::portfolio::discovery::CHAINS)]
+    #[command(after_help = crate::tokens::HOLDINGS_CHAINS_NOTE)]
     Portfolio(crate::service::portfolio::Input),
     /// Create an advisory grant URL; live policies require --replace. No transactions are signed.
     /// Requires unique ERC-20 tokens, a positive spend cap, at most 20 tokens including receive,
     /// and rendered caps of at most 32 characters.
-    #[command(after_help = crate::service::portfolio::discovery::CHAINS)]
+    #[command(after_help = crate::tokens::HOLDINGS_CHAINS_NOTE)]
     GrantLink(crate::service::grant_link::Input),
     /// Get quotes for multiple token pairs at once
     BatchQuote {

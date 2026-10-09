@@ -78,20 +78,26 @@ pub(crate) async fn read(client: &Client, input: Input, provider: &DynProvider, 
     for row in &mut rows {
         let Some(raw) = row.balance_raw.as_deref() else { continue; };
         let Some(decimals) = row.decimals else { continue; };
+        let raw = order_types::parse_u256(raw)?;
         let price = prices.get(&row.address.parse::<Address>()?).copied();
-        let (value, below) = price.map(|p| amount::valuation(order_types::parse_u256(raw).unwrap(), p, decimals, max))
+        let (value, below) = price.map(|p| amount::valuation(raw, p, decimals, max))
             .map_or((None, false), |(v, b)| (Some(v), b));
         row.price_usd = price.map(|p| amount::render(&p.to_string(), 18));
         row.value_usd = value;
         row.status = if price.is_some() { "priced" } else { "unpriced" }.into();
         if max.is_some() && (below || price.is_none()) {
-            row.quote_out_raw = quote_row(&client, &input, row, provider, config.id).await.ok();
+            row.quote_out_raw = quote_row(&client, &input, row, decimals, raw, provider).await.ok();
             row.dust = below && row.quote_out_raw.is_some();
             if row.quote_out_raw.is_none() { row.status = "no_route".into(); }
         }
     }
+    let mut warning = "Tokens received before the scanned block range may be missing; add --token addresses, widen --lookback-blocks, or configure an Alchemy URL in AGENTSWAP_RPC_URL_<id>. USD values are indicative; quotes are not sale floors.".to_string();
+    if max.is_some() && token::from_registry(input.quote_token.as_deref().unwrap_or("USDC"), config.id).is_none()
+        && discovery::erc20(input.quote_token.as_deref().unwrap_or("USDC")).is_err() {
+        warning.push_str(" Quote token symbol is unavailable on this chain; supply its receive address through --quote-token. no_route here does not establish that no economic route exists.");
+    }
     Ok(Output { chain_id: config.id, owner: format!("{owner:?}"), from_block, to_block, indexer,
-        warning: "Tokens received before the scanned block range may be missing; include their addresses explicitly. USD values are indicative; quotes are not sale floors.".into(), tokens: rows })
+        warning, tokens: rows })
 }
 
 async fn balances(provider: &DynProvider, chain: u64, owner: Address, candidates: discovery::Candidates) -> Result<Vec<Row>> {
@@ -119,15 +125,16 @@ async fn read_row(provider: &DynProvider, chain: u64, owner: Address, address: A
         price_usd: None, value_usd: None, sources, status: status.into(), quote_out_raw: None, dust: false })
 }
 
-async fn quote_row(client: &Client, input: &Input, row: &Row, provider: &DynProvider, chain: u64) -> Result<String> {
+async fn quote_row(client: &Client, input: &Input, row: &Row, decimals: u8, raw: U256, provider: &DynProvider) -> Result<String> {
+    let chain = discovery::config(&input.chain_id)?.id;
     let target = input.quote_token.as_deref().unwrap_or("USDC");
     let to = match token::from_registry(target, chain) {
         Some(token) => token,
         None => token::read_metadata(provider, discovery::erc20(target)?, chain).await?,
     };
-    let from = token::Token { address: row.address.clone(), symbol: row.symbol.clone(), decimals: row.decimals.unwrap() };
+    let from = token::Token { address: row.address.clone(), symbol: row.symbol.clone(), decimals };
     let input = quote::QuoteInput { chain_id: chain.to_string(), from: from.address.clone(), to: to.address.clone(),
-        amount: row.balance_raw.clone().unwrap(), slippage: None, verify: false };
+        amount: raw.to_string(), slippage: None, verify: false };
     let (body, _) = quote::build_quote_body(&input, chain, &from, &to);
     let response = client.quote(&body).await?;
     let raw = response["output"].as_str().ok_or_else(|| eyre::eyre!("no route output"))?;

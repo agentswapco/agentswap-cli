@@ -53,12 +53,16 @@ Portfolio combines registry tokens, repeatable `--token` addresses, incoming Tra
 optional `alchemy_getTokenBalances` on the configured RPC. Indexer errors produce `indexer: null`.
 Every row reports discovery sources; balances come from `balanceOf`, and zero balances are omitted.
 The output includes the scanned range and warns that older holdings may be missing. Use
-`--lookback-blocks` or explicit addresses to extend discovery. Failed reads carry a row status.
+`--token` addresses, wider `--lookback-blocks`, or an Alchemy URL in the existing
+`AGENTSWAP_RPC_URL_<id>` setting to extend discovery. Indexer pages are followed; a page error or
+repeated cursor discards all indexer candidates and reports `indexer: null`. Failed reads carry a row status.
 DefiLlama contract prices and USD values use decimal integer arithmetic; Robinhood is unpriced.
 `--max-usd` is a USD decimal filter, not a token amount. It quotes the full balance of priced tokens
 at or below the threshold and unpriced tokens, into `--quote-token` (default USDC). `dust` is true
 only for priced tokens at or below the threshold with a route. Quote failures produce `no_route`;
-quotes and indicative USD prices are not sale floors.
+quotes and indicative USD prices are not sale floors. Where no built-in USDC entry exists, supply
+the receive address through `--quote-token`. A missing quote symbol produces a warning: its
+`no_route` status does not establish that no economic route exists.
 
 Grant spend inputs are addresses with optional `:raw-cap`. One-shot omitted caps use current owner
 balances, with a weekly epoch and UTC expiry in 24 hours. Recurring grants require explicit raw caps,

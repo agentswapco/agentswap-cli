@@ -12,7 +12,7 @@ fn fixture() -> TestRpc {
         let token = Address::repeat_byte(1);
         let result = match body["method"].as_str().unwrap_or("") {
             "eth_blockNumber" => json!("0x10"),
-            "eth_getLogs" => json!([{"address":format!("{token:?}"), "topics":[], "data":"0x", "blockNumber":"0x10", "transactionIndex":"0x0", "logIndex":"0x0", "blockHash":alloy::primitives::B256::ZERO, "transactionHash":alloy::primitives::B256::ZERO, "removed":false}]),
+            "eth_getLogs" => json!([{"address":format!("{token:?}"), "topics":[keccak256("Transfer(address,address,uint256)"), Address::repeat_byte(2).into_word(), Address::repeat_byte(4).into_word()], "data":format!("0x{}", hex::encode(U256::from(1234500).abi_encode())), "blockNumber":"0x10", "transactionIndex":"0x0", "logIndex":"0x0", "blockHash":alloy::primitives::B256::ZERO, "transactionHash":alloy::primitives::B256::ZERO, "removed":false}]),
             "alchemy_getTokenBalances" => return Some(failure(body, "method not found")),
             "eth_call" => {
                 let tx = &body["params"][0];

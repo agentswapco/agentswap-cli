@@ -20,6 +20,8 @@ use std::sync::Arc;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod portfolio_tests;
+#[cfg(test)]
 mod cli_dry_run_tests;
 #[cfg(test)]
 mod dry_run_fixture;
@@ -56,7 +58,7 @@ impl AgentSwapMcp {
                 route.attr.description.as_deref().unwrap_or_default(), crate::tokens::V6_CHAINS_NOTE).into());
         }
         for route in tool_router.map.values_mut().filter(|route| matches!(route.attr.name.as_ref(), "portfolio" | "grant_link")) {
-            route.attr.description = Some(format!("{} {}", route.attr.description.as_deref().unwrap_or_default(), portfolio::discovery::CHAINS).into());
+            route.attr.description = Some(format!("{} {}", route.attr.description.as_deref().unwrap_or_default(), crate::tokens::HOLDINGS_CHAINS_NOTE).into());
         }
         Self {
             tool_router,

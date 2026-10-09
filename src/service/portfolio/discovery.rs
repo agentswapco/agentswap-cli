@@ -14,11 +14,10 @@ alloy::sol! {
 }
 
 pub type Candidates = BTreeMap<Address, BTreeSet<String>>;
-pub const CHAINS: &str = "Portfolio and grant links support Base (8453), Arbitrum One (42161), BNB Smart Chain (56) and Robinhood Chain (4663).";
 
 pub fn config(chain: &str) -> Result<evm::ChainConfig> {
     let config = evm::chain_config(chain)?;
-    if !matches!(config.id, 8453 | 42161 | 56 | 4663) { return Err(eyre!("{CHAINS}")); }
+    if !matches!(config.id, 8453 | 42161 | 56 | 4663) { return Err(eyre!("{}", tokens::HOLDINGS_CHAINS_NOTE)); }
     Ok(config)
 }
 
@@ -49,7 +48,9 @@ pub async fn discover(provider: &DynProvider, config: evm::ChainConfig, owner: A
         let filter = Filter::new().event_signature(keccak256("Transfer(address,address,uint256)"))
             .topic2(owner).from_block(block).to_block(end);
         for log in provider.get_logs(&filter).await.map_err(|e| evm::event_query_error(config, block, end, e))? {
-            add(&mut out, log.address(), "transfer");
+            if log.topics().len() == 3 && log.data().data.len() == 32 {
+                add(&mut out, log.address(), "transfer");
+            }
         }
         if end == latest { break; }
         block = end.saturating_add(1);
@@ -63,6 +64,8 @@ pub async fn discover(provider: &DynProvider, config: evm::ChainConfig, owner: A
 struct IndexedBalances {
     #[serde(rename = "tokenBalances")]
     tokens: Vec<IndexedToken>,
+    #[serde(rename = "pageKey")]
+    page_key: Option<String>,
 }
 #[derive(Debug, Deserialize)]
 struct IndexedToken {
@@ -71,8 +74,16 @@ struct IndexedToken {
 }
 
 async fn indexer(provider: &DynProvider, owner: Address) -> Option<Vec<Address>> {
-    let result: IndexedBalances = provider.raw_request("alchemy_getTokenBalances".into(), (owner, "erc20")).await.ok()?;
-    result.tokens.iter().map(|t| erc20(&t.address).ok()).collect()
+    let mut params = serde_json::json!([owner, "erc20"]);
+    let mut tokens = Vec::new();
+    let mut cursors = BTreeSet::new();
+    loop {
+        let result: IndexedBalances = provider.raw_request("alchemy_getTokenBalances".into(), params).await.ok()?;
+        for token in result.tokens { tokens.push(erc20(&token.address).ok()?); }
+        let Some(cursor) = result.page_key.filter(|key| !key.is_empty()) else { return Some(tokens); };
+        if !cursors.insert(cursor.clone()) { return None; }
+        params = serde_json::json!([owner, "erc20", {"pageKey": cursor}]);
+    }
 }
 
 pub async fn balance(provider: &DynProvider, token: Address, owner: Address) -> Result<U256> {
