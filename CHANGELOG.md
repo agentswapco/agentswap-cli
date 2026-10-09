@@ -1,15 +1,29 @@
 # Changelog
 
-## Unreleased
+## 0.10.0
 
 ### Added
 
 - `sweep` command and MCP tool: sequential grant-bounded trades using independent app-price
-  floors, per-token outcomes, dry-run previews and stop-on-unconfirmed submission.
+  floors, per-token outcomes, dry-run previews and stop-on-unconfirmed submission. Requires
+  basket addresses via repeatable `--token` or a nonempty MCP `tokens` array; no logs are scanned.
+  `--max-usd` judges the owner's whole holding, even when the grant or allowance limits the sale.
+  `--max-loss-bps` must be nonnegative and below 10000; it determines the price floor and is sent
+  to the quote service as `slippage_bps`. Zero floors and quotes below the floor are skipped.
+  Quotes are requested without server verification; with `--self-submit`, a sale that would
+  revert at gas estimation fails before broadcast. Reasons include `receive_token`, `zero`,
+  `unpriced`, `price_not_independent`, `over_max_usd`, `no_route`, `below_floor`, `quote_failed`,
+  `dry_run`, `not_submitted` and `sweep_stopped`. Both prices must be floor-eligible: DefiLlama
+  and 1inch qualify; oracle prices qualify only when observed and either supported by at least
+  two sources or based on `manual_pin`, `stablecoin_par` or `onchain_pool`.
 
-- Read-only `portfolio` and MCP `portfolio`: ERC-20 discovery with provenance, authoritative
-  balances, app wallet-tokens and prices, live chain-filtered catalog, price provenance and floor
-  eligibility, best-effort scanned block ranges and full-balance route checks.
+- Read-only `portfolio` and MCP `portfolio`: ERC-20 discovery from the app's `/api/wallet-tokens`
+  when indexed, the live chain-filtered catalog and built-in registry fallback when indexing is
+  unavailable, and explicit `--token` addresses. No logs are scanned and `--lookback-blocks` is
+  not accepted. Indexed balances and metadata come from wallet-tokens; other candidates are read
+  on chain. App `/api/prices` supplies prices with source and floor eligibility under the same
+  rule as `sweep`; wallet-token Alchemy prices are display-only fallback prices. Includes
+  discovery provenance and full-balance route checks.
 - Advisory `grant-link` and MCP `grant_link`: exact decimal caps, one-shot and recurring schedules,
   receive-only tokens, form-encoded app links and explicit replacement of live V6 policies.
 

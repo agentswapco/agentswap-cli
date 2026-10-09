@@ -50,8 +50,9 @@ agentswap grant-link --chainid 42161 --owner "$OWNER" --agent "$AGENT" \
 ```
 
 Portfolio combines the app's `/api/wallet-tokens` with repeatable `--token` addresses, without
-scanning logs. Indexed tokens use the endpoint's balance, decimals, symbol and name without
-per-token RPC reads. Explicit tokens absent from that response are read on chain. When indexing
+scanning logs; `--lookback-blocks` is not accepted. Indexed tokens use the endpoint's balance,
+decimals, symbol and name without per-token RPC reads. Explicit tokens absent from that response
+are read on chain. When indexing
 is unavailable, discovery falls back to the live service catalog filtered by chain and registry
 tokens, reading their balances on chain. Every row reports discovery sources; zero balances are omitted.
 `wallet_tokens` is `indexed`, `unindexed` or `unavailable`; failed sources contribute no candidates.
@@ -62,8 +63,8 @@ App `/api/prices` prices and USD values use decimal integer arithmetic. When an 
 the wallet-token `priceUsd` is shown with source `alchemy` and `floor_eligible: false`; it is never
 a sale-floor source. Tokens without either price are unpriced.
 Rows carry price `source`, `confidence`, `basis`, `observed`, `source_count` and `floor_eligible`.
-DefiLlama prices qualify for a floor; oracle prices qualify only when observed and either supported
-by at least two sources or based on `manual_pin`, `stablecoin_par` or `onchain_pool`.
+DefiLlama and 1inch prices qualify for a floor; oracle prices qualify only when observed and either
+supported by at least two sources or based on `manual_pin`, `stablecoin_par` or `onchain_pool`.
 `--max-usd` is a USD decimal filter, not a token amount. It quotes the full balance of priced tokens
 at or below the threshold and unpriced tokens, into `--quote-token` (default USDC). `dust` is true
 only for priced tokens at or below the threshold with a route. Quote failures produce `no_route`;
@@ -140,14 +141,20 @@ agentswap --allow-trade sweep --chainid 8453 --proxy "$PROXY" --key-file agent.k
 
 `sweep` and MCP `sweep` require `max_usd` (USD decimal), `max_loss_bps` and at least one basket
 token address to sell: repeat `--token` on the CLI or pass a nonempty MCP `tokens` array.
+`--max-usd` judges the owner's whole holding, even when the grant or allowance limits the sale.
+`--max-loss-bps` must be nonnegative and below 10000; it determines the price floor and is also
+sent to the quote service as `slippage_bps`.
 The agent takes the spend-token addresses listed in `grant-link` output and passes them to `sweep`
 after the owner approves the grant. A live market policy and an allowed receive token are required.
 Membership, caps, usage and epoch start are read with `agentTokenInfo`; expiry, action mask and
 generation are read with `policyOf`. No logs are scanned. Each sale spends the minimum of owner
 balance, remaining epoch budget and owner-to-proxy allowance. Prices are available on
 Base, Arbitrum One and BNB Smart Chain; unpriced holdings are skipped on all chains.
-Both input and receive prices must be floor-eligible. Floors use integer arithmetic and
-independent app prices; routes below the floor are skipped.
+Both input and receive prices must be floor-eligible under the portfolio pricing rule above.
+Floors use integer arithmetic and independent app prices; zero floors and routes below the floor
+are skipped. Quotes are requested without server verification. With `--self-submit`, a sale
+that would revert at gas estimation fails before broadcast. A sandwich can fill down to the
+floor: the floor is the guaranteed minimum for a successful sale, not the quoted output.
 
 Without `--allow-trade`, execution is forced to dry-run. MCP defaults `dry_run` to true.
 `--self-submit` pays gas from the agent key's wallet. Without it, a live sweep returns signed
@@ -155,6 +162,8 @@ calldata with outcome `skipped` and reason `not_submitted`; dry runs use reason 
 Confirmed sales report `sold`.
 Each allowed requested token and the receive token has a result row with raw amount, USD value,
 floor, quote output and outcome.
+Reasons include `receive_token`, `zero`, `unpriced`, `price_not_independent`, `over_max_usd`,
+`no_route`, `below_floor`, `quote_failed`, `dry_run`, `not_submitted` and `sweep_stopped`.
 Pre-broadcast failures continue; reverted or unknown broadcasts stop later sales, reported as
 `sweep_stopped`. The exit code is the worst result (0, 1, 3 or 4); exit 1 can follow earlier
 confirmed sales. MCP failures carry the full result. A sweep can exceed a single-trade timeout.
