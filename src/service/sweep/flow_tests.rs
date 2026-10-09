@@ -156,10 +156,10 @@ fn sweep_quote_404_no_executable_route_is_no_route() {
 #[test]
 fn sweep_quote_other_errors_keep_redacted_text() {
     for (status, body, expected) in [
-        (404, "unknown endpoint", "HTTP 404 Fixture: unknown endpoint"),
+        (404, "unknown endpoint", "HTTP 404 Not Found: unknown endpoint"),
         (401, "invalid key", "HTTP 401 Unauthorized"),
-        (429, "rate limited", "HTTP 429 Fixture: rate limited"),
-        (500, "upstream https://user:pass@rpc.example/SECRET?key=SECRET failed", "HTTP 500 Fixture: upstream https://rpc.example/[redacted] failed"),
+        (429, "rate limited", "HTTP 429 Too Many Requests: rate limited"),
+        (500, "upstream https://user:pass@rpc.example/SECRET?key=SECRET failed", "HTTP 500 Internal Server Error: upstream https://rpc.example/[redacted] failed"),
     ] {
         quote_flow("quote_error", "service::sweep::flow_tests::sweep_quote_other_errors_keep_redacted_text", status, body, expected);
         if std::env::var("SWEEP_FLOW_CASE").is_ok() { break; }
