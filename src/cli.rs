@@ -89,6 +89,14 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
+    /// Discover ERC-20 holdings and optionally quote balances below a USD threshold.
+    #[command(after_help = crate::service::portfolio::discovery::CHAINS)]
+    Portfolio(crate::service::portfolio::Input),
+    /// Create an advisory grant URL; live policies require --replace. No transactions are signed.
+    /// Requires unique ERC-20 tokens, a positive spend cap, at most 20 tokens including receive,
+    /// and rendered caps of at most 32 characters.
+    #[command(after_help = crate::service::portfolio::discovery::CHAINS)]
+    GrantLink(crate::service::grant_link::Input),
     /// Get quotes for multiple token pairs at once
     BatchQuote {
         #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
@@ -182,8 +190,8 @@ pub enum Commands {
         #[arg(long)]
         hash: String,
     },
-    /// Run an MCP server over stdio exposing nine tools: quote, batch_quote, tokens, pools,
-    /// trade, intent_place, intent_list, intent_status and policy
+    /// Run an MCP server over stdio exposing eleven tools: quote, batch_quote, tokens, pools,
+    /// trade, intent_place, intent_list, intent_status, policy, portfolio and grant_link
     Mcp,
     /// Place, list, or inspect V6 open intents
     Intent {

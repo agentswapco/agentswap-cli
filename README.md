@@ -36,6 +36,40 @@ them. Intents, policy and trade are deployed on Base (8453), Arbitrum One (42161
 Chain (56) and Robinhood Chain (4663) only, and an alias that resolves to another chain is
 refused by those commands.
 
+## Portfolio and grant links
+
+`portfolio` and `grant-link` are read-only on Base (8453), Arbitrum One (42161), BNB Smart
+Chain (56) and Robinhood Chain (4663). They do not sign transactions or x402 payments.
+
+```bash
+agentswap portfolio --chainid 8453 --owner "$OWNER" --max-usd 10 --json
+agentswap grant-link --chainid 8453 --owner "$OWNER" --agent "$AGENT" \
+  --token "$TOKEN" --receive USDC --one-shot --json
+agentswap grant-link --chainid 42161 --owner "$OWNER" --agent "$AGENT" \
+  --token "$TOKEN:1000000" --receive USDC --epoch 1w --expiry 30d
+```
+
+Portfolio combines registry tokens, repeatable `--token` addresses, incoming Transfer logs and
+optional `alchemy_getTokenBalances` on the configured RPC. Indexer errors produce `indexer: null`.
+Every row reports discovery sources; balances come from `balanceOf`, and zero balances are omitted.
+The output includes the scanned range and warns that older holdings may be missing. Use
+`--lookback-blocks` or explicit addresses to extend discovery. Failed reads carry a row status.
+DefiLlama contract prices and USD values use decimal integer arithmetic; Robinhood is unpriced.
+`--max-usd` is a USD decimal filter, not a token amount. It quotes the full balance of priced tokens
+at or below the threshold and unpriced tokens, into `--quote-token` (default USDC). `dust` is true
+only for priced tokens at or below the threshold with a route. Quote failures produce `no_route`;
+quotes and indicative USD prices are not sale floors.
+
+Grant spend inputs are addresses with optional `:raw-cap`. One-shot omitted caps use current owner
+balances, with a weekly epoch and UTC expiry in 24 hours. Recurring grants require explicit raw caps,
+`--epoch 1h|1d|1w` and `--expiry 7d|30d|90d|ISO`; ISO timestamps must be future whole seconds in UTC
+ending `Z`. Caps render using on-chain decimals, up to 32 characters. The receive token is appended
+with cap zero. Native tokens, duplicate tokens, more than 20 tokens including receive, and baskets
+without a positive cap are refused. A live agent policy requires `--replace`; output identifies the
+replaced policy and warns that its entire basket is replaced. The app re-reads metadata and the
+owner reviews the advisory link before approving. `--label` and `--note` add optional text.
+MCP `portfolio` and `grant_link` expose the same inputs using snake_case names and `tokens` arrays.
+
 ## Intents and policy
 
 Run [examples/daily-sell.sh](examples/daily-sell.sh) for one fraction-of-balance sale preview:
@@ -65,7 +99,7 @@ agentswap policy --chainid 8453 --owner 0xOwner --agent 0xAgent
 `trade` and `intent place` are forced to dry-run unless `--allow-trade` is set, and the same flag
 gates the MCP `trade` and `intent_place` tools. A live trade also needs `--min-out`: without an
 explicit floor the trade is refused, because the quote server's output is not trusted as the
-protection floor. Every monetary input is an unsigned decimal integer in the asset's smallest
+protection floor. Every token amount input is an unsigned decimal integer in the asset's smallest
 unit; `--max-amount` bounds the raw input amount before signing or sending. A trade dry-run
 reads policy generation and verifies the AgentOrder digest against the chain, then returns the quote,
 unsigned AgentOrder and digest. Dry-run outputs omit signatures, authorization envelopes and
@@ -76,8 +110,8 @@ registry is accepted by `quote`, `trade` and `buy-quota` on the chains `trade` s
 must answer `decimals()`; it is read on chain before any quote or order, and displays label it
 with its shortened address.
 
-`agentswap mcp` exposes nine tools: quote, batch_quote, tokens, pools, trade, intent_place,
-intent_list, intent_status and policy. `--allow-trade` permits live execution by trade and
+`agentswap mcp` exposes eleven tools: quote, batch_quote, tokens, pools, trade, intent_place,
+intent_list, intent_status, policy, portfolio and grant_link. `--allow-trade` permits live execution by trade and
 intent_place; without it those two run as dry-runs. Intent listing requires an owner or agent filter. MCP `trade` additionally defaults `dry_run` to true, while the
 CLI defaults to a live trade once `--allow-trade` is set.
 

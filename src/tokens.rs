@@ -78,6 +78,10 @@ struct TokenInfo {
     decimals: u8,
 }
 
+pub fn registry_addresses(chain_id: u64) -> Vec<&'static str> {
+    registry::iter().filter(|token| token.chain_id == chain_id).map(|token| token.address).collect()
+}
+
 /// Resolve a token symbol or address to (address, symbol, decimals).
 /// If input looks like an address (starts with 0x), returns it as-is with unknown decimals.
 pub fn resolve_token(input: &str, chain_id: u64) -> Option<(&'static str, &'static str, u8)> {

@@ -4,7 +4,7 @@
 
 use crate::client::Client;
 use crate::service::submit::{NotConfirmed, Wait};
-use crate::service::{intent, market, quote, trade};
+use crate::service::{intent, market, quote, trade, portfolio, grant_link};
 use crate::signer::Signer;
 use crate::tokens::{chain_name_to_id, unknown_chain_id, CHAIN_ID_HELP};
 use eyre::Result;
@@ -55,6 +55,9 @@ impl AgentSwapMcp {
             route.attr.description = Some(format!("{} {}",
                 route.attr.description.as_deref().unwrap_or_default(), crate::tokens::V6_CHAINS_NOTE).into());
         }
+        for route in tool_router.map.values_mut().filter(|route| matches!(route.attr.name.as_ref(), "portfolio" | "grant_link")) {
+            route.attr.description = Some(format!("{} {}", route.attr.description.as_deref().unwrap_or_default(), portfolio::discovery::CHAINS).into());
+        }
         Self {
             tool_router,
             client: config.client,
@@ -68,6 +71,16 @@ impl AgentSwapMcp {
 
 #[tool_router(router = tool_router)]
 impl AgentSwapMcp {
+    #[tool(description = "Discover ERC-20 holdings with provenance and scan range; max_usd is an unsigned USD decimal, quotes full eligible balances and unpriced tokens. Quotes never sign payments. Older tokens may be missing.")]
+    async fn portfolio(&self, Parameters(input): Parameters<portfolio::Input>) -> std::result::Result<Json<portfolio::Output>, String> {
+        portfolio::portfolio(&self.client, input).await.map(Json).map_err(tool_error)
+    }
+
+    #[tool(description = "Create an advisory grant URL without signing. Requires ERC-20 spend addresses, receive token, and either one_shot or epoch plus expiry. Recurring caps are explicit raw integers; one_shot omitted caps use current balances. Rejects duplicates, native tokens, more than 20 tokens, no positive cap and human caps longer than 32 characters. Live policies require replace.")]
+    async fn grant_link(&self, Parameters(input): Parameters<grant_link::Input>) -> std::result::Result<Json<grant_link::Output>, String> {
+        grant_link::grant_link(input).await.map(Json).map_err(tool_error)
+    }
+
     #[tool(description = "Get a swap quote. Amount is an unsigned decimal integer in the input token's smallest unit.")]
     async fn quote(
         &self,
@@ -185,7 +198,7 @@ impl AgentSwapMcp {
 impl ServerHandler for AgentSwapMcp {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_instructions("AgentSwap tools: quote, batch_quote, tokens, pools, trade, intent_place, intent_list, intent_status, policy.")
+            .with_instructions("AgentSwap tools: quote, batch_quote, tokens, pools, trade, intent_place, intent_list, intent_status, policy, portfolio, grant_link. Portfolio and grant_link are read-only; grant links require owner review in the app.")
     }
 }
 

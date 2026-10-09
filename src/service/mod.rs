@@ -3,6 +3,8 @@
 // Deps: crate::client plus feature-specific helpers.
 
 pub mod market;
+pub mod portfolio;
+pub mod grant_link;
 pub mod intent;
 pub mod quote;
 pub mod submit;

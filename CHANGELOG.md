@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+
+- Read-only `portfolio` and MCP `portfolio`: ERC-20 discovery with provenance, authoritative
+  balances, contract-address USD prices, scanned block ranges and full-balance route checks.
+- Advisory `grant-link` and MCP `grant_link`: exact decimal caps, one-shot and recurring schedules,
+  receive-only tokens, form-encoded app links and explicit replacement of live V6 policies.
+
 ### Changed
 
 - `--self-submit` on `trade` and `intent place` reads the receipt status, and the exit status

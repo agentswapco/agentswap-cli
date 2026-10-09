@@ -51,6 +51,11 @@ fn exit_code(error: &eyre::Report) -> i32 {
 }
 
 async fn run_cli(cli: Cli) -> Result<()> {
+    match &cli.command {
+        Commands::Portfolio(input) => return commands::holdings::portfolio(&cli, input.clone()).await,
+        Commands::GrantLink(input) => return commands::holdings::grant_link(&cli, input.clone()).await,
+        _ => {}
+    }
     let _ = (routes::X402_VERIFY, routes::X402_SETTLE, routes::X402_DISCOVERY);
     if let Some(max_amount) = &cli.trade_max_amount {
         order_types::parse_raw_amount("trade max-amount", max_amount)?;
@@ -85,6 +90,7 @@ async fn run_cli(cli: Cli) -> Result<()> {
     );
 
     match cli.command {
+        Commands::Portfolio(_) | Commands::GrantLink(_) => unreachable!("read-only commands dispatched above"),
         Commands::BatchQuote {
             chain_id,
             pairs,

@@ -47,7 +47,7 @@ pub async fn resolve(input: &str, chain_id: u64) -> Result<Token> {
 /// decimals() is required. symbol() is text chosen by the token's deployer, so it is shown only
 /// when it is short printable ASCII, and always beside the shortened address, so an off-registry
 /// token that calls itself USDC never reads like the registry's USDC.
-async fn read_metadata(provider: &DynProvider, address: Address, chain_id: u64) -> Result<Token> {
+pub(crate) async fn read_metadata(provider: &DynProvider, address: Address, chain_id: u64) -> Result<Token> {
     let token = Erc20Metadata::new(address, provider.clone());
     let decimals = token.decimals().call().await.map_err(|error| {
         eyre!("token {address} does not answer decimals() on {}: {error}", chain_id_to_name(chain_id))
