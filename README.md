@@ -178,7 +178,8 @@ Status reads scan announcement logs. `--wait` is for intent mode; `--self-submit
 Each allowed requested token and the receive token has a result row. Skip reasons include
 `receive_token`, `zero`, `unpriced`, `price_not_independent`, `over_max_usd`, `below_floor` and
 `dry_run`. Intent mode also reports `below_gas_floor` when the decay budget valued with the
-same prices is below the estimated fill cost. Missing gas or wrapped-native prices add row
+same prices is below the estimated fill cost; with `--max-loss-bps 0` the decay budget is zero,
+so every priced token is skipped this way. Missing gas or wrapped-native prices add row
 warnings without this skip. `--wait` scans only blocks since the recorded placement block.
 Market mode additionally reports `no_route`, `quote_failed`, `not_submitted` and
 `sweep_stopped`. Failures before broadcast continue; reverted or unknown market broadcasts stop
