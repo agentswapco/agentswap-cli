@@ -43,8 +43,8 @@ pub async fn sweep(client: &Client, signer: Arc<dyn Signer>, mut input: Input, a
     validate_policy(&policy, discovery::erc20(&receive.address)?, now(&provider).await?)?;
     let addresses = policy.tokens.iter().filter(|t| t.allowed).map(|t| discovery::erc20(&t.token)).collect::<Result<Vec<_>>>()?;
     let prices = prices::prices(config.id, &addresses, crate::routes::APP_ORIGIN).await;
-    // Preview and route discovery must not sign x402 payments, including forced dry runs.
-    let client = client.clone().with_x402(crate::x402::Config::disabled(), None);
+    // A forced or explicit preview must not sign x402 payments.
+    let client = if input.dry_run { client.clone().with_x402(crate::x402::Config::disabled(), None) } else { client.clone() };
     run(Context { client: &client, signer, input, provider, owner, receive, prices, policy, max, server_cap, wait }).await
 }
 
