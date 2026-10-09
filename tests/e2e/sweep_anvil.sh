@@ -16,22 +16,21 @@ WORK=$(mktemp -d)
 APID=
 trap 'if [ -n "$APID" ]; then kill "$APID" 2>/dev/null || true; fi; rm -rf "$WORK"' EXIT
 read -r WRAPPED SECOND RECEIVE FACTORY SECOND_SLOT < <(python3 - "$SRC" "$CHAIN" <<'PYTOKENS'
-import json,pathlib,re,subprocess,sys
+import os,pathlib,re,sys
 root=pathlib.Path(sys.argv[1])
 f=re.search(r'const FACTORY:.*address!\("([^"]+)"', (root/'src/evm.rs').read_text())[1]
 if sys.argv[2] == '56':
-    tokens=[]
-    for key in ['token.wbnb@bsc','token.eth@bsc','token.usdt@bsc']:
-        fact=json.loads(subprocess.check_output(['fact','get',key,'--json']))
-        assert fact['status']=='confirmed',fact['key']
-        tokens.append(fact['value'])
-    # crpc balance-slot on Binance-Peg ETH matched the smoke owner's nonzero
-    # balance (1943168684619350) to mapping slot 1 on BNB Smart Chain.
-    print(*tokens,f,1)
+    # BNB Smart Chain token addresses come from the caller: BSC_WBNB, BSC_ETH (Binance-Peg ETH)
+    # and BSC_USDT. Binance-Peg ETH keeps balanceOf in mapping slot 1 (located by writing a probe
+    # value to candidate slots and reading balanceOf back).
+    names=['BSC_WBNB','BSC_ETH','BSC_USDT']
+    missing=[n for n in names if not os.environ.get(n)]
+    if missing: sys.exit('FAIL set '+', '.join(missing))
+    print(*[os.environ[n] for n in names],f,1)
 else:
     s=(root/'src/tokens/registry/base.rs').read_text()
     a={symbol:address for address,symbol in re.findall(r'address: "([^"]+)",\s*symbol: "([^"]+)"',s)}
-    # crpc balance-slot matched cbETH's nonzero self-balance to mapping slot 51.
+    # cbETH keeps balanceOf in mapping slot 51 (located the same way).
     print(a['WETH'],a['cbETH'],a['USDC'],f,51)
 PYTOKENS
 )
@@ -63,7 +62,7 @@ for token in "$WRAPPED" "$SECOND"; do
 done
 export "AGENTSWAP_RPC_URL_$CHAIN=$RPC"
 BEFORE=$(cast call "$RECEIVE" 'balanceOf(address)(uint256)' "$OWNER" --rpc-url "$RPC" | awk '{print $1}')
-"$BIN" --allow-trade sweep --chainid "$CHAIN" --proxy "$PROXY" --key-file "$WORK/agent.key" \
+"$BIN" --allow-trade sweep --via market --chainid "$CHAIN" --proxy "$PROXY" --key-file "$WORK/agent.key" \
   --receive "$RECEIVE" --token "$WRAPPED" --token "$SECOND" --max-usd 100 --max-loss-bps 500 --self-submit --json > "$WORK/first.json" || { code=$?; cat "$WORK/first.json"; exit "$code"; }
 python3 - "$WORK/first.json" <<'PY'
 import json,sys
@@ -82,7 +81,7 @@ for token in "$WRAPPED" "$SECOND"; do
   [ "$allowance" = 0 ]
 done
 echo 'PASS exact allowances consumed'
-"$BIN" --allow-trade sweep --chainid "$CHAIN" --proxy "$PROXY" --key-file "$WORK/agent.key" \
+"$BIN" --allow-trade sweep --via market --chainid "$CHAIN" --proxy "$PROXY" --key-file "$WORK/agent.key" \
   --receive "$RECEIVE" --token "$WRAPPED" --token "$SECOND" --max-usd 100 --max-loss-bps 500 --self-submit --json > "$WORK/second.json" || { code=$?; cat "$WORK/second.json"; exit "$code"; }
 python3 - "$WORK/second.json" <<'PY'
 import json,sys
@@ -98,7 +97,7 @@ NOW=$(cast block latest -f timestamp --rpc-url "$RPC")
 cast send --private-key "$OKEY" "$PROXY" 'grantAgent(address,uint64,uint32,uint8,address[],uint256[])' \
   "$AGENT" "$((NOW + 86400))" 604800 1 "[$SECOND,$RECEIVE]" "[$THIN_CAP,0]" --rpc-url "$RPC" >/dev/null
 cast send --private-key "$OKEY" "$SECOND" 'approve(address,uint256)' "$PROXY" "$THIN_CAP" --rpc-url "$RPC" >/dev/null
-"$BIN" sweep --chainid "$CHAIN" --proxy "$PROXY" --key-file "$WORK/agent.key" \
+"$BIN" sweep --via market --chainid "$CHAIN" --proxy "$PROXY" --key-file "$WORK/agent.key" \
   --receive "$RECEIVE" --token "$SECOND" --max-usd 10000000 --max-loss-bps 0 --dry-run --json > "$WORK/thin.json" || { code=$?; cat "$WORK/thin.json"; exit "$code"; }
 python3 - "$WORK/thin.json" <<'PY'
 import json,sys

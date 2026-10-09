@@ -35,3 +35,16 @@ fn sweep_help_states_key_loss_bound_and_unpriced_chains() {
     assert!(help.contains("less than 10000"), "{help}");
     assert!(help.contains("sells nothing on chains without prices, including Robinhood Chain (4663)"), "{help}");
 }
+
+#[test]
+fn gasless_sweep_cli_mode_and_wait() {
+    let binary = env!("CARGO_BIN_EXE_agentswap");
+    let output = Command::new(binary).args(["sweep", "--help"]).output().unwrap();
+    let help = String::from_utf8(output.stdout).unwrap();
+    assert!(help.contains("--via") && help.contains("[default: intent]") && help.contains("--wait"), "{help}");
+    for mode in ["intent", "market"] {
+        let output = Command::new(binary).args(["sweep", "--chainid", "8453", "--proxy", "proxy", "--receive", "USDC",
+            "--token", "token", "--max-usd", "5", "--max-loss-bps", "100", "--via", mode, "--wait", "0"]).output().unwrap();
+        assert_ne!(output.status.code(), Some(2), "{}", String::from_utf8_lossy(&output.stderr));
+    }
+}

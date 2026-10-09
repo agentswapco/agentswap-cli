@@ -1,6 +1,6 @@
-// One sweep token: read current spend limits, value it, check the route and call execute_trade.
-// All transaction submission and receipt classification remain in the existing trade service.
-use super::{Context, Row, math, now};
+// One sweep token: read spend limits and independent prices, then place an intent or trade.
+// Signing and submission stay in the existing intent and trade services.
+use super::{Context, Row, Via, math, now, intent_sale};
 use crate::{order_types::{self, UserProxyV6}, service::{intent::TokenPolicy, portfolio::{amount, discovery}, quote, token, trade}};
 use alloy::primitives::{Address, U256};
 use eyre::Result;
@@ -34,6 +34,16 @@ pub(super) async fn sell(context: &Context<'_>, budget: &TokenPolicy, row: &mut 
         from.decimals, context.receive.decimals, context.input.max_loss_bps)?;
     row.floor_raw = Some(floor.to_string());
     if floor == U256::ZERO { row.reason = Some("below_floor".into()); return Ok(false); }
+    if context.input.via == Via::Intent {
+        let start = math::floor(raw, input_price.ok_or_else(|| eyre::eyre!("unpriced"))?, output_price.ok_or_else(|| eyre::eyre!("unpriced"))?,
+            from.decimals, context.receive.decimals, 0)?;
+        intent_sale::place(context, budget, row, raw, start, floor).await?;
+        return Ok(false);
+    }
+    market(context, budget, row, raw, floor).await
+}
+
+async fn market(context: &Context<'_>, budget: &TokenPolicy, row: &mut Row, raw: U256, floor: U256) -> Result<bool> {
     let request = quote::QuoteInput { chain_id: context.input.chain_id.clone(), from: budget.token.clone(), to: context.receive.address.clone(), amount: raw.to_string(), slippage: Some(context.input.max_loss_bps), verify: false, taker: Some(context.input.proxy.clone()) };
     let checked = match quote::quote(context.client, request).await {
         Ok(checked) => checked,
@@ -60,7 +70,8 @@ async fn current_amount(context: &Context<'_>, token: Address) -> Result<(U256, 
     let contract = UserProxyV6::new(proxy, context.provider.clone());
     let policy = contract.policyOf(context.signer.address()).call().await?;
     let now = now(&context.provider).await?;
-    eyre::ensure!(policy.expiry > now && policy.actionMask & 1 != 0, "agent policy is inactive");
+    eyre::ensure!(policy.expiry > now, "agent policy is inactive");
+    context.input.via.require_action(policy.actionMask)?;
     eyre::ensure!(policy.generation.to_string() == context.policy.generation, "agent policy changed during sweep");
     let info = contract.agentTokenInfo(context.signer.address(), token).call().await?;
     if !info.allowed { return Ok((U256::ZERO, U256::ZERO)); }

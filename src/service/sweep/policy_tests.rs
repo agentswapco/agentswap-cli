@@ -8,7 +8,7 @@ use serde_json::json;
 fn input() -> Input {
     Input { chain_id: "8453".into(), proxy: Address::repeat_byte(6).to_string(), receive: "USDC".into(),
         tokens: vec![Address::repeat_byte(1).to_string(), Address::repeat_byte(1).to_string()],
-        max_usd: "5".into(), max_loss_bps: 100, dry_run: true, self_submit: false }
+        max_usd: "5".into(), max_loss_bps: 100, dry_run: true, self_submit: false, via: Via::Market, wait: None }
 }
 
 fn fixture(allowed: bool, receive_allowed: bool, cap: u64, expiry: u64, mask: u8, wrong_proxy: bool) -> TestRpc {
@@ -56,7 +56,7 @@ async fn explicit_policy_reads_membership_budgets_and_generation_without_logs() 
         assert_eq!(spend.allowed, allowed);
         assert_eq!(spend.cap, cap.to_string());
         assert_eq!((spend.used.as_str(), spend.epoch_start.as_str()), ("3", "90"));
-        assert!(validate_policy(&policy, receive, 100).is_ok());
+        assert!(validate_policy(&policy, receive, 100, Via::Market).is_ok());
         assert_eq!(rpc.called("eth_call"), 4);
         assert_eq!(rpc.called("eth_getLogs"), 0);
     }

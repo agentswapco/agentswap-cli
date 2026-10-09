@@ -75,10 +75,11 @@ impl AgentSwapMcp {
 
 #[tool_router(router = tool_router)]
 impl AgentSwapMcp {
-    #[tool(description = "Sell small grant-basket holdings with independent price floors. Requires a nonempty tokens array of basket ERC-20 addresses to sell, max_usd, max_loss_bps, a live market grant and receive basket membership. Reads policy and token budgets without scanning logs. dry_run defaults true and is forced without --allow-trade; requires --key-file. self_submit pays gas from the agent wallet. Reverted or unknown broadcasts stop later sales; failures return all token rows. Pricing is available on Base, Arbitrum One and BNB Smart Chain.")]
+    #[tool(description = "Sell small grant-basket holdings with independent price floors. Requires a nonempty tokens array of basket ERC-20 addresses to sell, max_usd, max_loss_bps, a live grant with the selected action and receive basket membership. Reads policy and token budgets without scanning logs. dry_run defaults true and is forced without --allow-trade; requires --key-file. via defaults to intent: gasless relay placement without quotes. via=market with self_submit pays gas from the agent wallet. wait polls intent status for a bounded number of seconds. Reverted or unknown broadcasts stop later sales; failures return all token rows. Pricing is available on Base, Arbitrum One and BNB Smart Chain.")]
     async fn sweep(&self, Parameters(input): Parameters<sweep::Input>) -> std::result::Result<Json<sweep::Output>, String> {
         let signer = self.signer.clone().ok_or("sweep requires --key-file")?;
-        let output = sweep::sweep(&self.client, signer, input, self.allow_trade, self.trade_max_amount.as_deref(), Wait::MCP).await.map_err(tool_error)?;
+        let client = if input.via == sweep::Via::Intent { &self.intent_client } else { &self.client };
+        let output = sweep::sweep(client, signer, input, self.allow_trade, self.trade_max_amount.as_deref(), Wait::MCP).await.map_err(tool_error)?;
         if let Err(error) = output.check() {
             return Err(format!("{}\n{}", tool_error(error), serde_json::to_string(&output).map_err(|e| e.to_string())?));
         }

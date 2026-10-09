@@ -1,8 +1,9 @@
 // Sequential grant-bounded sales with independent app-price floors.
-// Uses the existing policy and trade services; stops after any unconfirmed broadcast.
+// Uses existing intent and trade services; market mode stops after unconfirmed broadcasts.
 mod math;
 mod models;
 mod sale;
+mod intent_sale;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -11,7 +12,9 @@ mod flow_tests;
 mod meta_tests;
 #[cfg(test)]
 mod policy_tests;
-pub use models::{Input, Output, Row};
+#[cfg(test)]
+mod intent_tests;
+pub use models::{Input, Output, Row, Via};
 use crate::{client::Client, evm, order_types::{self, UserProxyV6}, service::{intent, portfolio::{amount, discovery, prices}, token, submit::Wait}, signer::Signer};
 use alloy::{primitives::Address, providers::{DynProvider, Provider}};
 use eyre::{Result, eyre};
@@ -33,6 +36,8 @@ struct Context<'a> {
 
 pub async fn sweep(client: &Client, signer: Arc<dyn Signer>, mut input: Input, allow: bool, cap: Option<&str>, wait: Wait) -> Result<Output> {
     input.dry_run |= !allow;
+    eyre::ensure!(input.via == Via::Market || !input.self_submit, "--self-submit requires --via market; intent mode uses the relay");
+    eyre::ensure!(input.via == Via::Intent || input.wait.unwrap_or(0) == 0, "--wait requires --via intent");
     amount::fixed(&input.max_usd, false)?;
     eyre::ensure!(input.max_loss_bps < 10_000, "max-loss-bps must be less than 10000");
     eyre::ensure!(!input.tokens.is_empty(), "sweep requires at least one --token (MCP tokens)");
@@ -50,7 +55,7 @@ async fn read(client: &Client, signer: Arc<dyn Signer>, input: Input, provider: 
     let owner = UserProxyV6::new(proxy, provider.clone()).owner().call().await?;
     let receive = token::resolve(&input.receive, config.id).await?;
     let policy = read_policy(&provider, &input, owner, signer.address(), discovery::erc20(&receive.address)?).await?;
-    validate_policy(&policy, discovery::erc20(&receive.address)?, now(&provider).await?)?;
+    validate_policy(&policy, discovery::erc20(&receive.address)?, now(&provider).await?, input.via)?;
     let addresses = policy.tokens.iter().filter(|t| t.allowed).map(|t| discovery::erc20(&t.token)).collect::<Result<Vec<_>>>()?;
     let prices = prices::prices(config.id, &addresses, app_origin).await;
     // A forced or explicit preview must not sign x402 payments.
@@ -78,9 +83,9 @@ async fn read_policy(provider: &DynProvider, input: &Input, owner: Address, agen
         generation: policy.generation.to_string(), tokens, note: None })
 }
 
-fn validate_policy(policy: &intent::PolicyOutput, receive: Address, now: u64) -> Result<()> {
+fn validate_policy(policy: &intent::PolicyOutput, receive: Address, now: u64, via: Via) -> Result<()> {
     eyre::ensure!(policy.expiry.parse::<u64>()? > now, "agent policy is expired");
-    eyre::ensure!(policy.action_mask.parse::<u8>()? & 1 != 0, "agent policy lacks market action");
+    via.require_action(policy.action_mask.parse::<u8>()?)?;
     eyre::ensure!(policy.tokens.iter().any(|t| t.allowed && t.token.parse::<Address>().ok() == Some(receive)), "receive token is not in the basket");
     Ok(())
 }
@@ -103,6 +108,9 @@ async fn run(context: Context<'_>) -> Result<Output> {
             }
         }
         output.tokens.push(row);
+    }
+    if context.input.via == Via::Intent && !context.input.dry_run {
+        intent_sale::wait(&context.input, &mut output).await;
     }
     Ok(output)
 }

@@ -38,7 +38,7 @@ fn schedule_iso_and_form_encoding() {
     }
     let link = url::build(8453, "agent", None, Some("a & b"), Some("x+y/#"), &[], "1w", "30d").unwrap();
     assert!(link.contains("label=a+%26+b"));
-    assert!(link.ends_with("actions=market&note=x%2By%2F%23"));
+    assert!(link.ends_with("actions=market%2Cintent&note=x%2By%2F%23"));
 }
 
 #[test]
@@ -87,4 +87,17 @@ async fn rejects_zero_caps_and_oversized_rendering() {
     let provider = evm::read_provider(&rpc.url).unwrap();
     let mut request = input(); request.tokens[0].push_str(":1");
     assert!(read(request, &provider, 1).await.unwrap_err().to_string().contains("32 characters"));
+}
+
+#[tokio::test]
+async fn gasless_grants_request_both_actions() {
+    let rpc = fixture(false, false, false, 6);
+    let provider = evm::read_provider(&rpc.url).unwrap();
+    for one_shot in [true, false] {
+        let mut request = input();
+        request.one_shot = one_shot;
+        if !one_shot { request.tokens[0].push_str(":100"); request.epoch = Some("1d".into()); request.expiry = Some("7d".into()); }
+        let output = read(request, &provider, 1_791_547_200).await.unwrap();
+        assert!(serde_json::to_string(&output).unwrap().contains("actions=market%2Cintent"));
+    }
 }

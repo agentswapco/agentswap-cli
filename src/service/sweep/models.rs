@@ -4,6 +4,22 @@ use crate::service::{submit::{NotConfirmed, TxStatus}, trade::TradeOutcome};
 use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, JsonSchema, clap::ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum Via {
+    #[default]
+    Intent,
+    Market,
+}
+
+impl Via {
+    pub(super) fn require_action(self, mask: u8) -> eyre::Result<()> {
+        let (bit, name) = match self { Self::Intent => (0x04, "intent"), Self::Market => (0x01, "market") };
+        eyre::ensure!(mask & bit != 0, "agent policy lacks {name} action (0x{bit:02x})");
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, JsonSchema, clap::Args)]
 pub struct Input {
     #[arg(long = "chainid", help = crate::tokens::CHAIN_ID_HELP)]
@@ -29,7 +45,15 @@ pub struct Input {
     #[arg(long)]
     #[serde(default = "super::default_true")]
     pub dry_run: bool,
-    /// Broadcast from the agent key's wallet, which pays gas.
+    /// Relayed intent (gasless) or market trade; requires the corresponding policy action.
+    #[arg(long, value_enum, default_value = "intent")]
+    #[serde(default)]
+    pub via: Via,
+    /// Wait up to this many seconds after placement for intent fill, expiry or cancellation.
+    #[arg(long)]
+    #[serde(default)]
+    pub wait: Option<u64>,
+    /// Market mode only: broadcast from the agent key's wallet, which pays gas.
     #[arg(long)]
     #[serde(default)]
     pub self_submit: bool,
@@ -42,6 +66,13 @@ pub struct Row {
     pub value_usd: Option<String>,
     pub floor_raw: Option<String>,
     pub quote_out_raw: Option<String>,
+    pub intent_id: Option<String>,
+    pub start_out_raw: Option<String>,
+    pub announce_status: Option<String>,
+    pub relay: Option<serde_json::Value>,
+    pub intent_status: Option<String>,
+    pub status_error: Option<String>,
+    pub wait_timed_out: bool,
     pub outcome: String,
     pub reason: Option<String>,
     pub error: Option<String>,
@@ -54,7 +85,8 @@ impl Row {
     pub(super) fn new(token: String) -> Self {
         Self { token, amount_raw: "0".into(), value_usd: None, floor_raw: None,
             quote_out_raw: None, outcome: "skipped".into(), reason: None, error: None,
-            tx_hash: None, tx_status: None, trade: None }
+            tx_hash: None, tx_status: None, trade: None, intent_id: None, start_out_raw: None,
+            announce_status: None, relay: None, intent_status: None, status_error: None, wait_timed_out: false }
     }
 
     pub(super) fn record(&mut self, result: eyre::Result<TradeOutcome>) -> bool {
@@ -91,7 +123,7 @@ impl Output {
                 return Err(failure.into());
             }
         }
-        eyre::ensure!(!self.tokens.iter().any(|r| r.outcome == "failed"), "sweep contains failed trades; see token rows");
+        eyre::ensure!(!self.tokens.iter().any(|r| r.outcome == "failed"), "sweep contains failed placements or trades; see token rows");
         Ok(())
     }
 }
