@@ -68,12 +68,12 @@ fn every_price_and_route_skip_reason() {
 fn upfront_policy_refusals_and_receive_only_membership() {
     let mut p = policy();
     let receive = Address::repeat_byte(3);
-    assert!(validate_policy(&p, receive, 100).is_ok());
-    assert!(validate_policy(&p, receive, 200).is_err());
+    assert!(validate_policy(&p, receive, 100, Via::Market).is_ok());
+    assert!(validate_policy(&p, receive, 200, Via::Market).is_err());
     p.action_mask = "4".into();
-    assert!(validate_policy(&p, receive, 100).is_err());
+    assert!(validate_policy(&p, receive, 100, Via::Market).is_err());
     p.action_mask = "1".into(); p.tokens[0].allowed = false;
-    assert!(validate_policy(&p, receive, 100).is_err());
+    assert!(validate_policy(&p, receive, 100, Via::Market).is_err());
 }
 
 fn trade(status: Option<TxStatus>, dry_run: bool) -> TradeOutcome {

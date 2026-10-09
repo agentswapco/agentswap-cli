@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- `sweep` and MCP `sweep` default to gasless relayed V6 intents (`via=intent`), reusing intent
+  signing and relay placement without quotes. Independent prices determine the starting output
+  and loss-bounded floor; per-token results include intent IDs and announce status. Optional
+  `--wait` reports bounded fill, expiry and cancellation status.
+- `--via market --self-submit` retains market execution and requires the agent's native gas.
+  Sweep requires the selected policy action. One-shot and recurring grant links request both
+  market and intent actions, form-encoded as `actions=market%2Cintent`.
+
 ## 0.10.1
 
 ### Added

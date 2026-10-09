@@ -47,7 +47,7 @@ for token in "$WETH" "$CBETH"; do
 done
 export AGENTSWAP_RPC_URL_8453=$RPC
 BEFORE=$(cast call "$USDC" 'balanceOf(address)(uint256)' "$OWNER" --rpc-url "$RPC" | awk '{print $1}')
-"$BIN" --allow-trade sweep --chainid 8453 --proxy "$PROXY" --key-file "$WORK/agent.key" \
+"$BIN" --allow-trade sweep --via market --chainid 8453 --proxy "$PROXY" --key-file "$WORK/agent.key" \
   --receive USDC --token "$WETH" --token "$CBETH" --max-usd 100 --max-loss-bps 500 --self-submit --json > "$WORK/first.json" || { code=$?; cat "$WORK/first.json"; exit "$code"; }
 python3 - "$WORK/first.json" <<'PY'
 import json,sys
@@ -66,7 +66,7 @@ for token in "$WETH" "$CBETH"; do
   [ "$allowance" = 0 ]
 done
 echo 'PASS exact allowances consumed'
-"$BIN" --allow-trade sweep --chainid 8453 --proxy "$PROXY" --key-file "$WORK/agent.key" \
+"$BIN" --allow-trade sweep --via market --chainid 8453 --proxy "$PROXY" --key-file "$WORK/agent.key" \
   --receive USDC --token "$WETH" --token "$CBETH" --max-usd 100 --max-loss-bps 500 --self-submit --json > "$WORK/second.json" || { code=$?; cat "$WORK/second.json"; exit "$code"; }
 python3 - "$WORK/second.json" <<'PY'
 import json,sys
@@ -81,7 +81,7 @@ NOW=$(cast block latest -f timestamp --rpc-url "$RPC")
 cast send --private-key "$OKEY" "$PROXY" 'grantAgent(address,uint64,uint32,uint8,address[],uint256[])' \
   "$AGENT" "$((NOW + 86400))" 604800 1 "[$CBETH,$USDC]" "[$THIN_CAP,0]" --rpc-url "$RPC" >/dev/null
 cast send --private-key "$OKEY" "$CBETH" 'approve(address,uint256)' "$PROXY" "$THIN_CAP" --rpc-url "$RPC" >/dev/null
-"$BIN" sweep --chainid 8453 --proxy "$PROXY" --key-file "$WORK/agent.key" \
+"$BIN" sweep --via market --chainid 8453 --proxy "$PROXY" --key-file "$WORK/agent.key" \
   --receive USDC --token "$CBETH" --max-usd 10000000 --max-loss-bps 0 --dry-run --json > "$WORK/thin.json" || { code=$?; cat "$WORK/thin.json"; exit "$code"; }
 python3 - "$WORK/thin.json" <<'PY'
 import json,sys

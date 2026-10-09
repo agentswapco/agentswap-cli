@@ -53,7 +53,7 @@ pub(super) fn build(chain: u64, agent: &str, owner: Option<&str>, label: Option<
         query.append_pair("v", "1").append_pair("chain", &chain.to_string()).append_pair("agent", agent);
         if let Some(label) = label { query.append_pair("label", label); }
         for token in tokens { query.append_pair("t", &format!("{}:{}", token.address, token.human)); }
-        query.append_pair("epoch", epoch).append_pair("expiry", expiry).append_pair("actions", "market");
+        query.append_pair("epoch", epoch).append_pair("expiry", expiry).append_pair("actions", "market,intent");
         if let Some(note) = note { query.append_pair("note", note); }
         if let Some(owner) = owner { query.append_pair("owner", owner); }
     }

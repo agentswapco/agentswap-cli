@@ -93,7 +93,8 @@ async fn run_cli(cli: Cli) -> Result<()> {
         Commands::Portfolio(_) | Commands::GrantLink(_) => unreachable!("read-only commands dispatched above"),
         Commands::Sweep(input) => {
             let signer = signer.ok_or_else(|| eyre::eyre!("sweep requires --key-file"))?;
-            commands::sweep::run(&client, signer, input, cli.allow_trade, cli.trade_max_amount.as_deref(), cli.json).await
+            let sweep_client = if input.via == service::sweep::Via::Intent { &intent_relay_client } else { &client };
+            commands::sweep::run(sweep_client, signer, input, cli.allow_trade, cli.trade_max_amount.as_deref(), cli.json).await
         }
         Commands::BatchQuote {
             chain_id,

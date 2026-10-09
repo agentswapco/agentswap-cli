@@ -37,3 +37,18 @@ async fn sweep_mcp_refuses_10000_loss_bps() {
     let error = server.sweep(Parameters(input)).await.err().unwrap();
     assert!(error.contains("max-loss-bps must be less than 10000"), "{error}");
 }
+
+#[test]
+fn gasless_sweep_mcp_schema() {
+    let client = Client::new("http://127.0.0.1:1", None);
+    let server = AgentSwapMcp::new(Config { client: client.clone(), intent_client: client,
+        signer: None, allow_trade: false, trade_max_amount: None });
+    let tools = server.tool_router.list_all();
+    let tool = tools.iter().find(|t| t.name == "sweep").unwrap();
+    let schema = serde_json::to_value(&tool.input_schema).unwrap();
+    assert_eq!(schema["properties"]["via"]["default"], "intent");
+    assert!(schema["properties"].get("wait").is_some());
+    assert!(schema.to_string().contains("market"));
+    let input = json!({"chain_id":"8453", "proxy":"proxy", "receive":"USDC", "max_usd":"5", "max_loss_bps":10,"tokens":["token"], "via":"invalid"});
+    assert!(serde_json::from_value::<sweep::Input>(input).is_err());
+}
