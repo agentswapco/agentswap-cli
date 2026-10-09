@@ -8,6 +8,8 @@ mod tests;
 #[cfg(test)]
 mod flow_tests;
 #[cfg(test)]
+mod meta_tests;
+#[cfg(test)]
 mod policy_tests;
 pub use models::{Input, Output, Row};
 use crate::{client::Client, evm, order_types::{self, UserProxyV6}, service::{intent, portfolio::{amount, discovery, prices}, token, submit::Wait}, signer::Signer};

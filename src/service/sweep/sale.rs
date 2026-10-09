@@ -34,12 +34,11 @@ pub(super) async fn sell(context: &Context<'_>, budget: &TokenPolicy, row: &mut 
         from.decimals, context.receive.decimals, context.input.max_loss_bps)?;
     row.floor_raw = Some(floor.to_string());
     if floor == U256::ZERO { row.reason = Some("below_floor".into()); return Ok(false); }
-    let request = quote::QuoteInput { chain_id: context.input.chain_id.clone(), from: budget.token.clone(), to: context.receive.address.clone(), amount: raw.to_string(), slippage: Some(context.input.max_loss_bps), verify: false };
+    let request = quote::QuoteInput { chain_id: context.input.chain_id.clone(), from: budget.token.clone(), to: context.receive.address.clone(), amount: raw.to_string(), slippage: Some(context.input.max_loss_bps), verify: false, taker: Some(context.input.proxy.clone()) };
     let checked = match quote::quote(context.client, request).await {
         Ok(checked) => checked,
         Err(error) => {
-            let message = error.to_string().to_ascii_lowercase();
-            if message.starts_with("http 404 ") && (message.contains("no executable route") || message.contains("no route")) {
+            if crate::client::is_no_route(&error) {
                 row.reason = Some("no_route".into()); return Ok(false);
             }
             row.reason = Some("quote_failed".into()); return Err(error);
@@ -50,7 +49,7 @@ pub(super) async fn sell(context: &Context<'_>, budget: &TokenPolicy, row: &mut 
     if let Some(reason) = math::quote_skip(quoted, floor) { row.reason = Some(reason.into()); return Ok(false); }
     let body = serde_json::json!({"chain_id":checked.request.chain_id, "token_in":checked.request.token_in,
         "token_out":checked.request.token_out, "amount_in":checked.request.amount_in,
-        "slippage_bps":context.input.max_loss_bps});
+        "slippage_bps":context.input.max_loss_bps, "taker":context.input.proxy});
     let client = context.client.clone().with_pinned_quote(body, checked.response);
     let input = trade_input(context, budget, raw, floor);
     Ok(row.record(trade::execute_trade(&client, context.signer.clone(), input, !context.input.dry_run, context.wait).await))

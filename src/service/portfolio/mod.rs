@@ -59,6 +59,7 @@ pub struct Row {
     pub sources: Vec<String>,
     pub status: String,
     pub quote_out_raw: Option<String>,
+    pub error: Option<String>,
     pub dust: bool,
 }
 
@@ -102,7 +103,7 @@ pub(crate) async fn read(client: &Client, input: Input, provider: &DynProvider, 
     if let Some(error) = &catalog_error { warning.push_str(&format!(" {error}.")); }
     if max.is_some() && token::from_registry(input.quote_token.as_deref().unwrap_or("USDC"), config.id).is_none()
         && discovery::erc20(input.quote_token.as_deref().unwrap_or("USDC")).is_err() {
-        warning.push_str(" Quote token symbol is unavailable on this chain; supply its receive address through --quote-token. no_route here does not establish that no economic route exists.");
+        warning.push_str(" Quote token symbol is unavailable on this chain; supply its receive address through --quote-token. quote_failed here does not establish that no economic route exists.");
     }
     Ok(Output { chain_id: config.id, owner: format!("{owner:?}"), wallet_tokens, wallet_tokens_truncated, catalog_error,
         warning, tokens: rows })
@@ -133,9 +134,15 @@ async fn value_rows(client: &Client, input: &Input, provider: &DynProvider, rows
         row.value_usd = value;
         row.status = if price_value.is_some() { "priced" } else { "unpriced" }.into();
         if max.is_some() && (below || price_value.is_none()) {
-            row.quote_out_raw = quote_row(client, input, row, decimals, raw, provider, indexed_target.as_ref()).await.ok();
+            match quote_row(client, input, row, decimals, raw, provider, indexed_target.as_ref()).await {
+                Ok(output) => row.quote_out_raw = Some(output),
+                Err(error) if crate::client::is_no_route(&error) => row.status = "no_route".into(),
+                Err(error) => {
+                    row.status = "quote_failed".into();
+                    row.error = Some(crate::redact::urls(&error.to_string()));
+                }
+            }
             row.dust = below && row.quote_out_raw.is_some();
-            if row.quote_out_raw.is_none() { row.status = "no_route".into(); }
         }
     }
     Ok(())
@@ -169,7 +176,7 @@ async fn read_row(provider: &DynProvider, chain: u64, owner: Address, address: A
     let status = if balance.is_err() { "balance_error" } else if metadata.is_err() { "metadata_error" } else { "unpriced" };
     Some(Row { address: format!("{address:?}"), symbol: metadata.as_ref().map(|m| m.symbol.clone()).unwrap_or_default(),
         name: None, decimals: metadata.ok().map(|m| m.decimals), balance_raw: balance.ok().map(|b| b.to_string()),
-        price_usd: None, value_usd: None, source: None, confidence: None, basis: None, observed: None, source_count: None, floor_eligible: false, sources, status: status.into(), quote_out_raw: None, dust: false })
+        price_usd: None, value_usd: None, source: None, confidence: None, basis: None, observed: None, source_count: None, floor_eligible: false, sources, status: status.into(), quote_out_raw: None, error: None, dust: false })
 }
 
 async fn quote_row(client: &Client, input: &Input, row: &Row, decimals: u8, raw: U256, provider: &DynProvider, indexed_target: Option<&Row>) -> Result<String> {
@@ -183,11 +190,17 @@ async fn quote_row(client: &Client, input: &Input, row: &Row, decimals: u8, raw:
         None => token::read_metadata(provider, discovery::erc20(target)?, chain).await?,
     } };
     let from = token::Token { address: row.address.clone(), symbol: row.symbol.clone(), decimals };
+    let taker = if crate::client::uses_meta(chain) {
+        let config = discovery::config(&input.chain_id)?;
+        let owner = order_types::parse_address(&input.owner)?;
+        let proxy = order_types::UserProxyFactoryV6::new(config.factory, provider.clone()).proxyOf(owner).call().await?;
+        Some(format!("{proxy:?}"))
+    } else { None };
     let input = quote::QuoteInput { chain_id: chain.to_string(), from: from.address.clone(), to: to.address.clone(),
-        amount: raw.to_string(), slippage: None, verify: false };
+        amount: raw.to_string(), slippage: None, verify: false, taker };
     let (body, _) = quote::build_quote_body(&input, chain, &from, &to);
     let response = client.quote(&body).await?;
-    let raw = response["output"].as_str().ok_or_else(|| eyre::eyre!("no route output"))?;
-    if order_types::parse_u256(raw)? == U256::ZERO { return Err(eyre::eyre!("zero route output")); }
+    let raw = response["output"].as_str().ok_or_else(|| eyre::eyre!("quote response missing output"))?;
+    if order_types::parse_u256(raw)? == U256::ZERO { return Err(crate::client::NoRoute.into()); }
     Ok(raw.into())
 }

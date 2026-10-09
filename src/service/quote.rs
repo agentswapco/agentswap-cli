@@ -18,6 +18,9 @@ pub struct QuoteInput {
     /// Unsigned decimal amount in the input token's smallest unit.
     pub amount: String,
     pub slippage: Option<u16>,
+    /// V6 proxy that calls the router; required for BNB Smart Chain quotes.
+    #[serde(default)]
+    pub taker: Option<String>,
     #[serde(default)]
     pub verify: bool,
 }
@@ -63,6 +66,9 @@ pub fn build_quote_body(
     });
     if let Some(slippage) = input.slippage {
         body["slippage_bps"] = serde_json::json!(slippage);
+    }
+    if let Some(taker) = &input.taker {
+        body["taker"] = serde_json::json!(taker);
     }
     if input.verify {
         body["verify"] = serde_json::json!(true);
@@ -126,7 +132,7 @@ async fn batch_one(
         to: to.to_string(),
         amount: amount.to_string(),
         slippage: None,
-        verify: false,
+        verify: false, taker: None,
     };
     match quote(client, input).await {
         Ok(out) => format_batch_success(pair, chain_id, out),
@@ -180,7 +186,7 @@ mod tests {
             to: "WETH".to_string(),
             amount: "1000000".to_string(),
             slippage: None,
-            verify: false,
+            verify: false, taker: None,
         };
         let (body, context) = registry_body(&input);
         assert_eq!(body["amount_in"], "1000000");
@@ -199,7 +205,7 @@ mod tests {
             let crate::cli::Commands::Quote { chain_id, from, to, amount, slippage, verify } = cli.command else {
                 panic!("expected quote command");
             };
-            QuoteInput { chain_id, from, to, amount, slippage, verify }
+            QuoteInput { chain_id, from, to, amount, slippage, verify, taker: None }
         };
         let numeric = parse_quote("8453");
         let alias = parse_quote("base");
@@ -228,7 +234,7 @@ mod tests {
             to: "WETH".to_string(),
             amount: "1000000".to_string(),
             slippage: None,
-            verify: false,
+            verify: false, taker: None,
         };
         let error = quote(&Client::new("http://127.0.0.1:1", None), input)
             .await
@@ -247,7 +253,7 @@ mod tests {
                 to: "USDC".to_string(),
                 amount: "1".to_string(),
                 slippage: None,
-                verify: false,
+                verify: false, taker: None,
             };
             let (body, context) = registry_body(&input);
             assert_eq!(context.token_in_decimals, expected_decimals);

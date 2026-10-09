@@ -13,6 +13,7 @@ pub async fn portfolio(cli: &Cli, input: portfolio::Input) -> Result<()> {
             println!("{} {} raw={} USD={} status={} dust={} sources={}", row.address, row.symbol,
                 row.balance_raw.as_deref().unwrap_or("unknown"), row.value_usd.as_deref().unwrap_or("unpriced"),
                 row.status, row.dust, row.sources.join(","));
+            if let Some(error) = row.error { println!("  {error}"); }
         }
     }
     Ok(())

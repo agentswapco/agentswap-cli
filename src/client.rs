@@ -2,12 +2,16 @@
 // Exports: Client.
 // Deps: reqwest, serde_json, eyre, crate::{routes, signer, x402}.
 mod transport;
+mod quote_backend;
+pub(crate) use quote_backend::{NoRoute, is_no_route, uses_meta};
 #[cfg(test)]
 mod redirect_tests;
 #[cfg(test)]
 mod test_server;
 #[cfg(test)]
 mod pinned_quote_tests;
+#[cfg(test)]
+pub(crate) mod meta_tests;
 
 use eyre::Result;
 use std::sync::Arc;
@@ -20,6 +24,8 @@ pub struct Client {
     api_key: Option<String>,
     x402: crate::x402::Config,
     x402_signer: Option<Arc<dyn crate::signer::Signer>>,
+    #[cfg(test)]
+    pub(crate) meta_quote_url: Option<String>,
     pinned_quote: Option<(serde_json::Value, serde_json::Value)>,
 }
 
@@ -37,6 +43,8 @@ impl Client {
             x402: crate::x402::Config::disabled(),
             x402_signer: None,
             pinned_quote: None,
+            #[cfg(test)]
+            meta_quote_url: None,
         }
     }
 
@@ -63,7 +71,7 @@ impl Client {
             eyre::ensure!(body == request, "trade request differs from the checked sweep quote");
             return Ok(response.clone());
         }
-        self.post(crate::routes::QUOTE, body).await
+        self.backend_quote(body).await
     }
 
     pub async fn health(&self) -> Result<serde_json::Value> {

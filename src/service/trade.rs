@@ -123,6 +123,7 @@ fn quote_input(input: &TradeInput) -> QuoteInput {
         amount: input.amount.clone(),
         slippage: input.slippage,
         verify: input.verify_quote,
+        taker: Some(input.proxy.clone()),
     }
 }
 
