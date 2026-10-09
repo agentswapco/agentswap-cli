@@ -47,7 +47,7 @@ pub(super) fn requests(input: &Input, receive: &str) -> Result<Vec<(Address, Opt
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn build(chain: u64, agent: &str, owner: Option<&str>, label: Option<&str>, note: Option<&str>, tokens: &[TokenSummary], epoch: &str, expiry: &str) -> Result<String> {
-    let mut url = reqwest::Url::parse("https://app.agentswap.co/grant")?;
+    let mut url = reqwest::Url::parse(crate::routes::APP_ORIGIN)?.join("/grant")?;
     {
         let mut query = url.query_pairs_mut();
         query.append_pair("v", "1").append_pair("chain", &chain.to_string()).append_pair("agent", agent);

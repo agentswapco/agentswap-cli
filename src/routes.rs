@@ -1,6 +1,7 @@
 // Shared AgentSwap API route constants used by the standalone CLI.
 // Exports: endpoint constants and path-formatting helpers.
 // Deps: std formatting only.
+pub const APP_ORIGIN: &str = "https://app.agentswap.co";
 pub const QUOTE: &str = "/quote";
 pub const QUOTE_LOOKUP: &str = "/quote/:hash";
 pub const HEALTH: &str = "/health";

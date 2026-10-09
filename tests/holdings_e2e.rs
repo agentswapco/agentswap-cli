@@ -1,5 +1,5 @@
 // Executable CLI and MCP read-only holding flows against a scripted RPC/quote server.
-// No live network, key files or signing; native-unit strings cross the process boundary intact.
+// RPC and quotes are mocked; app discovery remains read-only; native-unit strings cross the process boundary intact.
 #[path = "../src/service/test_rpc.rs"]
 mod test_rpc;
 use alloy::{primitives::{Address, U256, keccak256}, sol_types::SolValue};
@@ -64,7 +64,8 @@ fn cli_portfolio_and_grant_link_ignore_signer_files() {
                     assert_eq!(value["tokens"][0]["balance_raw"], "1234500");
                     assert_eq!(value["tokens"][0]["quote_out_raw"], "99");
                     assert_eq!(value["tokens"][0]["dust"], false);
-                    assert!(value["indexer"].is_null());
+                    assert!(["indexed", "unindexed", "unavailable"].contains(&value["wallet_tokens"].as_str().unwrap()));
+                    assert!(value["log_scan"]["error"].is_null());
                 }
             } else { assert!(text.contains("1234500")); }
         }

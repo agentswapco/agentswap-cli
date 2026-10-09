@@ -1,5 +1,5 @@
 // Mocked discovery, balance, quote and valuation tests, with reusable read-only RPC fixtures.
-// Exercises provenance union, optional indexer failure and exact dust boundaries.
+// Exercises provenance union, optional source failures and exact dust boundaries.
 use super::*;
 use crate::service::test_rpc::{TestRpc, ok, failure};
 use alloy::sol_types::{SolCall, SolValue};
@@ -15,7 +15,7 @@ fn transfer_log(token: Address, nft: bool) -> serde_json::Value {
         "blockHash":alloy::primitives::B256::ZERO, "transactionHash":alloy::primitives::B256::ZERO, "removed":false})
 }
 
-pub(crate) fn fixture(indexer: bool, live: bool, deployed: bool, decimals: u8) -> TestRpc {
+pub(crate) fn fixture(_indexer: bool, live: bool, deployed: bool, decimals: u8) -> TestRpc {
     TestRpc::start(move |body| {
         let token = Address::repeat_byte(1);
         let result = match body["method"].as_str().unwrap_or("") {
@@ -30,8 +30,6 @@ pub(crate) fn fixture(indexer: bool, live: bool, deployed: bool, decimals: u8) -
                 malformed["data"] = json!("0x");
                 json!([transfer_log(token, false), transfer_log(Address::repeat_byte(9), true), malformed])
             }
-            "alchemy_getTokenBalances" if indexer => json!({"tokenBalances":[{"contractAddress":format!("{token:?}"), "tokenBalance":"0x0"}]}),
-            "alchemy_getTokenBalances" => return Some(failure(body, "unsupported")),
             "eth_getCode" => json!(if deployed { "0x01" } else { "0x" }),
             "eth_call" => {
                 let tx = &body["params"][0];
@@ -64,25 +62,29 @@ pub(crate) fn input(chain: &str) -> Input {
 }
 
 #[tokio::test]
-async fn transfer_explicit_indexer_union_and_authoritative_balances() {
-    for indexer in [true, false] {
-        let rpc = fixture(indexer, false, false, 6);
+async fn transfer_explicit_wallet_union_and_authoritative_balances() {
+    for indexed in [true, false] {
+        let rpc = fixture(false, false, false, 6);
         let provider = evm::read_provider(&rpc.url).unwrap();
-        let output = read(&Client::new(&rpc.url, None), input("4663"), &provider, "unused").await.unwrap();
-        assert_eq!((output.from_block, output.to_block), (5000, 10001));
-        assert_eq!(output.indexer.is_some(), indexer);
+        let app = http::Server::start(vec![(200, String::new(), json!({"chainId":4663,
+            "owner":Address::repeat_byte(4), "indexed":indexed, "truncated":false,
+            "tokens":[{"address":Address::repeat_byte(1),"balanceRaw":"1"}]}).to_string()),
+            (200, String::new(), "{\"prices\":{}}".into())]);
+        let output = read(&Client::new(&rpc.url, None), input("4663"), &provider, &app.url).await.unwrap();
+        assert_eq!((output.from_block, output.to_block), (Some(5000), Some(10001)));
+        assert_eq!(output.wallet_tokens == sources::WalletTokens::Indexed, indexed);
+        assert_eq!(output.log_scan.to_block_scanned, Some(10001));
         assert_eq!(rpc.called("eth_getLogs"), 2);
-        assert!(!output.tokens.iter().any(|row| row.address == format!("{:?}", Address::repeat_byte(9))),
-            "NFT discovered and queried for a fungible balance");
         assert_eq!(output.tokens.len(), 1);
         let row = &output.tokens[0];
         assert_eq!(row.balance_raw.as_deref(), Some("1000000"));
         assert_eq!(row.price_usd, None);
         assert_eq!(row.quote_out_raw.as_deref(), Some("123"));
         assert!(!row.dust);
-        assert_eq!(row.sources.len(), if indexer { 3 } else { 2 });
+        assert_eq!(row.sources.len(), if indexed { 3 } else { 2 });
         assert!(row.sources.contains(&"transfer".into()));
         assert!(row.sources.contains(&"explicit".into()));
+        assert_eq!(rpc.called("alchemy_getTokenBalances"), 0);
     }
 }
 
@@ -92,12 +94,17 @@ async fn exact_price_boundary_unpriced_and_quote_errors() {
     let provider = evm::read_provider(&rpc.url).unwrap();
     for (price, threshold, dust, quoted) in [("1", "1", true, true), ("1.000000000000000001", "1", false, false)] {
         let price = price.to_string();
-        let pricing = TestRpc::start(move |_| Some(serde_json::from_str(&format!(r#"{{"coins":{{"base:{:?}":{{"price":{price}}}}}}}"#, Address::repeat_byte(1))).unwrap()));
+        let pricing = TestRpc::start(move |_| Some(serde_json::from_str(&format!(r#"{{"prices":{{"{:?}":{{"priceUsd":{price},"source":"oracle","confidence":0.9,"basis":"manual_pin","observed":true,"sourceCount":1}}}}}}"#, Address::repeat_byte(1))).unwrap()));
         let mut input = input("8453");
         input.max_usd = Some(threshold.into());
         let output = read(&Client::new(&rpc.url, None), input, &provider, &pricing.url).await.unwrap();
         assert_eq!(output.tokens.len(), 1);
         assert_eq!(output.tokens[0].dust, dust);
+        assert_eq!(output.tokens[0].source.as_deref(), Some("oracle"));
+        assert_eq!(output.tokens[0].basis.as_deref(), Some("manual_pin"));
+        assert_eq!(output.tokens[0].observed, Some(true));
+        assert_eq!(output.tokens[0].source_count, Some(1));
+        assert!(output.tokens[0].floor_eligible);
         assert_eq!(output.tokens[0].quote_out_raw.is_some(), quoted);
     }
     let output = read(&Client::new("http://127.0.0.1:1", None), input("4663"), &provider, "unused").await.unwrap();
@@ -120,22 +127,6 @@ fn discovery_validates_chains_native_and_registry_union() {
 }
 
 #[tokio::test]
-async fn malformed_indexer_is_optional_and_invalid_tokens_fail_early() {
-    let rpc = TestRpc::start(|body| Some(ok(body, match body["method"].as_str().unwrap() {
-        "eth_blockNumber" => json!("0x10"),
-        "eth_getLogs" => json!([]),
-        "alchemy_getTokenBalances" => json!({"tokenBalances":[{"contractAddress":"bad"}]}),
-        _ => panic!("unexpected RPC request"),
-    })));
-    let provider = evm::read_provider(&rpc.url).unwrap();
-    let config = discovery::config("4663").unwrap();
-    let (tokens, _, _, indexer) = discovery::discover(&provider, config, Address::repeat_byte(4), &[], Some(1)).await.unwrap();
-    assert!(tokens.is_empty());
-    assert!(indexer.is_none());
-    assert!(discovery::discover(&provider, config, Address::repeat_byte(4), &["invalid".into()], None).await.is_err());
-}
-
-#[tokio::test]
 async fn failed_balance_is_visible_and_never_quoted() {
     let rpc = TestRpc::start(|body| Some(failure(body, "execution reverted")));
     let provider = evm::read_provider(&rpc.url).unwrap();
@@ -154,43 +145,51 @@ async fn missing_default_quote_symbol_explains_receive_address_remedy() {
     request.quote_token = None;
     let output = read(&Client::new(&rpc.url, None), request, &provider, "unused").await.unwrap();
     assert_eq!(output.tokens[0].status, "no_route");
-    for remedy in ["--token", "--lookback-blocks", "AGENTSWAP_RPC_URL_<id>", "--quote-token", "does not establish"] {
+    for remedy in ["--token", "--lookback-blocks", "--quote-token", "does not establish"] {
         assert!(output.warning.contains(remedy), "{remedy}");
     }
 }
 
 #[tokio::test]
-async fn indexer_pages_are_complete_or_discarded_on_error_or_repeated_cursor() {
-    for mode in ["complete", "error", "repeat", "malformed"] {
-        let mut pages = 0;
-        let rpc = TestRpc::start(move |body| {
-            let result = match body["method"].as_str().unwrap() {
-                "eth_blockNumber" => json!("0x10"),
-                "eth_getLogs" => json!([]),
-                "alchemy_getTokenBalances" => {
-                    pages += 1;
-                    if pages == 1 {
-                        assert_eq!(body["params"].as_array().unwrap().len(), 2);
-                        json!({"tokenBalances":[{"contractAddress": Address::repeat_byte(1)}], "pageKey":"next"})
-                    } else {
-                        assert_eq!(pages, 2, "repeated cursor must stop");
-                        assert_eq!(body["params"][2], json!({"pageKey":"next"}));
-                        if mode == "error" { return Some(failure(body, "page unavailable")); }
-                        json!({"tokenBalances":[{"contractAddress": if mode == "malformed" { "bad".into() } else { format!("{:?}", Address::repeat_byte(2)) }}],
-                            "pageKey": if mode == "repeat" { Some("next") } else { None }})
-                    }
-                }
-                _ => panic!("unexpected RPC"),
-            };
-            Some(ok(body, result))
-        });
+async fn log_scan_keeps_earlier_chunks_and_stops_on_failure() {
+    let rpc = TestRpc::start(|body| Some(match body["method"].as_str().unwrap() {
+        "eth_blockNumber" => ok(body, json!("0x3a98")),
+        "eth_getLogs" if body["params"][0]["fromBlock"] == "0x0" =>
+            ok(body, json!([transfer_log(Address::repeat_byte(1), false)])),
+        "eth_getLogs" => failure(body, "refused"),
+        _ => panic!("unexpected RPC"),
+    }));
+    let provider = evm::read_provider(&rpc.url).unwrap();
+    let (tokens, scan, latest) = discovery::discover(&provider, discovery::config("4663").unwrap(),
+        Address::repeat_byte(4), &[], Some(15000)).await.unwrap();
+    assert_eq!(latest, Some(15000));
+    assert_eq!(scan.from_block, Some(0));
+    assert_eq!(scan.to_block_scanned, Some(4999));
+    assert!(scan.error.unwrap().contains("refused"));
+    assert_eq!(rpc.called("eth_getLogs"), 2);
+    assert!(tokens[&Address::repeat_byte(1)].contains("transfer"));
+}
+
+#[tokio::test]
+async fn unavailable_logs_do_not_hide_balances_but_total_balance_failure_fails() {
+    for method in ["eth_getLogs", "eth_blockNumber"] {
+        let rpc = TestRpc::start(move |body| Some(match body["method"].as_str().unwrap() {
+            name if name == method => failure(body, "unavailable"),
+            "eth_blockNumber" => ok(body, json!("0x10")),
+            "eth_call" => ok(body, json!(format!("0x{}", hex::encode(U256::ZERO.abi_encode())))),
+            _ => panic!("unexpected RPC"),
+        }));
         let provider = evm::read_provider(&rpc.url).unwrap();
-        let explicit = Address::repeat_byte(3);
-        let (tokens, _, _, indexer) = discovery::discover(&provider, discovery::config("4663").unwrap(),
-            Address::repeat_byte(4), &[format!("{explicit:?}")], Some(1)).await.unwrap();
-        assert_eq!(rpc.called("alchemy_getTokenBalances"), 2);
-        assert_eq!(indexer.is_some(), mode == "complete");
-        assert_eq!(tokens.len(), if mode == "complete" { 3 } else { 1 });
-        assert_eq!(tokens[&explicit], ["explicit".into()].into());
+        let output = read(&Client::new("http://127.0.0.1:1", None), input("4663"), &provider, "unused").await.unwrap();
+        assert!(output.tokens.is_empty());
+        assert!(output.log_scan.error.is_some());
+        assert_eq!(output.log_scan.to_block_scanned, None);
+        assert_eq!(output.log_scan.from_block.is_none(), method == "eth_blockNumber");
+        assert!(discovery::discover(&provider, discovery::config("4663").unwrap(),
+            Address::repeat_byte(4), &["invalid".into()], None).await.is_err());
     }
+    let rpc = TestRpc::start(|body| Some(failure(body, "unavailable")));
+    let provider = evm::read_provider(&rpc.url).unwrap();
+    let error = read(&Client::new("http://127.0.0.1:1", None), input("4663"), &provider, "unused").await.unwrap_err();
+    assert!(error.to_string().contains("Could not read any owner token balances"));
 }

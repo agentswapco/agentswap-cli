@@ -78,7 +78,7 @@ async fn run_cli(cli: Cli) -> Result<()> {
         },
         x402_signer.clone(),
     );
-    let intent_relay_client = client::Client::new("https://app.agentswap.co", api_key).with_x402(
+    let intent_relay_client = client::Client::new(crate::routes::APP_ORIGIN, api_key).with_x402(
         x402::Config {
             enabled: cli.x402,
             prefer_x402: cli.prefer_x402,

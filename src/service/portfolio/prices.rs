@@ -1,54 +1,60 @@
-// DefiLlama contract-address prices parsed directly from JSON number text into fixed point.
-// Failed requests or missing/invalid prices leave the corresponding token unpriced.
+// App contract-address prices parsed directly from JSON number text into fixed point.
+// Missing or invalid prices remain unpriced; provenance determines sale-floor eligibility.
 use super::amount;
 use alloy::primitives::{Address, U256};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
 #[derive(Deserialize)]
-struct Response { coins: BTreeMap<String, Coin> }
+struct Response { prices: BTreeMap<String, Coin> }
 #[derive(Deserialize)]
-struct Coin { price: Option<Box<serde_json::value::RawValue>> }
+#[serde(rename_all = "camelCase")]
+struct Coin {
+    price_usd: serde_json::Number,
+    source: String,
+    confidence: Option<serde_json::Number>,
+    basis: Option<String>,
+    observed: Option<bool>,
+    source_count: Option<u64>,
+}
 
-pub async fn prices(chain: u64, tokens: &[Address], endpoint: &str) -> BTreeMap<Address, U256> {
-    let key = match chain { 8453 => "base", 42161 => "arbitrum", 56 => "bsc", _ => return BTreeMap::new() };
-    let Ok(client) = reqwest::Client::builder().timeout(std::time::Duration::from_secs(15)).build() else { return BTreeMap::new(); };
+pub struct Price {
+    pub value: U256,
+    pub source: String,
+    pub confidence: Option<serde_json::Number>,
+    pub basis: Option<String>,
+    pub observed: Option<bool>,
+    pub source_count: Option<u64>,
+    pub floor_eligible: bool,
+}
+
+pub async fn prices(chain: u64, tokens: &[Address], origin: &str) -> BTreeMap<Address, Price> {
+    let Ok(client) = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).timeout(std::time::Duration::from_secs(15)).build() else { return BTreeMap::new(); };
     let mut prices = BTreeMap::new();
-    for chunk in tokens.chunks(50) {
-        let keys = chunk.iter().map(|a| format!("{key}:{a:?}")).collect::<Vec<_>>().join(",");
-        let Ok(response) = client.get(format!("{endpoint}/{keys}")).send().await else { continue; };
-        let Ok(response) = response.error_for_status() else { continue; };
+    for chunk in tokens.chunks(240) {
+        let addresses = chunk.iter().map(|a| format!("{a:?}")).collect::<Vec<_>>().join(",");
+        let Ok(response) = client.get(format!("{origin}/api/prices"))
+            .query(&[("chainId", chain.to_string()), ("addresses", addresses)]).send().await else { continue; };
+        if !response.status().is_success() { continue; }
         let Ok(text) = response.text().await else { continue; };
-        prices.extend(decode(&text, key));
+        prices.extend(decode(&text).into_iter().filter(|(address, _)| chunk.contains(address)));
     }
     prices
 }
 
-fn decode(text: &str, chain: &str) -> BTreeMap<Address, U256> {
+fn decode(text: &str) -> BTreeMap<Address, Price> {
     let Ok(response) = serde_json::from_str::<Response>(text) else { return BTreeMap::new(); };
-    response.coins.into_iter().filter_map(|(key, coin)| {
-        let (prefix, address) = key.split_once(':')?;
-        if prefix != chain { return None; }
-        let price = amount::fixed(coin.price.as_ref()?.get(), true).ok()?;
-        if price == U256::ZERO { return None; }
-        Some((address.parse().ok()?, price))
+    response.prices.into_iter().filter_map(|(address, coin)| {
+        let value = amount::fixed(&coin.price_usd.to_string(), true).ok()?;
+        if value == U256::ZERO || !matches!(coin.source.as_str(), "oracle" | "defillama") { return None; }
+        let floor_eligible = coin.source == "defillama" || (coin.observed == Some(true)
+            && (coin.source_count.is_some_and(|n| n >= 2)
+                || matches!(coin.basis.as_deref(), Some("manual_pin" | "stablecoin_par" | "onchain_pool"))));
+        Some((address.parse().ok()?, Price { value, source: coin.source, confidence: coin.confidence,
+            basis: coin.basis, observed: coin.observed, source_count: coin.source_count, floor_eligible }))
     }).collect()
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn json_prices_never_round_through_floats() {
-        let address = Address::repeat_byte(1);
-        let text = format!(r#"{{"coins":{{"base:{address:?}":{{"price":1.000000000000000001}}}}}}"#);
-        assert_eq!(decode(&text, "base")[&address].to_string(), "1000000000000000001");
-        assert!(decode(&text, "bsc").is_empty());
-        assert!(decode("{}", "base").is_empty());
-    }
-    #[tokio::test]
-    async fn robinhood_and_failed_http_are_unpriced() {
-        assert!(prices(4663, &[Address::ZERO], "invalid").await.is_empty());
-        assert!(prices(8453, &[Address::ZERO], "http://127.0.0.1:1").await.is_empty());
-    }
-}
+#[path = "price_tests.rs"]
+mod tests;

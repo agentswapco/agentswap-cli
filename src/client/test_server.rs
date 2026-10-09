@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 
 pub(super) struct Request {
     pub method: String,
+    pub target: String,
     pub keyed: bool,
     pub paid: bool,
     pub body: String,
@@ -57,6 +58,7 @@ fn read_request(stream: &mut TcpStream) -> Request {
     let mut line = String::new();
     reader.read_line(&mut line).unwrap();
     let method = line.split_whitespace().next().unwrap().to_string();
+    let target = line.split_whitespace().nth(1).unwrap().to_string();
     let (mut keyed, mut paid, mut length) = (false, false, 0);
     loop {
         line.clear();
@@ -70,5 +72,5 @@ fn read_request(stream: &mut TcpStream) -> Request {
     }
     let mut body = vec![0; length];
     reader.read_exact(&mut body).unwrap();
-    Request { method, keyed, paid, body: String::from_utf8(body).unwrap() }
+    Request { method, target, keyed, paid, body: String::from_utf8(body).unwrap() }
 }

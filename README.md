@@ -49,14 +49,19 @@ agentswap grant-link --chainid 42161 --owner "$OWNER" --agent "$AGENT" \
   --token "$TOKEN:1000000" --receive USDC --epoch 1w --expiry 30d
 ```
 
-Portfolio combines registry tokens, repeatable `--token` addresses, incoming Transfer logs and
-optional `alchemy_getTokenBalances` on the configured RPC. Indexer errors produce `indexer: null`.
+Portfolio combines the app's `/api/wallet-tokens`, the live service token catalog filtered by
+chain, registry tokens, repeatable `--token` addresses and incoming Transfer logs.
 Every row reports discovery sources; balances come from `balanceOf`, and zero balances are omitted.
-The output includes the scanned range and warns that older holdings may be missing. Use
-`--token` addresses, wider `--lookback-blocks`, or an Alchemy URL in the existing
-`AGENTSWAP_RPC_URL_<id>` setting to extend discovery. Indexer pages are followed; a page error or
-repeated cursor discards all indexer candidates and reports `indexer: null`. Failed reads carry a row status.
-DefiLlama contract prices and USD values use decimal integer arithmetic; Robinhood is unpriced.
+`wallet_tokens` is `indexed`, `unindexed` or `unavailable`; failed sources contribute no candidates.
+Catalog failures are reported in `catalog_error`. A failed log chunk stops the scan while preserving
+earlier discoveries; `log_scan` reports `from_block`, `to_block_scanned` and an optional error.
+A null scan bound means no block was available or no chunk completed. Older holdings may be missing;
+use `--token` addresses or wider `--lookback-blocks` to extend discovery. Failed balance reads carry
+a row status; the command fails if none of the candidate balances can be read.
+App `/api/prices` prices and USD values use decimal integer arithmetic. Missing prices are unpriced.
+Rows carry price `source`, `confidence`, `basis`, `observed`, `source_count` and `floor_eligible`.
+DefiLlama prices qualify for a floor; oracle prices qualify only when observed and either supported
+by at least two sources or based on `manual_pin`, `stablecoin_par` or `onchain_pool`.
 `--max-usd` is a USD decimal filter, not a token amount. It quotes the full balance of priced tokens
 at or below the threshold and unpriced tokens, into `--quote-token` (default USDC). `dust` is true
 only for priced tokens at or below the threshold with a route. Quote failures produce `no_route`;

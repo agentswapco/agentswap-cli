@@ -5,7 +5,8 @@
 ### Added
 
 - Read-only `portfolio` and MCP `portfolio`: ERC-20 discovery with provenance, authoritative
-  balances, contract-address USD prices, scanned block ranges and full-balance route checks.
+  balances, app wallet-tokens and prices, live chain-filtered catalog, price provenance and floor
+  eligibility, best-effort scanned block ranges and full-balance route checks.
 - Advisory `grant-link` and MCP `grant_link`: exact decimal caps, one-shot and recurring schedules,
   receive-only tokens, form-encoded app links and explicit replacement of live V6 policies.
 

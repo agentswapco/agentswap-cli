@@ -73,7 +73,7 @@ impl AgentSwapMcp {
 
 #[tool_router(router = tool_router)]
 impl AgentSwapMcp {
-    #[tool(description = "Discover ERC-20 holdings with provenance and scan range; max_usd is an unsigned USD decimal, quotes full eligible balances and unpriced tokens. Quotes never sign payments. Older tokens may be missing.")]
+    #[tool(description = "Discover ERC-20 holdings from wallet-tokens, service catalog, registry, explicit addresses and best-effort Transfer logs. App prices include provenance and floor_eligible; source failures and scanned range are reported; max_usd is an unsigned USD decimal, quotes full eligible balances and unpriced tokens. Quotes never sign payments. Older tokens may be missing.")]
     async fn portfolio(&self, Parameters(input): Parameters<portfolio::Input>) -> std::result::Result<Json<portfolio::Output>, String> {
         portfolio::portfolio(&self.client, input).await.map(Json).map_err(tool_error)
     }

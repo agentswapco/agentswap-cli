@@ -27,7 +27,8 @@ async fn configured_client_case(portfolio_only: bool) {
     let challenge = json!({"accepts":[{"scheme":"exact", "network":"8453",
         "asset":crate::tokens::resolve_token("USDC", 8453).unwrap().0,
         "payTo":Address::ZERO, "maxAmountRequired":"1"}]}).to_string();
-    let http = http::Server::start(vec![(402, String::new(), challenge),
+    let http = http::Server::start(vec![(402, String::new(), challenge.clone()),
+        (if portfolio_only { 402 } else { 200 }, String::new(), if portfolio_only { challenge } else { json!({"output":"123"}).to_string() }),
         (200, String::new(), json!({"output":"123"}).to_string())]);
     let client = Client::new(&http.url, None).with_x402(crate::x402::Config {
         enabled: true, prefer_x402: true, chain_id: 8453, max_amount: "1".into(), asset: "USDC".into(),
@@ -37,7 +38,7 @@ async fn configured_client_case(portfolio_only: bool) {
             signer: Some(signer.clone()), allow_trade: false, trade_max_amount: None });
         let Json(output) = server.portfolio(Parameters(portfolio::tests::input("4663"))).await.unwrap();
         assert_eq!((signer.0.load(Ordering::SeqCst), http.requests.lock().unwrap().len()),
-            (0, 1), "portfolio signature and request counts");
+            (0, 2), "portfolio signature and request counts");
         assert_eq!(output.tokens[0].status, "no_route");
         assert!(output.tokens[0].quote_out_raw.is_none());
     } else {
@@ -50,8 +51,8 @@ async fn configured_client_case(portfolio_only: bool) {
     }
     let requests = http.requests.lock().unwrap();
     assert!(!requests[0].paid && !requests[0].keyed);
-    assert_eq!(requests[0].method, "POST");
-    assert!(serde_json::from_str::<serde_json::Value>(&requests[0].body).is_ok());
+    assert_eq!(requests[0].method, if portfolio_only { "GET" } else { "POST" });
+    assert!(serde_json::from_str::<serde_json::Value>(&requests[usize::from(portfolio_only)].body).is_ok());
 }
 
 #[test]
