@@ -5,6 +5,8 @@ mod models;
 mod sale;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod flow_tests;
 pub use models::{Input, Output, Row};
 use crate::{client::Client, evm, order_types::{self, UserProxyV6}, service::{intent, portfolio::{amount, discovery, prices}, token, submit::Wait}, signer::Signer};
 use alloy::{primitives::Address, providers::{DynProvider, Provider}};

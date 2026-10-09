@@ -5,12 +5,12 @@ use alloy::primitives::U256;
 use crate::service::{submit::TxStatus, trade::{TradeOutcome, SelfSubmitPreview}};
 use serde_json::json;
 
-fn price(value: &str, eligible: bool) -> prices::Price {
+pub(super) fn price(value: &str, eligible: bool) -> prices::Price {
     prices::Price { value: amount::fixed(value, false).unwrap(), source: "oracle".into(), confidence: None,
         basis: None, observed: Some(true), source_count: Some(2), floor_eligible: eligible }
 }
 
-fn policy() -> intent::PolicyOutput {
+pub(super) fn policy() -> intent::PolicyOutput {
     intent::PolicyOutput { owner: Address::repeat_byte(4).to_string(), agent: Address::repeat_byte(5).to_string(), proxy: Address::repeat_byte(6).to_string(),
         expiry: "200".into(), epoch_len: "60".into(), action_mask: "1".into(), generation: "1".into(), note: None,
         tokens: vec![intent::TokenPolicy { token: Address::repeat_byte(3).to_string(), allowed: true, cap: "0".into(), used: "0".into(), epoch_start: "0".into() }] }
