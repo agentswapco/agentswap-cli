@@ -31,9 +31,9 @@ pub async fn plan(client: &Client, input: PlanInput) -> Result<PlanOutput> {
             output.left_out.push(LeftOut { token: row.address, reason: reason.into() }); continue;
         }
         let value = amount::fixed(row.value_usd.as_deref().ok_or_else(|| eyre!("unpriced"))?, false)?;
-        let discounted = order_types::parse_u256(&(U512::from(value) * U512::from(10_000 - input.max_loss_bps) / U512::from(10_000)).to_string())?;
+        let budget = order_types::parse_u256(&(U512::from(value) * U512::from(input.max_loss_bps) / U512::from(10_000)).to_string())?;
         if let (Some(gas), Some(price)) = (gas, native_price) {
-            if sweep::gas_floor::below(config.id, discounted, 18, amount::fixed("1", false)?, gas, price.value)? {
+            if sweep::gas_floor::below(config.id, budget, 18, amount::fixed("1", false)?, gas, price.value)? {
                 output.left_out.push(LeftOut { token: row.address, reason: "below_gas_floor".into() }); continue;
             }
         }

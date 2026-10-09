@@ -3,8 +3,8 @@
 use super::*;
 
 #[test]
-fn fix_intent_discounted_value_covers_fill_gas_or_warns() {
-    const NAME: &str = "service::sweep::intent_tests::fix_tests::fix_intent_discounted_value_covers_fill_gas_or_warns";
+fn fix_intent_decay_budget_covers_fill_gas_or_warns() {
+    const NAME: &str = "service::sweep::intent_tests::fix_tests::fix_intent_decay_budget_covers_fill_gas_or_warns";
     if let Ok(url) = std::env::var("FIX_INTENT_RPC") {
         tokio::runtime::Runtime::new().unwrap().block_on(gas_case(&url)); return;
     }
@@ -26,7 +26,7 @@ async fn gas_case(url: &str) {
         Address::repeat_byte(2).to_string():{"priceUsd":1,"source":"defillama"},
         receive.address.clone():{"priceUsd":1,"source":"defillama"}
     });
-    if scenario != "native_missing" { coins[&native.address] = json!({"priceUsd":4000,"source":"defillama"}); }
+    if scenario != "native_missing" { coins[&native.address] = json!({"priceUsd":2000,"source":"defillama"}); }
     let app = relay_server::Server::start(vec![(200, String::new(), json!({"prices":coins}).to_string())]);
     let relay = relay_server::Server::start(vec![(200, String::new(), "{}".into())]);
     let signer = Arc::new(crate::signer::local::LocalKey::from_private_key(&"01".repeat(32)).unwrap());

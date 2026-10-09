@@ -42,7 +42,7 @@ pub(super) async fn sell(context: &Context<'_>, budget: &TokenPolicy, row: &mut 
         let start = math::floor(raw, input_price.ok_or_else(|| eyre::eyre!("unpriced"))?, output_price.ok_or_else(|| eyre::eyre!("unpriced"))?,
             from.decimals, context.receive.decimals, 0)?;
         row.start_out_raw = Some(start.to_string());
-        if super::gas_floor::skip(context, row, floor).await? {
+        if super::gas_floor::skip(context, row, start - floor).await? {
             row.reason = Some("below_gas_floor".into()); return Ok(false);
         }
         intent_sale::place(context, budget, row, raw, start, floor).await?;

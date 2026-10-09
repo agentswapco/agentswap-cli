@@ -9,7 +9,7 @@
   then run after confirmation. Selection criteria are optional; no holding-size threshold defaults.
 - Plans POST unsigned requests with exact balance caps, split at the API token limit including
   the receive entry. Output includes URLs, count, total value, required requested discount and
-  left-out reasons. `below_gas_floor` applies when discounted value cannot cover estimated fill cost.
+  left-out reasons. `below_gas_floor` applies when the discount budget cannot cover estimated fill cost.
 - Runs require a confirmed request and use its proxy, tokens, receive entry and confirmed discount.
   Intent mode is the default; `--wait` reports status and observed net proceeds. `--via market`
   submits from the agent wallet. Live signing requires `--allow-trade`.

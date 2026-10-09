@@ -151,8 +151,8 @@ for repeatable `--token`. The `sweep` command and MCP tool have been removed.
 `plan` discovers the portfolio and accepts optional `--min-usd`, `--max-usd`, repeatable `--token`
 and repeatable `--exclude` criteria. There is no default holding-size threshold. Explicit tokens
 select only those addresses; exclusions take precedence. Unreadable, unpriced or non-independent
-holdings cannot be valued for a sale. `below_gas_floor` excludes a holding whose discounted value
-cannot cover the estimated fill cost. Missing gas or wrapped-native prices produce a warning.
+holdings cannot be valued for a sale. `below_gas_floor` excludes a holding whose discount budget
+(value × maxLossBps / 10000) cannot cover the estimated fill cost. Missing gas or wrapped-native prices produce a warning.
 The required `--max-loss-bps` requests a discount from independent market value; the owner may
 confirm it or lower it. Planning never signs a transaction or payment.
 
