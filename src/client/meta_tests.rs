@@ -50,6 +50,15 @@ async fn bsc_backend_request_and_normalization_leave_other_chains_unchanged() {
         assert!(seen.last().unwrap().keyed);
     }
     assert_eq!(meta.requests.lock().unwrap().len(), 1);
+    for approval in [None, Some(Value::Null), Some(json!(""))] {
+        let mut response = best();
+        response["best"].as_object_mut().unwrap().remove("approveTarget");
+        if let Some(value) = approval { response["best"]["approveTarget"] = value; }
+        let server = Server::start(vec![(200, String::new(), response.to_string())]);
+        let mut adapter = client.clone(); adapter.meta_quote_url = Some(format!("{}/quote", server.url));
+        let normalized = adapter.quote(&request(56)).await.unwrap();
+        assert_eq!(normalized["execution"]["spender"], normalized["router"]);
+    }
 }
 
 async fn refused(response: Value) {

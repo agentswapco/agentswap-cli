@@ -59,7 +59,11 @@ fn normalize(response: Value) -> Result<Value> {
     }
     let output = required(best, "amountOut")?;
     let router = required(best, "target")?;
-    let spender = required(best, "approveTarget")?;
+    let spender = match best.get("approveTarget") {
+        None | Some(Value::Null) => router,
+        Some(Value::String(value)) if value.is_empty() => router,
+        _ => required(best, "approveTarget")?,
+    };
     let data = required(best, "calldata")?;
     crate::order_types::parse_raw_amount("quote output", output)?;
     crate::order_types::parse_address(router)?;
