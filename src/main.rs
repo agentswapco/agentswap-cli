@@ -287,3 +287,9 @@ mod holdings_tests;
 mod fix_tests;
 #[cfg(test)]
 mod batch_sell_tests;
+
+#[cfg(test)]
+mod batch_sell_fix_tests;
+
+#[cfg(test)]
+mod batch_sell_fork_tests;

@@ -30,7 +30,7 @@ pub(super) async fn get(value: &str) -> Result<Record> {
 }
 
 pub(super) async fn post(body: &GrantRequest) -> Result<ShortLink> {
-    ensure!(body.tokens.len() <= 20, "too_many_tokens: limit 20");
+    ensure!(body.tokens.len() <= 100, "too_many_tokens: limit 100");
     let response = client()?.post(format!("{}/api/grant-requests", crate::routes::app_origin())).json(body).send().await?;
     ensure!(response.status() == reqwest::StatusCode::CREATED, "grant request POST HTTP {}: {}", response.status(), response.text().await?);
     let link: ShortLink = response.json().await?;

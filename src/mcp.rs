@@ -76,7 +76,7 @@ impl AgentSwapMcp {
 
 #[tool_router(router = tool_router)]
 impl AgentSwapMcp {
-    #[tool(description = "Create unsigned batch-sell review requests with exact balance caps. max_loss_bps is required; min_usd, max_usd, tokens and exclude select holdings without a default size threshold. Give the owner the returned URLs, then use batch_sell_run after confirmation.")]
+    #[tool(description = "Create one unsigned batch-sell review request with exact balance caps and at most 100 tokens including receive. max_loss_bps is required; min_usd, max_usd, tokens and exclude select holdings without a default size threshold. Give the owner the returned URL, then use batch_sell_run after confirmation.")]
     async fn batch_sell_plan(&self, Parameters(input): Parameters<batch_sell::PlanInput>) -> std::result::Result<Json<batch_sell::PlanOutput>, String> {
         batch_sell::plan(&self.client, input).await.map(Json).map_err(tool_error)
     }

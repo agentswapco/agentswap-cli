@@ -144,9 +144,9 @@ agentswap batch-sell plan --chainid 8453 --owner "$OWNER" --agent "$AGENT" \
 agentswap --allow-trade batch-sell run --request "$REQUEST_URL" --key-file agent.key --wait 60 --json
 ```
 
-Agents use `plan`, give the owner the returned URLs, then use `run` after the owner confirms.
+Agents use `plan`, give the owner the returned URL, then use `run` after the owner confirms.
 MCP `batch_sell_plan` and `batch_sell_run` expose the same inputs in snake_case, with `tokens`
-for repeatable `--token`. The `sweep` command and MCP tool have been removed.
+for repeatable `--token`.
 
 `plan` discovers the portfolio and accepts optional `--min-usd`, `--max-usd`, repeatable `--token`
 and repeatable `--exclude` criteria. There is no default holding-size threshold. Explicit tokens
@@ -157,9 +157,9 @@ The required `--max-loss-bps` requests a discount from independent market value;
 confirm it or lower it. Planning never signs a transaction or payment.
 
 Each request has exact balance caps, a receive-only zero-cap entry, both market and intent actions,
-a weekly epoch and expiry in 24 hours. The receive entry counts toward the API token limit;
-larger selections split into multiple review URLs. Confirm and run each URL before confirming the
-next, because each grant replaces the token basket. Output includes token count, total USD value,
+a weekly epoch and expiry in 24 hours. One batch creates one request with at most 100 tokens,
+including the receive entry. Larger selections are refused; narrow the criteria.
+Output includes token count, total USD value,
 requested discount and left-out tokens with reasons. `grant-link --purpose batch-sell
 --max-loss-bps <n>` remains the no-POST fallback and emits `purpose` and `maxloss` link parameters.
 

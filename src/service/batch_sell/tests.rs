@@ -29,3 +29,14 @@ fn batch_sell_request_caps_and_identity_validation() {
     record.request.tokens[0].cap = "0".into();
     assert!(execution(&input,&record,Address::repeat_byte(2)).is_err());
 }
+
+#[test]
+fn batch_sell_run_accepts_one_hundred_tokens() {
+    let tokens: Vec<_> = (1..100).map(|i| json!({"address":Address::repeat_byte(i),"cap":"1"}))
+        .chain([json!({"address":Address::repeat_byte(100),"cap":"0"})]).collect();
+    let record: Record = serde_json::from_value(json!({"id":"abcdefghijklmnopqrstuv","status":"confirmed",
+        "confirmed":{"proxy":Address::repeat_byte(6),"generation":"1","maxLossBps":100},
+        "request":{"v":1,"chainId":8453,"agent":Address::repeat_byte(2),"purpose":"batch-sell","maxLossBps":500,"tokens":tokens}})).unwrap();
+    let input = RunInput {request:record.id.clone(),via:Via::Intent,wait:None};
+    assert_eq!(execution(&input,&record,Address::repeat_byte(2)).unwrap().tokens.len(),99);
+}

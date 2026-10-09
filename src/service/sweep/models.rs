@@ -20,47 +20,32 @@ impl Via {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, JsonSchema, clap::Args)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Input {
-    #[arg(long = "chainid", help = crate::tokens::CHAIN_ID_HELP)]
-    #[schemars(description = crate::tokens::CHAIN_ID_HELP)]
     pub chain_id: String,
-    #[arg(long)]
     pub proxy: String,
     /// Receive ERC-20 symbol or address; must belong to the grant basket.
-    #[arg(long)]
     pub receive: String,
     /// Unsigned USD decimal threshold for the owner's whole holding, up to 18 fractional places.
-    #[arg(long)]
     pub max_usd: String,
     /// Maximum loss relative to independent prices, in basis points (0 or greater, less than 10000).
-    #[arg(long, value_parser = clap::value_parser!(u16).range(0..10000))]
-    #[schemars(range(min = 0, max = 9999))]
     pub max_loss_bps: u16,
-    /// Basket ERC-20 address to sell; required and repeatable.
-    #[arg(long = "token", required = true)]
-    #[schemars(length(min = 1))]
+    /// Confirmed basket ERC-20 addresses to sell.
     pub tokens: Vec<String>,
-    /// Preview only; forced without --allow-trade. MCP defaults to true.
-    #[arg(long)]
+    /// Preview only; forced when live trading is disabled.
     #[serde(default = "super::default_true")]
     pub dry_run: bool,
     /// Relayed intent (gasless) or market trade; requires the corresponding policy action.
-    #[arg(long, value_enum, default_value = "intent")]
     #[serde(default)]
     pub via: Via,
     /// Wait up to this many seconds after placement for intent fill, expiry or cancellation.
-    #[arg(long)]
     #[serde(default)]
     pub wait: Option<u64>,
     /// Market mode only: broadcast from the agent key's wallet, which pays gas.
-    #[arg(long)]
     #[serde(default)]
     pub self_submit: bool,
-    #[arg(skip)]
     #[serde(default)]
     pub confirmed_generation: Option<String>,
-    #[arg(skip)]
     #[serde(default)]
     pub request_caps: std::collections::BTreeMap<String, String>,
 }

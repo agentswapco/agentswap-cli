@@ -1,4 +1,4 @@
-// Executable sweep surface regression, runnable unchanged against the pre-feature commit.
+// Executable batch-sell surface regression for help and argument requirements.
 // Help and required-argument checks do not open RPC connections or load a signer.
 use std::process::Command;
 

@@ -8,7 +8,7 @@ mod http;
 #[path = "service/test_rpc.rs"]
 mod test_rpc;
 
-fn plan_args() -> Vec<String> {
+pub(super) fn plan_args() -> Vec<String> {
     ["agentswap", "--url", "http://127.0.0.1:1", "--json", "batch-sell", "plan", "--chainid", "8453", "--owner", &Address::repeat_byte(4).to_string(),
         "--agent", &Address::repeat_byte(2).to_string(), "--receive", "WETH", "--max-loss-bps", "500"]
         .into_iter().map(String::from).collect()
@@ -33,7 +33,7 @@ fn enter() -> bool {
     true
 }
 
-fn responses(n: u8) -> Vec<(u16, String, String)> {
+pub(super) fn responses(n: u8) -> Vec<(u16, String, String)> {
     let tokens: Vec<_> = (1..=n).map(|i| json!({"address":Address::repeat_byte(i),"balanceRaw":"1234500","decimals":6,"symbol":"TEST"})).collect();
     let mut prices = serde_json::Map::new();
     for i in 1..=n { prices.insert(Address::repeat_byte(i).to_string(), json!({"priceUsd":2,"source":"defillama"})); }
@@ -45,15 +45,15 @@ fn responses(n: u8) -> Vec<(u16, String, String)> {
 }
 
 #[test]
-fn batch_sell_plan_posts_exact_caps_and_splits_at_twenty() {
+fn batch_sell_plan_posts_one_request_at_hundred() {
     if enter() { return; }
-    let app = http::Server::start(responses(21));
-    let output = child("batch_sell_tests::batch_sell_plan_posts_exact_caps_and_splits_at_twenty", &app, &plan_args());
+    let app = http::Server::start(responses(99));
+    let output = child("batch_sell_tests::batch_sell_plan_posts_one_request_at_hundred", &app, &plan_args());
     assert!(output.status.success(), "{} {}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     let requests = app.requests.lock().unwrap();
     let posts: Vec<_> = requests.iter().filter(|r| r.method == "POST").collect();
-    assert_eq!(posts.len(), 2);
-    for (post, count) in posts.iter().zip([20, 3]) {
+    assert_eq!(posts.len(), 1);
+    for (post, count) in posts.iter().zip([100]) {
         assert_eq!(post.target, "/api/grant-requests");
         let body: Value = serde_json::from_str(&post.body).unwrap();
         assert_eq!(body["tokens"].as_array().unwrap().len(), count);
@@ -65,7 +65,7 @@ fn batch_sell_plan_posts_exact_caps_and_splits_at_twenty() {
         assert_eq!(body["epoch"], "1w"); assert!(body["signature"].is_null());
         assert!(!post.keyed && !post.paid);
     }
-    assert!(String::from_utf8_lossy(&output.stdout).contains("51.849"));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("244.431"));
 }
 
 #[test]

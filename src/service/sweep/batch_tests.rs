@@ -50,3 +50,50 @@ fn batch_sell_run_uses_confirmed_discount_and_continues_relay_422() {
         assert_eq!(rpc.called("eth_sendRawTransaction"),0);
     }
 }
+
+#[test]
+fn batch_sell_run_generation_and_request_cap_boundaries() {
+    const NAME: &str = "service::sweep::batch_tests::batch_sell_run_generation_and_request_cap_boundaries";
+    if let Ok(url) = std::env::var("BATCH_BOUNDARY_APP") {
+        crate::routes::TEST_APP_ORIGIN.set(url).unwrap();
+        let key = std::env::temp_dir().join(format!("batch-boundary-key-{}", std::process::id()));
+        std::fs::write(&key, "01".repeat(32)).unwrap();
+        let cli = Cli::try_parse_from(["agentswap", "--allow-trade", "--json", "batch-sell", "run", "--request",
+            "abcdefghijklmnopqrstuv", "--key-file", key.to_str().unwrap()]).unwrap();
+        let result = tokio::runtime::Runtime::new().unwrap().block_on(crate::run_cli(cli));
+        std::fs::remove_file(key).unwrap();
+        if std::env::var("BATCH_CHANGED").is_ok() {
+            assert!(result.unwrap_err().to_string().contains("confirmed grant generation changed"));
+        } else { result.unwrap(); }
+        return;
+    }
+    for generation in ["2", "1"] {
+        let receive = token::from_registry("WETH", 8453).unwrap();
+        let signer = crate::signer::local::LocalKey::from_private_key(&"01".repeat(32)).unwrap();
+        let record = json!({"id":"abcdefghijklmnopqrstuv","status":"confirmed",
+            "confirmed":{"proxy":Address::repeat_byte(6),"generation":generation,"maxLossBps":100},
+            "request":{"v":1,"chainId":8453,"owner":Address::repeat_byte(4),"agent":signer.address(),"purpose":"batch-sell","maxLossBps":500,
+            "tokens":[{"address":Address::repeat_byte(1),"cap":"0.1"},{"address":receive.address,"cap":"0"}]}});
+        let prices = json!({"prices":{Address::repeat_byte(1).to_string():{"priceUsd":2,"source":"defillama"},
+            receive.address:{"priceUsd":4,"source":"defillama"}}});
+        let app = http::Server::start(vec![(200,String::new(),record.to_string()),(200,String::new(),prices.to_string()),
+            (200,String::new(),"{\"accepted\":true}".into())]);
+        let rpc = rpc(5, "open");
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command.args(["--exact",NAME,"--nocapture"]).env("BATCH_BOUNDARY_APP", &app.url)
+            .env("AGENTSWAP_RPC_URL", &rpc.url).env("AGENTSWAP_RPC_URL_8453", &rpc.url);
+        if generation == "2" { command.env("BATCH_CHANGED", "1"); }
+        let output = command.output().unwrap();
+        let text = String::from_utf8_lossy(&output.stdout);
+        assert!(output.status.success(), "{text} {}", String::from_utf8_lossy(&output.stderr));
+        let requests = app.requests.lock().unwrap();
+        let posts: Vec<_> = requests.iter().filter(|r| r.method == "POST" && r.target == "/api/intents").collect();
+        assert_eq!(posts.len(), usize::from(generation == "1"));
+        if generation == "1" {
+            assert!(text.contains("\"amount_raw\": \"100000\""), "{text}");
+            let body: Value = serde_json::from_str(&posts[0].body).unwrap();
+            assert_eq!(body["announce"]["order"]["amountIn"], "100000");
+        }
+        assert_eq!(rpc.called("eth_sendRawTransaction"), 0);
+    }
+}

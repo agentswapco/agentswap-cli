@@ -18,6 +18,8 @@ pub async fn plan(client: &Client, input: PlanInput) -> Result<PlanOutput> {
     let native = evm::wrapped_native(config.id);
     let price_addresses: Vec<_> = native.into_iter().chain([discovery::erc20(&receive.address)?]).collect();
     let prices = prices::prices(config.id, &price_addresses, crate::routes::app_origin()).await;
+    ensure!(prices.get(&discovery::erc20(&receive.address)?).is_some_and(|p| p.floor_eligible),
+        "receive token price is missing or not floor-eligible");
     let gas = provider.get_gas_price().await.ok();
     let native_price = native.and_then(|a| prices.get(&a)).filter(|p| p.floor_eligible);
     let mut output = PlanOutput { requests: Vec::new(), count: 0, total_value_usd: "0".into(), max_loss_bps: input.max_loss_bps,
@@ -38,13 +40,12 @@ pub async fn plan(client: &Client, input: PlanInput) -> Result<PlanOutput> {
             }
         }
         let cap = amount::render(row.balance_raw.as_deref().ok_or_else(|| eyre!("balance unavailable"))?, usize::from(row.decimals.ok_or_else(|| eyre!("metadata unavailable"))?));
-        ensure!(cap.len() <= 32, "rendered cap exceeds 32 characters for {}", row.address);
+        if cap.len() > 32 { output.left_out.push(LeftOut { token: row.address, reason: "cap_too_long".into() }); continue; }
         tokens.push(GrantToken { address: row.address, cap }); total += U512::from(value);
     }
     for missing in filters.tokens.difference(&seen) { output.left_out.push(LeftOut { token: missing.to_string(), reason: "no_holding".into() }); }
     output.count = tokens.len(); output.total_value_usd = amount::render(&total.to_string(), 18);
     for body in requests(&input, config.id, &receive.address, &tokens)? { output.requests.push(request::post(&body).await?); }
-    if output.requests.len() > 1 { output.warnings.push("Selection split across requests. Confirm and run each URL before confirming the next: grants replace the token basket.".into()); }
     Ok(output)
 }
 
@@ -83,13 +84,13 @@ impl Filters {
 }
 
 fn requests(input: &PlanInput, chain: u64, receive: &str, tokens: &[GrantToken]) -> Result<Vec<GrantRequest>> {
+    ensure!(tokens.len() < 100, "selection contains {} tokens including receive; limit is 100; narrow the criteria", tokens.len() + 1);
+    if tokens.is_empty() { return Ok(Vec::new()); }
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
     let expiry = chrono::DateTime::from_timestamp(i64::try_from(now + 86400)?, 0).ok_or_else(|| eyre!("invalid expiry"))?
         .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-    Ok(tokens.chunks(19).map(|chunk| {
-        let mut tokens = chunk.to_vec(); tokens.push(GrantToken { address: receive.into(), cap: "0".into() });
-        GrantRequest { v: 1, chain_id: chain, agent: input.agent.clone(), owner: Some(input.owner.clone()), label: None, note: None,
-            tokens, epoch: "1w".into(), expiry: expiry.clone(), actions: vec!["market".into(), "intent".into()],
-            purpose: "batch-sell".into(), max_loss_bps: input.max_loss_bps, signature: None }
-    }).collect())
+    let mut tokens = tokens.to_vec(); tokens.push(GrantToken { address: receive.into(), cap: "0".into() });
+    Ok(vec![GrantRequest { v: 1, chain_id: chain, agent: input.agent.clone(), owner: Some(input.owner.clone()), label: None, note: None,
+            tokens, epoch: "1w".into(), expiry, actions: vec!["market".into(), "intent".into()],
+            purpose: "batch-sell".into(), max_loss_bps: input.max_loss_bps, signature: None }])
 }

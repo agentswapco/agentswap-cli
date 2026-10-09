@@ -28,7 +28,7 @@ pub(super) fn execution(input: &RunInput, record: &Record, agent: alloy::primiti
     ensure!(discovery::erc20(&request.agent)? == agent, "request agent differs from signer");
     discovery::erc20(&confirmed.proxy)?;
     ensure!(order_types::parse_u256(&confirmed.generation)? != alloy::primitives::U256::ZERO, "invalid confirmed generation");
-    ensure!((2..=20).contains(&request.tokens.len()), "request requires spend tokens and one receive token, at most 20 total");
+    ensure!((2..=100).contains(&request.tokens.len()), "request requires spend tokens and one receive token, at most 100 total");
     let mut receive = None;
     let mut tokens = Vec::new();
     let mut caps = std::collections::BTreeMap::new();

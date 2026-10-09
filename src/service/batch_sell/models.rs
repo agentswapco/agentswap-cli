@@ -7,25 +7,32 @@ pub use crate::service::sweep::Via;
 #[derive(Debug, Clone, Deserialize, JsonSchema, clap::Args)]
 pub struct PlanInput {
     #[arg(long = "chainid", help = crate::tokens::CHAIN_ID_HELP)]
+    #[schemars(description = crate::tokens::CHAIN_ID_HELP)]
     pub chain_id: String,
+    /// Owner wallet whose ERC-20 holdings will be selected.
     #[arg(long)]
     pub owner: String,
+    /// Agent wallet that will execute the confirmed batch sale.
     #[arg(long)]
     pub agent: String,
+    /// Receive ERC-20 symbol or address; requires a floor-eligible independent price.
     #[arg(long)]
     pub receive: String,
     /// Requested discount from independent market value, confirmed or lowered by the owner.
     #[arg(long, value_parser = clap::value_parser!(u16).range(1..=5000))]
     #[schemars(range(min = 1, max = 5000))]
     pub max_loss_bps: u16,
+    /// Minimum holding value in USD; unsigned decimal with up to 18 fractional places.
     #[arg(long)]
     pub min_usd: Option<String>,
+    /// Maximum holding value in USD; unsigned decimal with up to 18 fractional places.
     #[arg(long)]
     pub max_usd: Option<String>,
     /// Select only these ERC-20 addresses; repeatable. Omission selects all discovered holdings.
     #[arg(long = "token")]
     #[serde(default)]
     pub tokens: Vec<String>,
+    /// ERC-20 address to leave out; repeatable and takes precedence over selection.
     #[arg(long)]
     #[serde(default)]
     pub exclude: Vec<String>,
@@ -33,11 +40,14 @@ pub struct PlanInput {
 
 #[derive(Debug, Clone, Deserialize, JsonSchema, clap::Args)]
 pub struct RunInput {
+    /// Confirmed grant request ID or app grant URL.
     #[arg(long)]
     pub request: String,
+    /// Relayed intent or self-submitted market trade; market mode requires agent gas funds.
     #[arg(long, value_enum, default_value = "intent")]
     #[serde(default)]
     pub via: Via,
+    /// Wait up to this many seconds for intent settlement; only available in intent mode.
     #[arg(long)]
     pub wait: Option<u64>,
 }
