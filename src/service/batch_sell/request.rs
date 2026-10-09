@@ -11,7 +11,7 @@ pub(super) fn id(value: &str) -> Result<String> {
             && url.query().is_none() && url.fragment().is_none(), "request URL must be an app grant URL");
         url.path().strip_prefix("/grant/r/").ok_or_else(|| eyre::eyre!("invalid grant request path"))?.to_owned()
     } else { value.to_owned() };
-    ensure!(id.len() >= 22 && id.len() <= 128 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'), "invalid grant request id");
+    ensure!(id.len() >= 22 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'), "invalid grant request id");
     Ok(id)
 }
 

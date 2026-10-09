@@ -71,7 +71,13 @@ impl Filters {
         if !row.floor_eligible { return Ok(Some("price_not_independent")); }
         let value = amount::fixed(value, false)?;
         if self.min.is_some_and(|min| value < min) { return Ok(Some("under_min_usd")); }
-        if self.max.is_some_and(|max| value > max) { return Ok(Some("over_max_usd")); }
+        if let Some(max) = self.max {
+            let raw = order_types::parse_u256(row.balance_raw.as_deref().ok_or_else(|| eyre!("balance unavailable"))?)?;
+            let price = amount::fixed(row.price_usd.as_deref().ok_or_else(|| eyre!("unpriced"))?, false)?;
+            if !amount::valuation(raw, price, row.decimals.ok_or_else(|| eyre!("metadata unavailable"))?, Some(max)).1 {
+                return Ok(Some("over_max_usd"));
+            }
+        }
         Ok(None)
     }
 }

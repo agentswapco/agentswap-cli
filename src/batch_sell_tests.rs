@@ -5,6 +5,8 @@ use alloy::primitives::Address;
 use serde_json::{Value, json};
 #[path = "client/test_server.rs"]
 mod http;
+#[path = "service/test_rpc.rs"]
+mod test_rpc;
 
 fn plan_args() -> Vec<String> {
     ["agentswap", "--json", "batch-sell", "plan", "--chainid", "8453", "--owner", &Address::repeat_byte(4).to_string(),
@@ -13,7 +15,7 @@ fn plan_args() -> Vec<String> {
 }
 
 fn child(name: &str, app: &http::Server, args: &[String]) -> std::process::Output {
-    let rpc = service::test_rpc::TestRpc::start(|body| Some(service::test_rpc::ok(body, json!("0x1"))));
+    let rpc = test_rpc::TestRpc::start(|body| Some(test_rpc::ok(body, json!("0x1"))));
     std::process::Command::new(std::env::current_exe().unwrap())
         .args(["--exact", name, "--nocapture"])
         .env("BATCH_APP", &app.url).env("BATCH_ARGS", serde_json::to_string(args).unwrap())
@@ -116,7 +118,7 @@ fn batch_sell_cli_contract_and_grant_purpose() {
 #[test]
 fn batch_sell_plan_filters_and_economic_floor() {
     if enter() { return; }
-    for (flag, value, reason) in [("--min-usd","3","under_min_usd"),("--max-usd","2","over_max_usd"),("gas","0","below_gas_floor"),("large","0","")] {
+    for (flag, value, reason) in [("--min-usd","3","under_min_usd"),("--max-usd","2","over_max_usd"),("gas","0","below_gas_floor"),("large","0",""),("fraction","0","over_max_usd")] {
         let mut replies = responses(1);
         if flag == "gas" || flag == "large" {
             let index = if flag == "gas" { 2 } else { 1 };
@@ -125,8 +127,14 @@ fn batch_sell_plan_filters_and_economic_floor() {
             body["prices"][address]["priceUsd"] = json!(1_000_000_000_000u64);
             replies[index].2 = body.to_string();
         }
+        if flag == "fraction" {
+            let mut body: Value = serde_json::from_str(&replies[1].2).unwrap();
+            body["prices"][Address::repeat_byte(1).to_string()]["priceUsd"] = serde_json::from_str("0.000000000000000001").unwrap();
+            replies[1].2 = body.to_string();
+        }
         let app = http::Server::start(replies);
         let mut args = plan_args();
+        if flag == "fraction" { args.extend(["--max-usd".into(), "0.000000000000000001".into()]); }
         if flag.starts_with("--") { args.extend([flag.into(), value.into()]); }
         let output = child("batch_sell_tests::batch_sell_plan_filters_and_economic_floor", &app, &args);
         let text = String::from_utf8_lossy(&output.stdout);

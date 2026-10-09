@@ -22,7 +22,10 @@ pub async fn dispatch(cli: &Cli, command: &BatchSellCommands) -> Result<()> {
             let signer = crate::startup::signer_from_file(cli.key_file.as_deref())?
                 .ok_or_else(|| eyre::eyre!("batch-sell run requires --key-file"))?;
             let origin = if input.via == batch_sell::Via::Intent { crate::routes::app_origin() } else { &cli.url };
-            let client = Client::new(origin, cli.api_key.clone().or_else(crate::credentials::load_api_key));
+            let payment_signer = crate::startup::signer_from_file(cli.x402_key_file.as_deref())?.unwrap_or_else(|| signer.clone());
+            let client = Client::new(origin, cli.api_key.clone().or_else(crate::credentials::load_api_key)).with_x402(
+                crate::x402::Config { enabled: cli.x402, prefer_x402: cli.prefer_x402, chain_id: cli.x402_chain_id,
+                    max_amount: cli.x402_max_amount.clone(), asset: cli.x402_asset.clone() }, Some(payment_signer));
             let output = batch_sell::run(&client, signer, input.clone(), record, cli.allow_trade, cli.trade_max_amount.as_deref(), Wait::CLI).await?;
             if cli.json { println!("{}", serde_json::to_string_pretty(&output)?); }
             else { for row in &output.tokens { println!("{}", serde_json::to_string(row)?); } }
