@@ -124,7 +124,7 @@ fn batch_sell_plan_filters_and_economic_floor() {
             let index = if flag == "gas" { 2 } else { 1 };
             let mut body: Value = serde_json::from_str(&replies[index].2).unwrap();
             let address = if flag == "gas" { service::token::from_registry("WETH",8453).unwrap().address } else { Address::repeat_byte(1).to_string() };
-            body["prices"][address]["priceUsd"] = json!(1_000_000_000_000u64);
+            body["prices"][address]["priceUsd"] = json!(if flag == "gas" { 1_000_000_000_000_000u64 } else { 1_000_000_000_000u64 });
             replies[index].2 = body.to_string();
         }
         if flag == "fraction" {
@@ -139,7 +139,7 @@ fn batch_sell_plan_filters_and_economic_floor() {
         let output = child("batch_sell_tests::batch_sell_plan_filters_and_economic_floor", &app, &args);
         let text = String::from_utf8_lossy(&output.stdout);
         assert!(output.status.success(), "{text} {}", String::from_utf8_lossy(&output.stderr));
-        assert!(text.contains(reason), "{text}");
+        assert!(text.contains(reason), "{flag}: {text}");
         let requests = app.requests.lock().unwrap();
         assert_eq!(requests.iter().filter(|r| r.method == "POST").count(), usize::from(flag == "large"));
     }
