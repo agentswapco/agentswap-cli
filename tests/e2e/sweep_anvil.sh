@@ -23,6 +23,7 @@ if cast chain-id --rpc-url "$RPC" >/dev/null 2>&1; then echo 'FAIL fork port occ
 anvil --fork-url "$FORK_URL" --port "$PORT" >"$WORK/anvil.log" 2>&1 & APID=$!
 for _ in $(seq 1 120); do
   if cast chain-id --rpc-url "$RPC" >/dev/null 2>&1; then break; fi
+  if ! kill -0 "$APID" 2>/dev/null; then cat "$WORK/anvil.log"; exit 1; fi
   sleep 1
 done
 cast chain-id --rpc-url "$RPC"

@@ -105,14 +105,14 @@ agentswap intent status --chainid 8453 --id 0xIntentId
 agentswap policy --chainid 8453 --owner 0xOwner --agent 0xAgent
 ```
 
-`trade` and `intent place` are forced to dry-run unless `--allow-trade` is set, and the same flag
-gates the MCP `trade` and `intent_place` tools. A live trade also needs `--min-out`: without an
+`trade`, `sweep` and `intent place` are forced to dry-run unless `--allow-trade` is set, and the same flag
+gates the MCP `trade`, `sweep` and `intent_place` tools. A live trade also needs `--min-out`: without an
 explicit floor the trade is refused, because the quote server's output is not trusted as the
 protection floor. Every token amount input is an unsigned decimal integer in the asset's smallest
 unit; `--max-amount` bounds the raw input amount before signing or sending. A trade dry-run
 reads policy generation and verifies the AgentOrder digest against the chain, then returns the quote,
 unsigned AgentOrder and digest. Dry-run outputs omit signatures, authorization envelopes and
-signed calldata; neither command signs, broadcasts or relays in dry-run.
+signed calldata; these commands do not sign, broadcast or relay in dry-run.
 
 A token is a symbol from the built-in registry or a raw address. A raw address outside the
 registry is accepted by `quote`, `trade` and `buy-quota` on the chains `trade` supports, where it

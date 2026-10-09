@@ -4,8 +4,8 @@
 // Deps: tokens::registry for static token metadata.
 mod registry;
 
-/// The supported chains for read-only portfolio and grant-link commands.
-pub const HOLDINGS_CHAINS_NOTE: &str = "Portfolio and grant links support Base (8453), Arbitrum One (42161), BNB Smart Chain (56) and Robinhood Chain (4663).";
+/// The supported chains for portfolio, grant-link and sweep commands.
+pub const HOLDINGS_CHAINS_NOTE: &str = "Portfolio, grant links and sweep support Base (8453), Arbitrum One (42161), BNB Smart Chain (56) and Robinhood Chain (4663).";
 
 /// The one published description of the chain selector. Every help string, MCP tool description,
 /// input-schema field and runtime error that names a chain refers to this instead of pasting it.
