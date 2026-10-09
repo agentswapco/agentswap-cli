@@ -9,7 +9,7 @@ mod http;
 mod test_rpc;
 
 fn plan_args() -> Vec<String> {
-    ["agentswap", "--json", "batch-sell", "plan", "--chainid", "8453", "--owner", &Address::repeat_byte(4).to_string(),
+    ["agentswap", "--url", "http://127.0.0.1:1", "--json", "batch-sell", "plan", "--chainid", "8453", "--owner", &Address::repeat_byte(4).to_string(),
         "--agent", &Address::repeat_byte(2).to_string(), "--receive", "WETH", "--max-loss-bps", "500"]
         .into_iter().map(String::from).collect()
 }
@@ -19,7 +19,7 @@ fn child(name: &str, app: &http::Server, args: &[String]) -> std::process::Outpu
     std::process::Command::new(std::env::current_exe().unwrap())
         .args(["--exact", name, "--nocapture"])
         .env("BATCH_APP", &app.url).env("BATCH_ARGS", serde_json::to_string(args).unwrap())
-        .env("AGENTSWAP_RPC_URL_8453", &rpc.url).output().unwrap()
+        .env("AGENTSWAP_RPC_URL", &rpc.url).env("AGENTSWAP_RPC_URL_8453", &rpc.url).output().unwrap()
 }
 
 fn enter() -> bool {

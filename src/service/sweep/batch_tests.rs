@@ -16,7 +16,7 @@ fn batch_sell_run_uses_confirmed_discount_and_continues_relay_422() {
         let key = std::env::temp_dir().join(format!("batch-key-{}", std::process::id()));
         std::fs::write(&key, "01".repeat(32)).unwrap();
         let waiting = std::env::var("BATCH_WAIT").unwrap_or_else(|_| "0".into());
-        let cli = Cli::try_parse_from(["agentswap", "--allow-trade", "--json", "batch-sell", "run", "--request",
+        let cli = Cli::try_parse_from(["agentswap", "--url", "http://127.0.0.1:1", "--allow-trade", "--json", "batch-sell", "run", "--request",
             "https://app.agentswap.co/grant/r/abcdefghijklmnopqrstuv", "--key-file", key.to_str().unwrap(), "--wait", &waiting]).unwrap();
         let result = tokio::runtime::Runtime::new().unwrap().block_on(crate::run_cli(cli));
         std::fs::remove_file(key).unwrap();
@@ -35,7 +35,7 @@ fn batch_sell_run_uses_confirmed_discount_and_continues_relay_422() {
             (if code == "filled" {200} else {422},String::new(),json!({"error":code}).to_string()), (200,String::new(),"{\"accepted\":true}".into())]);
         let rpc = rpc(5, if code == "filled" { "filled" } else { "open" });
         let output = std::process::Command::new(std::env::current_exe().unwrap()).args(["--exact",NAME,"--nocapture"])
-            .env("BATCH_WAIT", if code == "filled" {"1"} else {"0"}).env("BATCH_RUN_APP", &app.url).env("AGENTSWAP_RPC_URL_8453", &rpc.url).output().unwrap();
+            .env("BATCH_WAIT", if code == "filled" {"1"} else {"0"}).env("BATCH_RUN_APP", &app.url).env("AGENTSWAP_RPC_URL", &rpc.url).env("AGENTSWAP_RPC_URL_8453", &rpc.url).output().unwrap();
         let text = String::from_utf8_lossy(&output.stdout);
         assert!(output.status.success(), "{text} {}", String::from_utf8_lossy(&output.stderr));
         if code == "filled" { assert!(text.contains("sold") && text.contains("\"received_raw\": \"297000000000000000\""), "{text}"); }
