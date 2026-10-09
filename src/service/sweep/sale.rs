@@ -34,7 +34,7 @@ pub(super) async fn sell(context: &Context<'_>, budget: &TokenPolicy, row: &mut 
         from.decimals, context.receive.decimals, context.input.max_loss_bps)?;
     row.floor_raw = Some(floor.to_string());
     if floor == U256::ZERO { row.reason = Some("below_floor".into()); return Ok(false); }
-    let request = quote::QuoteInput { chain_id: context.input.chain_id.clone(), from: budget.token.clone(), to: context.receive.address.clone(), amount: raw.to_string(), slippage: None, verify: false };
+    let request = quote::QuoteInput { chain_id: context.input.chain_id.clone(), from: budget.token.clone(), to: context.receive.address.clone(), amount: raw.to_string(), slippage: Some(context.input.max_loss_bps), verify: false };
     let checked = match quote::quote(context.client, request).await {
         Ok(checked) => checked,
         Err(error) => {
@@ -49,7 +49,8 @@ pub(super) async fn sell(context: &Context<'_>, budget: &TokenPolicy, row: &mut 
     row.quote_out_raw = quoted.map(|q| q.to_string());
     if let Some(reason) = math::quote_skip(quoted, floor) { row.reason = Some(reason.into()); return Ok(false); }
     let body = serde_json::json!({"chain_id":checked.request.chain_id, "token_in":checked.request.token_in,
-        "token_out":checked.request.token_out, "amount_in":checked.request.amount_in});
+        "token_out":checked.request.token_out, "amount_in":checked.request.amount_in,
+        "slippage_bps":context.input.max_loss_bps});
     let client = context.client.clone().with_pinned_quote(body, checked.response);
     let input = trade_input(context, budget, raw, floor);
     Ok(row.record(trade::execute_trade(&client, context.signer.clone(), input, !context.input.dry_run, context.wait).await))
@@ -73,6 +74,6 @@ async fn current_amount(context: &Context<'_>, token: Address) -> Result<(U256, 
 pub(super) fn trade_input(context: &Context<'_>, budget: &TokenPolicy, raw: U256, floor: U256) -> trade::TradeInput {
     trade::TradeInput { chain_id: context.input.chain_id.clone(), from: budget.token.clone(), to: context.receive.address.clone(),
         amount: raw.to_string(), min_out: Some(floor.to_string()), max_amount: Some(context.server_cap.map_or(raw, |cap| cap.min(raw)).to_string()),
-        slippage: None, mode: "agent-order".into(), proxy: context.input.proxy.clone(), nonce: None, deadline_secs: None,
+        slippage: Some(context.input.max_loss_bps), mode: "agent-order".into(), proxy: context.input.proxy.clone(), nonce: None, deadline_secs: None,
         dry_run: context.input.dry_run, self_submit: context.input.self_submit, verify_quote: false }
 }
