@@ -91,5 +91,6 @@ fn sweep_flow_preview_routes_and_policy_change() {
             .env("SWEEP_FLOW_CASE", name).env("AGENTSWAP_RPC_URL_8453", &rpc.url).output().unwrap();
         assert!(output.status.success(), "{name}: {}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
         assert_eq!(rpc.called("eth_sendRawTransaction"), 0);
+        assert_eq!(rpc.called(""), usize::from(name != "changed"), "one checked quote per attempted sale");
     }
 }

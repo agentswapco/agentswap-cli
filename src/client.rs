@@ -6,6 +6,8 @@ mod transport;
 mod redirect_tests;
 #[cfg(test)]
 mod test_server;
+#[cfg(test)]
+mod pinned_quote_tests;
 
 use eyre::Result;
 use std::sync::Arc;
@@ -18,6 +20,7 @@ pub struct Client {
     api_key: Option<String>,
     x402: crate::x402::Config,
     x402_signer: Option<Arc<dyn crate::signer::Signer>>,
+    pinned_quote: Option<(serde_json::Value, serde_json::Value)>,
 }
 
 impl Client {
@@ -33,6 +36,7 @@ impl Client {
             api_key,
             x402: crate::x402::Config::disabled(),
             x402_signer: None,
+            pinned_quote: None,
         }
     }
 
@@ -46,9 +50,19 @@ impl Client {
         self
     }
 
+    /// Bind one cloned client to a checked quote request; mismatches fail before any HTTP call.
+    pub(crate) fn with_pinned_quote(mut self, request: serde_json::Value, response: serde_json::Value) -> Self {
+        self.pinned_quote = Some((request, response));
+        self
+    }
+
     // --- Consumer endpoints ---
 
     pub async fn quote(&self, body: &serde_json::Value) -> Result<serde_json::Value> {
+        if let Some((request, response)) = &self.pinned_quote {
+            eyre::ensure!(body == request, "trade request differs from the checked sweep quote");
+            return Ok(response.clone());
+        }
         self.post(crate::routes::QUOTE, body).await
     }
 

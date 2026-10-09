@@ -33,11 +33,16 @@ pub(super) async fn sell(context: &Context<'_>, budget: &TokenPolicy, row: &mut 
         from.decimals, context.receive.decimals, context.input.max_loss_bps)?;
     row.floor_raw = Some(floor.to_string());
     let request = quote::QuoteInput { chain_id: context.input.chain_id.clone(), from: budget.token.clone(), to: context.receive.address.clone(), amount: raw.to_string(), slippage: None, verify: true };
-    let quoted = quote::quote(context.client, request).await.ok().and_then(|q| q.response["output"].as_str().and_then(|s| order_types::parse_raw_amount("quote output", s).ok()));
+    let checked = quote::quote(context.client, request).await.ok();
+    let quoted = checked.as_ref().and_then(|q| q.response["output"].as_str().and_then(|s| order_types::parse_raw_amount("quote output", s).ok()));
     row.quote_out_raw = quoted.map(|q| q.to_string());
     if let Some(reason) = math::quote_skip(quoted, floor) { row.reason = Some(reason.into()); return Ok(false); }
+    let checked = checked.ok_or_else(|| eyre::eyre!("no_route"))?;
+    let body = serde_json::json!({"chain_id":checked.request.chain_id, "token_in":checked.request.token_in,
+        "token_out":checked.request.token_out, "amount_in":checked.request.amount_in, "verify":true});
+    let client = context.client.clone().with_pinned_quote(body, checked.response);
     let input = trade_input(context, budget, raw, floor);
-    Ok(row.record(trade::execute_trade(context.client, context.signer.clone(), input, !context.input.dry_run, context.wait).await))
+    Ok(row.record(trade::execute_trade(&client, context.signer.clone(), input, !context.input.dry_run, context.wait).await))
 }
 
 async fn current_amount(context: &Context<'_>, token: Address) -> Result<U256> {
