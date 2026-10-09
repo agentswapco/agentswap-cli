@@ -23,6 +23,12 @@ impl Signer for CountingSigner {
 }
 
 async fn configured_client_case(portfolio_only: bool) {
+    let app = http::Server::start(vec![
+        (200, String::new(), json!({"chainId":4663, "owner":Address::repeat_byte(4),
+            "indexed":false, "truncated":false, "tokens":[]}).to_string()),
+        (200, String::new(), json!({"prices":{}}).to_string()),
+    ]);
+    if portfolio_only { crate::routes::TEST_APP_ORIGIN.set(app.url.clone()).unwrap(); }
     let signer = Arc::new(CountingSigner(AtomicUsize::new(0)));
     let challenge = json!({"accepts":[{"scheme":"exact", "network":"8453",
         "asset":crate::tokens::resolve_token("USDC", 8453).unwrap().0,
@@ -38,7 +44,17 @@ async fn configured_client_case(portfolio_only: bool) {
             signer: Some(signer.clone()), allow_trade: false, trade_max_amount: None });
         let Json(output) = server.portfolio(Parameters(portfolio::tests::input("4663"))).await.unwrap();
         assert_eq!((signer.0.load(Ordering::SeqCst), http.requests.lock().unwrap().len()),
-            (0, 2), "portfolio signature and request counts");
+            (0, 2), "unindexed wallet, empty prices: one catalog and one quote challenge, no retry");
+        assert_eq!(format!("{:?}", output.wallet_tokens), "Unindexed");
+        let requests = app.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[0].target.starts_with("/api/wallet-tokens?"));
+        assert!(requests[1].target.starts_with("/api/prices?"));
+        assert!(requests.iter().all(|r| r.method == "GET" && !r.paid && !r.keyed));
+        let requests = http.requests.lock().unwrap();
+        assert!(requests[0].target.starts_with("/api/tokens"));
+        assert_eq!(requests[1].target, "/quote");
+        assert!(requests.iter().all(|r| !r.paid && !r.keyed));
         assert_eq!(output.tokens[0].status, "no_route");
         assert!(output.tokens[0].quote_out_raw.is_none());
     } else {

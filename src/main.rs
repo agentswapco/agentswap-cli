@@ -78,7 +78,7 @@ async fn run_cli(cli: Cli) -> Result<()> {
         },
         x402_signer.clone(),
     );
-    let intent_relay_client = client::Client::new(crate::routes::APP_ORIGIN, api_key).with_x402(
+    let intent_relay_client = client::Client::new(crate::routes::app_origin(), api_key).with_x402(
         x402::Config {
             enabled: cli.x402,
             prefer_x402: cli.prefer_x402,
@@ -296,3 +296,5 @@ fn signer_from_file(path: Option<&str>) -> Result<Option<Arc<dyn signer::Signer>
 #[cfg(test)]
 #[path = "main_tests.rs"]
 mod tests;
+#[cfg(test)]
+mod holdings_tests;

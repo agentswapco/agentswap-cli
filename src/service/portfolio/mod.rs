@@ -76,7 +76,7 @@ pub struct Output {
 pub async fn portfolio(client: &Client, input: Input) -> Result<Output> {
     let config = discovery::config(&input.chain_id)?;
     let provider = evm::read_provider(&evm::rpc_url(config))?;
-    read(client, input, &provider, crate::routes::APP_ORIGIN).await
+    read(client, input, &provider, crate::routes::app_origin()).await
 }
 
 pub(crate) async fn read(client: &Client, input: Input, provider: &DynProvider, app_origin: &str) -> Result<Output> {

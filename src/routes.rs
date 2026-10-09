@@ -2,6 +2,16 @@
 // Exports: endpoint constants and path-formatting helpers.
 // Deps: std formatting only.
 pub const APP_ORIGIN: &str = "https://app.agentswap.co";
+#[cfg(test)]
+pub(crate) static TEST_APP_ORIGIN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+pub fn app_origin() -> &'static str {
+    #[cfg(not(test))]
+    { APP_ORIGIN }
+    #[cfg(test)]
+    { TEST_APP_ORIGIN.get().expect("set a loopback app origin before calling the entrypoint") }
+}
+
 pub const QUOTE: &str = "/quote";
 pub const QUOTE_LOOKUP: &str = "/quote/:hash";
 pub const HEALTH: &str = "/health";
@@ -30,6 +40,12 @@ pub fn pool(chain_id: u64, address: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[should_panic(expected = "set a loopback app origin")]
+    fn app_origin_requires_a_test_fixture() {
+        app_origin();
+    }
 
     #[test]
     fn test_route_constants() {

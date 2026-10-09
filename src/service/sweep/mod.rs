@@ -37,7 +37,7 @@ pub async fn sweep(client: &Client, signer: Arc<dyn Signer>, mut input: Input, a
     let server_cap = cap.map(|c| order_types::parse_raw_amount("sweep max-amount", c)).transpose()?;
     let config = discovery::config(&input.chain_id)?;
     let provider = evm::read_provider(&evm::rpc_url(config))?;
-    read(client, signer, input, provider, crate::routes::APP_ORIGIN, server_cap, wait).await
+    read(client, signer, input, provider, crate::routes::app_origin(), server_cap, wait).await
 }
 
 async fn read(client: &Client, signer: Arc<dyn Signer>, input: Input, provider: DynProvider,
