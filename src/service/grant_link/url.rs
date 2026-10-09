@@ -59,3 +59,10 @@ pub(super) fn build(chain: u64, agent: &str, owner: Option<&str>, label: Option<
     }
     Ok(url.into())
 }
+
+pub(super) fn purpose(input: &Input) -> Result<()> {
+    match (input.purpose.as_deref(), input.max_loss_bps) {
+        (None, None) | (Some("batch-sell"), Some(1..=5000)) => Ok(()),
+        _ => Err(eyre!("purpose batch-sell requires max-loss-bps in 1..5000")),
+    }
+}

@@ -1,7 +1,7 @@
 // Sequential grant-bounded sales with independent app-price floors.
 // Uses existing intent and trade services; market mode stops after unconfirmed broadcasts.
 mod math;
-mod gas_floor;
+pub(crate) mod gas_floor;
 mod models;
 mod sale;
 mod intent_sale;
@@ -15,6 +15,8 @@ mod meta_tests;
 mod policy_tests;
 #[cfg(test)]
 mod intent_tests;
+#[cfg(test)]
+mod batch_tests;
 pub use models::{Input, Output, Row, Via};
 use crate::{client::Client, evm, order_types::{self, UserProxyV6}, service::{intent, portfolio::{amount, discovery, prices}, token, submit::Wait}, signer::Signer};
 use alloy::{primitives::Address, providers::{DynProvider, Provider}};
@@ -41,8 +43,8 @@ pub async fn sweep(client: &Client, signer: Arc<dyn Signer>, mut input: Input, a
     eyre::ensure!(input.via == Via::Intent || input.wait.unwrap_or(0) == 0, "--wait requires --via intent");
     amount::fixed(&input.max_usd, false)?;
     eyre::ensure!(input.max_loss_bps < 10_000, "max-loss-bps must be less than 10000");
-    eyre::ensure!(!input.tokens.is_empty(), "sweep requires at least one --token (MCP tokens)");
-    let server_cap = cap.map(|c| order_types::parse_raw_amount("sweep max-amount", c)).transpose()?;
+    eyre::ensure!(!input.tokens.is_empty(), "batch-sell requires at least one --token (MCP tokens)");
+    let server_cap = cap.map(|c| order_types::parse_raw_amount("batch-sell max-amount", c)).transpose()?;
     let config = discovery::config(&input.chain_id)?;
     let provider = evm::read_provider(&evm::rpc_url(config))?;
     read(client, signer, input, provider, crate::routes::app_origin(), server_cap, wait).await
@@ -56,6 +58,7 @@ async fn read(client: &Client, signer: Arc<dyn Signer>, input: Input, provider: 
     let owner = UserProxyV6::new(proxy, provider.clone()).owner().call().await?;
     let receive = token::resolve(&input.receive, config.id).await?;
     let policy = read_policy(&provider, &input, owner, signer.address(), discovery::erc20(&receive.address)?).await?;
+    if let Some(generation) = &input.confirmed_generation { eyre::ensure!(&policy.generation == generation, "confirmed grant generation changed"); }
     validate_policy(&policy, discovery::erc20(&receive.address)?, now(&provider).await?, input.via)?;
     let mut addresses = policy.tokens.iter().filter(|t| t.allowed).map(|t| discovery::erc20(&t.token)).collect::<Result<Vec<_>>>()?;
     if input.via == Via::Intent {
@@ -104,9 +107,10 @@ async fn now(provider: &DynProvider) -> Result<u64> {
 async fn run(context: Context<'_>) -> Result<Output> {
     let mut output = Output { dry_run: context.input.dry_run, owner: format!("{:?}", context.owner), note: context.policy.note.clone(), tokens: Vec::new() };
     let mut stopped = false;
-    for budget in context.policy.tokens.iter().filter(|t| t.allowed) {
+    for budget in &context.policy.tokens {
         let mut row = Row::new(budget.token.clone());
-        if stopped { row.reason = Some("sweep_stopped".into()); }
+        if !budget.allowed { row.reason = Some("not_allowed".into()); }
+        else if stopped { row.reason = Some("batch_stopped".into()); }
         else {
             match sale::sell(&context, budget, &mut row).await {
                 Ok(stop) => stopped = stop,

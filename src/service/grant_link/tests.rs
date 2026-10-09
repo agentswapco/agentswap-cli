@@ -6,7 +6,7 @@ use crate::service::portfolio::tests::fixture;
 fn input() -> Input {
     Input { chain_id: "4663".into(), owner: format!("{:?}", Address::repeat_byte(4)), agent: format!("{:?}", Address::repeat_byte(2)),
         tokens: vec![format!("{:?}", Address::repeat_byte(1))], receive: format!("{:?}", Address::repeat_byte(3)),
-        one_shot: true, epoch: None, expiry: None, label: None, note: None, replace: false }
+        one_shot: true, epoch: None, expiry: None, label: None, note: None, replace: false, purpose: None, max_loss_bps: None }
 }
 
 #[test]
@@ -99,5 +99,21 @@ async fn gasless_grants_request_both_actions() {
         if !one_shot { request.tokens[0].push_str(":100"); request.epoch = Some("1d".into()); request.expiry = Some("7d".into()); }
         let output = read(request, &provider, 1_791_547_200).await.unwrap();
         assert!(serde_json::to_string(&output).unwrap().contains("actions=market%2Cintent"));
+    }
+}
+
+#[tokio::test]
+async fn batch_sell_grant_link_byte_exact_purpose_and_discount() {
+    let rpc = fixture(false, false, false, 6);
+    let provider = evm::read_provider(&rpc.url).unwrap();
+    let original = read(input(), &provider, 1_791_547_200).await.unwrap();
+    let mut value = serde_json::json!({"chain_id":"4663","owner":Address::repeat_byte(4),"agent":Address::repeat_byte(2),
+        "tokens":[Address::repeat_byte(1)],"receive":Address::repeat_byte(3),"one_shot":true,
+        "purpose":"batch-sell","max_loss_bps":500});
+    let extended = read(serde_json::from_value(value.clone()).unwrap(), &provider, 1_791_547_200).await.unwrap();
+    assert_eq!(extended.url.as_bytes(), format!("{}&purpose=batch-sell&maxloss=500", original.url).as_bytes());
+    for loss in [serde_json::Value::Null, serde_json::json!(0), serde_json::json!(5001)] {
+        value["max_loss_bps"] = loss;
+        assert!(read(serde_json::from_value(value.clone()).unwrap(), &provider, 1_791_547_200).await.is_err());
     }
 }

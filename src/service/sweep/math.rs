@@ -24,7 +24,7 @@ pub(super) fn floor(raw: U256, input: &Price, output: &Price, dec_in: u8, dec_ou
         .ok_or_else(|| eyre!("floor numerator overflow"))?;
     let denominator = scale_in.checked_mul(U512::from(output.value)).and_then(|n| n.checked_mul(U512::from(10_000)))
         .ok_or_else(|| eyre!("floor denominator overflow"))?;
-    crate::order_types::parse_raw_amount("sweep floor", &(numerator / denominator).to_string())
+    crate::order_types::parse_raw_amount("batch-sell floor", &(numerator / denominator).to_string())
 }
 
 pub(super) fn price_skip(raw: U256, decimals: u8, input: Option<&Price>, output: Option<&Price>, max: U256) -> Option<&'static str> {

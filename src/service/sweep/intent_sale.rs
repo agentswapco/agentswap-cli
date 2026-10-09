@@ -20,8 +20,19 @@ pub(super) async fn place(context: &Context<'_>, budget: &TokenPolicy, row: &mut
     if !context.input.dry_run {
         row.placement_block = Some(context.provider.get_block_number().await?);
     }
-    let result = intent::place(intent::Announcer { relay: context.client, wait: context.wait },
-        input, context.signer.clone(), !context.input.dry_run).await?;
+    let result = match intent::place(intent::Announcer { relay: context.client, wait: context.wait },
+        input, context.signer.clone(), !context.input.dry_run).await {
+        Ok(result) => result,
+        Err(error) => {
+            let text = error.to_string();
+            if text.starts_with("HTTP 422") {
+                for code in ["floor_below_confirmed_discount", "unpriced_for_confirmed_discount"] {
+                    if text.contains(code) { row.reason = Some(code.into()); return Ok(()); }
+                }
+            }
+            return Err(error);
+        }
+    };
     row.intent_id = Some(result.id);
     row.relay = result.relay;
     row.announce_status = Some(if result.dry_run { "dry_run" } else { "accepted" }.into());

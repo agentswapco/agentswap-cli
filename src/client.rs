@@ -68,7 +68,7 @@ impl Client {
 
     pub async fn quote(&self, body: &serde_json::Value) -> Result<serde_json::Value> {
         if let Some((request, response)) = &self.pinned_quote {
-            eyre::ensure!(body == request, "trade request differs from the checked sweep quote");
+            eyre::ensure!(body == request, "trade request differs from the checked batch-sale quote");
             return Ok(response.clone());
         }
         self.backend_quote(body).await

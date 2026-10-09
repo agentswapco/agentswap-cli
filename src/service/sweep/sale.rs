@@ -19,11 +19,15 @@ pub(super) async fn sell(context: &Context<'_>, budget: &TokenPolicy, row: &mut 
     if order_types::parse_u256(&budget.cap)? == U256::ZERO {
         row.reason = Some("zero".into()); return Ok(false);
     }
-    let (balance, raw) = current_amount(context, address).await?;
+    let (balance, mut raw) = current_amount(context, address).await?;
     row.amount_raw = raw.to_string();
     if raw == U256::ZERO { row.reason = Some("zero".into()); return Ok(false); }
     let config = discovery::config(&context.input.chain_id)?;
     let from = token::read_metadata(&context.provider, address, config.id).await?;
+    if let Some(cap) = context.input.request_caps.get(&address.to_string()) {
+        raw = raw.min(crate::service::batch_sell::raw_cap(cap, from.decimals)?);
+        row.amount_raw = raw.to_string();
+    }
     let input_price = context.prices.get(&address);
     let output_price = context.prices.get(&receive);
     row.value_usd = input_price.map(|p| amount::valuation(raw, p.value, from.decimals, None).0);
@@ -38,7 +42,7 @@ pub(super) async fn sell(context: &Context<'_>, budget: &TokenPolicy, row: &mut 
         let start = math::floor(raw, input_price.ok_or_else(|| eyre::eyre!("unpriced"))?, output_price.ok_or_else(|| eyre::eyre!("unpriced"))?,
             from.decimals, context.receive.decimals, 0)?;
         row.start_out_raw = Some(start.to_string());
-        if super::gas_floor::skip(context, row, start - floor).await? {
+        if super::gas_floor::skip(context, row, floor).await? {
             row.reason = Some("below_gas_floor".into()); return Ok(false);
         }
         intent_sale::place(context, budget, row, raw, start, floor).await?;
@@ -76,7 +80,7 @@ async fn current_amount(context: &Context<'_>, token: Address) -> Result<(U256, 
     let now = now(&context.provider).await?;
     eyre::ensure!(policy.expiry > now, "agent policy is inactive");
     context.input.via.require_action(policy.actionMask)?;
-    eyre::ensure!(policy.generation.to_string() == context.policy.generation, "agent policy changed during sweep");
+    eyre::ensure!(policy.generation.to_string() == context.policy.generation, "agent policy changed during batch sale");
     let info = contract.agentTokenInfo(context.signer.address(), token).call().await?;
     if !info.allowed { return Ok((U256::ZERO, U256::ZERO)); }
     let remaining = math::remaining(info.cap, info.used, info.epochStart, u64::from(policy.epochLen), now);

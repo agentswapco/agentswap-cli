@@ -45,6 +45,7 @@ async fn main() {
 
 async fn run_cli(cli: Cli) -> Result<()> {
     match &cli.command {
+        Commands::BatchSell { command } => return commands::batch_sell::dispatch(&cli, command).await,
         Commands::Portfolio(input) => return commands::holdings::portfolio(&cli, input.clone()).await,
         Commands::GrantLink(input) => return commands::holdings::grant_link(&cli, input.clone()).await,
         _ => {}
@@ -83,12 +84,7 @@ async fn run_cli(cli: Cli) -> Result<()> {
     );
 
     match cli.command {
-        Commands::Portfolio(_) | Commands::GrantLink(_) => unreachable!("read-only commands dispatched above"),
-        Commands::Sweep(input) => {
-            let signer = signer.ok_or_else(|| eyre::eyre!("sweep requires --key-file"))?;
-            let sweep_client = if input.via == service::sweep::Via::Intent { &intent_relay_client } else { &client };
-            commands::sweep::run(sweep_client, signer, input, cli.allow_trade, cli.trade_max_amount.as_deref(), cli.json).await
-        }
+        Commands::BatchSell { .. } | Commands::Portfolio(_) | Commands::GrantLink(_) => unreachable!("read-only commands dispatched above"),
         Commands::BatchQuote {
             chain_id,
             pairs,
@@ -289,3 +285,5 @@ mod holdings_tests;
 
 #[cfg(test)]
 mod fix_tests;
+#[cfg(test)]
+mod batch_sell_tests;

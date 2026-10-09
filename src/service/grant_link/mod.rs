@@ -46,6 +46,11 @@ pub struct Input {
     #[arg(long)]
     #[serde(default)]
     pub replace: bool,
+    #[arg(long, value_parser = ["batch-sell"], requires = "max_loss_bps")]
+    pub purpose: Option<String>,
+    #[arg(long, value_parser = clap::value_parser!(u16).range(1..=5000), requires = "purpose")]
+    #[schemars(range(min = 1, max = 5000))]
+    pub max_loss_bps: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -80,6 +85,7 @@ pub async fn grant_link(input: Input) -> Result<Output> {
 }
 
 pub(crate) async fn read(input: Input, provider: &DynProvider, now: u64) -> Result<Output> {
+    url::purpose(&input)?;
     let config = discovery::config(&input.chain_id)?;
     let owner = order_types::parse_address(&input.owner)?;
     let agent = order_types::parse_address(&input.agent)?;
@@ -96,7 +102,12 @@ pub(crate) async fn read(input: Input, provider: &DynProvider, now: u64) -> Resu
         tokens.push(TokenSummary { address: format!("{address:?}"), symbol: metadata.symbol, decimals: metadata.decimals, raw, human });
     }
     if !tokens.iter().any(|t| t.raw != "0") { return Err(eyre!("at least one positive spend cap is required")); }
-    let link = url::build(config.id, &format!("{agent:?}"), Some(&format!("{owner:?}")), input.label.as_deref(), input.note.as_deref(), &tokens, &epoch, &expiry)?;
+    let mut link = url::build(config.id, &format!("{agent:?}"), Some(&format!("{owner:?}")), input.label.as_deref(), input.note.as_deref(), &tokens, &epoch, &expiry)?;
+    if let Some(loss) = input.max_loss_bps {
+        let mut url = reqwest::Url::parse(&link)?;
+        url.query_pairs_mut().append_pair("purpose", "batch-sell").append_pair("maxloss", &loss.to_string());
+        link = url.into();
+    }
     let warning = if replaced_policy.is_some() { "This link replaces the live policy's entire token basket. The owner must review and approve in the app." }
         else { "Advisory link: the app re-reads token metadata and the owner reviews and approves the grant." }.into();
     Ok(Output { url: link, tokens, warning, replaced_policy })

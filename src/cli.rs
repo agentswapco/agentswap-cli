@@ -37,7 +37,7 @@ pub struct Cli {
     #[arg(short = 'k', long, global = true, env = "SR_API_KEY")]
     pub api_key: Option<String>,
 
-    /// Local signer key file for `trade`, `sweep`, `intent place` and the MCP signing tools; also the
+    /// Local signer key file for `trade`, `batch-sell run`, `intent place` and the MCP signing tools; also the
     /// fallback x402 signer when --x402-key-file is unset
     #[arg(long, global = true, env = "AGENTSWAP_KEY_FILE")]
     pub key_file: Option<String>,
@@ -71,13 +71,13 @@ pub struct Cli {
     #[arg(long, global = true, env = "AGENTSWAP_X402_ASSET", default_value = "USDC")]
     pub x402_asset: String,
 
-    /// Allow signing and live execution of `trade`, `sweep`, `intent place` and their MCP tools. Without it they return unsigned dry-run previews: no intent or
+    /// Allow signing and live execution of `trade`, `batch-sell run`, `intent place` and their MCP tools. Without it they return unsigned dry-run previews: no intent or
     /// AgentOrder signatures, authorization envelopes, signed calldata, relay or broadcast.
     #[arg(long, global = true)]
     pub allow_trade: bool,
 
     /// Cap on amountIn for `trade` and `intent place` as unsigned decimal digits in raw token
-    /// units; refuses to sign or submit above it. Also bounds `sweep` and the MCP `trade`, `sweep` and `intent_place`
+    /// units; refuses to sign or submit above it. Also bounds `batch-sell run` and the MCP `trade`, `batch_sell_run` and `intent_place`
     /// tools.
     #[arg(long = "max-amount", global = true, env = "AGENTSWAP_TRADE_MAX_AMOUNT")]
     pub trade_max_amount: Option<String>,
@@ -88,10 +88,9 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Sell grant-basket holdings under a USD threshold using independent price floors.
-    /// Requires --key-file, a live grant with the selected action and receive basket membership. Live signing needs --allow-trade.
+    /// Plan a batch sale, share the review URLs, then run after owner confirmation.
     #[command(after_help = crate::tokens::HOLDINGS_CHAINS_NOTE)]
-    Sweep(crate::service::sweep::Input),
+    BatchSell { #[command(subcommand)] command: BatchSellCommands },
     /// Discover ERC-20 holdings and optionally quote balances below a USD threshold.
     #[command(after_help = crate::tokens::HOLDINGS_CHAINS_NOTE)]
     Portfolio(crate::service::portfolio::Input),
@@ -199,8 +198,8 @@ pub enum Commands {
         #[arg(long)]
         hash: String,
     },
-    /// Run an MCP server over stdio exposing twelve tools: quote, batch_quote, tokens, pools,
-    /// trade, intent_place, intent_list, intent_status, policy, portfolio, grant_link and sweep
+    /// Run an MCP server over stdio exposing thirteen tools: quote, batch_quote, tokens, pools,
+    /// trade, intent_place, intent_list, intent_status, policy, portfolio, grant_link, batch_sell_plan and batch_sell_run
     Mcp,
     /// Place, list, or inspect V6 open intents
     Intent {
@@ -287,3 +286,11 @@ pub enum Commands {
 
 #[cfg(test)]
 mod tests;
+
+#[derive(Subcommand)]
+pub enum BatchSellCommands {
+    /// Create unsigned grant requests with exact balance caps and caller-selected criteria.
+    Plan(crate::service::batch_sell::PlanInput),
+    /// Execute a confirmed request. Requires --key-file; live signing requires --allow-trade.
+    Run(crate::service::batch_sell::RunInput),
+}

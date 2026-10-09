@@ -111,8 +111,8 @@ agentswap intent status --chainid 8453 --id 0xIntentId
 agentswap policy --chainid 8453 --owner 0xOwner --agent 0xAgent
 ```
 
-`trade`, `sweep` and `intent place` are forced to dry-run unless `--allow-trade` is set, and the same flag
-gates the MCP `trade`, `sweep` and `intent_place` tools. A live trade also needs `--min-out`: without an
+`trade`, `batch-sell run` and `intent place` are forced to dry-run unless `--allow-trade` is set, and the same flag
+gates the MCP `trade`, `batch_sell_run` and `intent_place` tools. A live trade also needs `--min-out`: without an
 explicit floor the trade is refused, because the quote server's output is not trusted as the
 protection floor. Every token amount input is an unsigned decimal integer in the asset's smallest
 unit; `--max-amount` bounds the raw input amount before signing or sending. A trade dry-run
@@ -125,9 +125,9 @@ registry is accepted by `quote`, `trade` and `buy-quota` on the chains `trade` s
 must answer `decimals()`; it is read on chain before any quote or order, and displays label it
 with its shortened address.
 
-`agentswap mcp` exposes twelve tools: quote, batch_quote, tokens, pools, trade, intent_place,
-intent_list, intent_status, policy, portfolio, grant_link and sweep. `--allow-trade` permits live execution by trade, sweep and
-intent_place; without it those three run as dry-runs. Intent listing requires an owner or agent filter. MCP `trade` and `sweep` additionally defaults `dry_run` to true, while the
+`agentswap mcp` exposes thirteen tools: quote, batch_quote, tokens, pools, trade, intent_place,
+intent_list, intent_status, policy, portfolio, grant_link, batch_sell_plan and batch_sell_run. `--allow-trade` permits live execution by trade, batch_sell_run and
+intent_place; without it those three run as dry-runs. Intent listing requires an owner or agent filter. MCP `trade` defaults `dry_run` to true, while the
 CLI defaults to a live trade once `--allow-trade` is set.
 
 Intent and policy reads inspect the latest 200,000 blocks on Base, Arbitrum One, BNB Smart Chain
@@ -135,56 +135,52 @@ and Robinhood Chain. BNB Smart Chain uses 9,000 blocks with the built-in public 
 `AGENTSWAP_RPC_URL_56` or `AGENTSWAP_RPC_URL` for a keyed endpoint to use the full lookback, or
 pass `--lookback-blocks`.
 
-## Sweep
+## Batch sell
 
 ```sh
-agentswap --allow-trade sweep --chainid 8453 --proxy "$PROXY" --key-file agent.key \
-  --token "$WETH" --token "$CBETH" --receive USDC --max-usd 5 --max-loss-bps 100 --json
+agentswap batch-sell plan --chainid 8453 --owner "$OWNER" --agent "$AGENT" \
+  --receive USDC --max-loss-bps 500 --json
+# Give the returned review URL(s) to the owner. After confirmation:
+agentswap --allow-trade batch-sell run --request "$REQUEST_URL" --key-file agent.key --wait 60 --json
 ```
 
-`sweep` and MCP `sweep` default to `via=intent`: the agent signs against the owner's V6 proxy,
-then the app relay announces each intent. The solver pays fill gas; the agent needs no native gas.
-Intent mode makes no quote service calls. `--via market --self-submit` uses market trades and
-requires gas in the agent wallet. Market mode without `--self-submit` returns signed calldata
-with outcome `skipped` and reason `not_submitted`.
+Agents use `plan`, give the owner the returned URLs, then use `run` after the owner confirms.
+MCP `batch_sell_plan` and `batch_sell_run` expose the same inputs in snake_case, with `tokens`
+for repeatable `--token`. The `sweep` command and MCP tool have been removed.
 
-Both modes require `max_usd` (USD decimal), `max_loss_bps` and at least one basket token address:
-repeat `--token` on the CLI or pass a nonempty MCP `tokens` array. The grant must be live, allow
-the receive token, and enable the selected action: intent (`0x04`) or market (`0x01`).
-One-shot and recurring `grant-link` URLs request both actions, encoded as `actions=market%2Cintent`.
-Pass the spend-token addresses from that output after the owner approves the grant.
+`plan` discovers the portfolio and accepts optional `--min-usd`, `--max-usd`, repeatable `--token`
+and repeatable `--exclude` criteria. There is no default holding-size threshold. Explicit tokens
+select only those addresses; exclusions take precedence. Unreadable, unpriced or non-independent
+holdings cannot be valued for a sale. `below_gas_floor` excludes a holding whose discounted value
+cannot cover the estimated fill cost. Missing gas or wrapped-native prices produce a warning.
+The required `--max-loss-bps` requests a discount from independent market value; the owner may
+confirm it or lower it. Planning never signs a transaction or payment.
 
-`--max-usd` judges the owner's whole holding, even when the grant or allowance limits the sale.
-Each sale spends the minimum of owner balance, remaining epoch budget and owner-to-proxy allowance.
-Policy and budgets are read without log scans. Prices are available on Base, Arbitrum One and
-BNB Smart Chain; unpriced holdings are skipped. Both prices must be floor-eligible under the
-portfolio pricing rule above. Amounts and floors use integer arithmetic.
+Each request has exact balance caps, a receive-only zero-cap entry, both market and intent actions,
+a weekly epoch and expiry in 24 hours. The receive entry counts toward the API token limit;
+larger selections split into multiple review URLs. Confirm and run each URL before confirming the
+next, because each grant replaces the token basket. Output includes token count, total USD value,
+requested discount and left-out tokens with reasons. `grant-link --purpose batch-sell
+--max-loss-bps <n>` remains the no-POST fallback and emits `purpose` and `maxloss` link parameters.
 
-`--max-loss-bps` must be nonnegative and below 10000. Intent `start_out_raw` is the input valued
-in receive-token units at independent prices; `floor_raw` applies the loss bound. Zero floors
-are skipped. Intent decay and lifetime use the same defaults as `intent place`.
-Market mode also sends the loss bound as quote `slippage_bps`, requests quotes without server
-verification, and skips routes below the floor. Gas-estimation failures refuse broadcast.
+`run` accepts a request ID or app review URL and refuses pending or expired requests. It takes the
+sale tokens and receive entry from the request, and the proxy and discount from its confirmation.
+The signer must match the requested agent and the live policy generation must match confirmation.
+Each sale is bounded by the request cap, owner balance, remaining epoch budget and allowance.
+Both input and output prices must be floor-eligible under the portfolio pricing rule.
 
-Without `--allow-trade`, both modes are forced to dry-run; MCP defaults `dry_run` to true.
-Intent rows report `intent_id`, `start_out_raw`, `floor_raw`, `announce_status` and the relay
-response. Accepted placements have outcome `placed`; this does not imply a fill. Dry runs use
-`announce_status=dry_run` and do not sign or relay. Exit status is 0 when all placements succeed.
-`--wait <secs>` (MCP `wait`) polls `intent status` after all placements, sharing one bounded wait
-across intents. It reports `intent_status`, `status_error` and `wait_timed_out`; filled, expired,
-cancelled and dead intents stop polling. A timeout leaves successful placement exit status intact.
-Status reads scan announcement logs. `--wait` is for intent mode; `--self-submit` is for market mode.
+Intent mode is the default: the agent signs against the owner's V6 proxy and relays each intent;
+the solver pays fill gas. `--via market` submits market trades from the agent wallet and needs
+native gas. The selected action and receive token must be allowed by the live grant.
+Without `--allow-trade`, execution returns unsigned previews. `--wait <secs>` applies to intent
+mode and shares a bounded status wait across placements.
 
-Each allowed requested token and the receive token has a result row. Skip reasons include
-`receive_token`, `zero`, `unpriced`, `price_not_independent`, `over_max_usd`, `below_floor` and
-`dry_run`. Intent mode also reports `below_gas_floor` when the decay budget valued with the
-same prices is below the estimated fill cost; with `--max-loss-bps 0` the decay budget is zero,
-so every priced token is skipped this way. Missing gas or wrapped-native prices add row
-warnings without this skip. `--wait` scans only blocks since the recorded placement block.
-Market mode additionally reports `no_route`, `quote_failed`, `not_submitted` and
-`sweep_stopped`. Failures before broadcast continue; reverted or unknown market broadcasts stop
-later sales. MCP failures carry all token rows. Market exit status is the worst result (0, 1, 3
-or 4); earlier sales can succeed before a later failure.
+Per-token results distinguish `placed` from `sold`, report `received_raw` from confirmed execution
+events when known, and retain not-sold reasons. Intent proceeds exclude the protocol fee.
+`floor_below_confirmed_discount` and `unpriced_for_confirmed_discount` relay refusals are reported
+per token and execution continues. Unknown received amounts remain null. Placement timeouts do
+not imply a fill or trigger resubmission. Reverted or unknown market broadcasts stop later sales;
+MCP failures carry all token rows. Market exit status is the worst result (0, 1, 3 or 4).
 
 ## Exit status
 

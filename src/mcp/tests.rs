@@ -138,3 +138,24 @@ fn tool_errors_keep_the_rpc_host_and_drop_its_keyed_path() {
     let error = tool_error(eyre::eyre!("error sending request for url (https://rpc.example/v2/KEY)"));
     assert_eq!(error, "error sending request for url (https://rpc.example/[redacted])");
 }
+
+#[test]
+fn batch_sell_mcp_schemas_replace_sweep() {
+    let client = Client::new("http://127.0.0.1:1", None);
+    let server = AgentSwapMcp::new(Config { client:client.clone(), intent_client:client, signer:None, allow_trade:false, trade_max_amount:None });
+    let tools = server.tool_router.list_all();
+    assert!(!tools.iter().any(|t| t.name == "sweep"));
+    for name in ["batch_sell_plan", "batch_sell_run"] {
+        let tool = tools.iter().find(|t| t.name == name).unwrap();
+        let schema = serde_json::to_value(&tool.input_schema).unwrap();
+        if name.ends_with("plan") {
+            for field in ["chain_id","owner","agent","receive","max_loss_bps"] { assert!(schema["required"].as_array().unwrap().contains(&serde_json::json!(field))); }
+            for field in ["min_usd","max_usd","tokens","exclude"] { assert!(!schema["required"].as_array().unwrap().contains(&serde_json::json!(field))); }
+            assert_eq!(schema["properties"]["max_loss_bps"]["maximum"], 5000);
+        } else {
+            assert_eq!(schema["properties"]["via"]["default"], "intent");
+            assert!(schema["properties"].get("max_loss_bps").is_none());
+            assert!(schema["properties"].get("wait").is_some());
+        }
+    }
+}

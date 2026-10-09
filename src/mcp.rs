@@ -4,7 +4,7 @@
 
 use crate::client::Client;
 use crate::service::submit::{NotConfirmed, Wait};
-use crate::service::{intent, market, quote, trade, portfolio, grant_link, sweep};
+use crate::service::{intent, market, quote, trade, portfolio, grant_link, batch_sell, sweep};
 use crate::signer::Signer;
 use crate::tokens::{chain_name_to_id, unknown_chain_id};
 use eyre::Result;
@@ -23,7 +23,7 @@ mod tests;
 #[cfg(test)]
 mod portfolio_tests;
 #[cfg(test)]
-mod sweep_tests;
+mod batch_sell_tests;
 #[cfg(test)]
 mod cli_dry_run_tests;
 #[cfg(test)]
@@ -60,7 +60,7 @@ impl AgentSwapMcp {
             route.attr.description = Some(format!("{} {}",
                 route.attr.description.as_deref().unwrap_or_default(), crate::tokens::V6_CHAINS_NOTE).into());
         }
-        for route in tool_router.map.values_mut().filter(|route| matches!(route.attr.name.as_ref(), "portfolio" | "grant_link" | "sweep")) {
+        for route in tool_router.map.values_mut().filter(|route| matches!(route.attr.name.as_ref(), "portfolio" | "grant_link" | "batch_sell_plan" | "batch_sell_run")) {
             route.attr.description = Some(format!("{} {}", route.attr.description.as_deref().unwrap_or_default(), crate::tokens::HOLDINGS_CHAINS_NOTE).into());
         }
         Self {
@@ -76,11 +76,17 @@ impl AgentSwapMcp {
 
 #[tool_router(router = tool_router)]
 impl AgentSwapMcp {
-    #[tool(description = "Sell small grant-basket holdings with independent price floors. Requires a nonempty tokens array of basket ERC-20 addresses to sell, max_usd, max_loss_bps, a live grant with the selected action and receive basket membership. Reads policy and token budgets without scanning logs. dry_run defaults true and is forced without --allow-trade; requires --key-file. via defaults to intent: gasless relay placement without quotes. via=market with self_submit pays gas from the agent wallet. wait polls intent status for a bounded number of seconds. Reverted or unknown broadcasts stop later sales; failures return all token rows. Pricing is available on Base, Arbitrum One and BNB Smart Chain.")]
-    async fn sweep(&self, Parameters(input): Parameters<sweep::Input>) -> std::result::Result<Json<sweep::Output>, String> {
-        let signer = self.signer.clone().ok_or("sweep requires --key-file")?;
-        let client = if input.via == sweep::Via::Intent { &self.intent_client } else { &self.client };
-        let output = sweep::sweep(client, signer, input, self.allow_trade, self.trade_max_amount.as_deref(), Wait::MCP).await.map_err(tool_error)?;
+    #[tool(description = "Create unsigned batch-sell review requests with exact balance caps. max_loss_bps is required; min_usd, max_usd, tokens and exclude select holdings without a default size threshold. Give the owner the returned URLs, then use batch_sell_run after confirmation.")]
+    async fn batch_sell_plan(&self, Parameters(input): Parameters<batch_sell::PlanInput>) -> std::result::Result<Json<batch_sell::PlanOutput>, String> {
+        batch_sell::plan(&self.client, input).await.map(Json).map_err(tool_error)
+    }
+
+    #[tool(description = "Run a confirmed batch-sell request by id or app URL. Uses its tokens, proxy, receive token and owner-confirmed discount. Requires --key-file and --allow-trade for live signing; otherwise returns an unsigned preview. via defaults to intent; market pays gas from the agent wallet. wait bounds intent status polling. Returns placed/sold tokens, received amounts when known, and not-sold reasons.")]
+    async fn batch_sell_run(&self, Parameters(input): Parameters<batch_sell::RunInput>) -> std::result::Result<Json<sweep::Output>, String> {
+        let record = batch_sell::load(&input).await.map_err(tool_error)?;
+        let signer = self.signer.clone().ok_or("batch_sell_run requires --key-file")?;
+        let client = if input.via == batch_sell::Via::Intent { &self.intent_client } else { &self.client };
+        let output = batch_sell::run(client, signer, input, record, self.allow_trade, self.trade_max_amount.as_deref(), Wait::MCP).await.map_err(tool_error)?;
         if let Err(error) = output.check() {
             return Err(format!("{}\n{}", tool_error(error), serde_json::to_string(&output).map_err(|e| e.to_string())?));
         }
@@ -208,7 +214,7 @@ impl AgentSwapMcp {
 impl ServerHandler for AgentSwapMcp {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_instructions("AgentSwap tools: quote, batch_quote, tokens, pools, trade, intent_place, intent_list, intent_status, policy, portfolio, grant_link, sweep. Sweep defaults to dry_run and requires --allow-trade for signing. Portfolio and grant_link are read-only; grant links require owner review in the app.")
+            .with_instructions("AgentSwap tools: quote, batch_quote, tokens, pools, trade, intent_place, intent_list, intent_status, policy, portfolio, grant_link, batch_sell_plan, batch_sell_run. Use batch_sell_plan, give the owner the URLs, then batch_sell_run after confirmation. Signing requires --allow-trade. Portfolio and grant_link are read-only; grant links require owner review in the app.")
     }
 }
 

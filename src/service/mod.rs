@@ -13,3 +13,4 @@ mod test_rpc;
 pub mod token;
 pub mod trade;
 pub mod sweep;
+pub mod batch_sell;

@@ -4,17 +4,18 @@
 
 ### Changed
 
-- **Breaking**: `sweep` and MCP `sweep` default to gasless relayed V6 intents (`--via intent`), reusing intent
-  signing and relay placement without quotes. Independent prices determine the starting output
-  and loss-bounded floor; per-token results include intent IDs and announce status. Optional
-  `--wait` reports bounded fill, expiry and cancellation status.
-- **Breaking**: `--self-submit` now requires `--via market`. Market execution requires the
-  agent's native gas.
-  Sweep requires the selected policy action. One-shot and recurring grant links request both
-  market and intent actions, form-encoded as `actions=market%2Cintent`.
-
-- Intent sweeps skip `below_gas_floor` when the decay budget cannot cover the estimated fill
-  cost. Missing gas or wrapped-native prices produce row warnings without this skip.
+- **Breaking**: replaced `sweep` with `batch-sell plan` and `batch-sell run`, and MCP `sweep`
+  with `batch_sell_plan` and `batch_sell_run`. Agents plan, give the owner the review URLs,
+  then run after confirmation. Selection criteria are optional; no holding-size threshold defaults.
+- Plans POST unsigned requests with exact balance caps, split at the API token limit including
+  the receive entry. Output includes URLs, count, total value, required requested discount and
+  left-out reasons. `below_gas_floor` applies when discounted value cannot cover estimated fill cost.
+- Runs require a confirmed request and use its proxy, tokens, receive entry and confirmed discount.
+  Intent mode is the default; `--wait` reports status and observed net proceeds. `--via market`
+  submits from the agent wallet. Live signing requires `--allow-trade`.
+- Relay discount-floor and unpriced refusals are reported per token without stopping other sales.
+- `grant-link` accepts `--purpose batch-sell` and `--max-loss-bps`, encoded as `purpose`/`maxloss`.
+  Grant links and requests include both market and intent actions.
 - BNB Smart Chain quotes come from the meta-aggregator and need the owner's V6 proxy as taker:
   use `--taker <0x>` on `quote` and `batch-quote`, or `taker` on MCP `quote` and `batch_quote`.
 

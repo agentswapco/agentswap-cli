@@ -57,12 +57,19 @@ pub struct Input {
     #[arg(long)]
     #[serde(default)]
     pub self_submit: bool,
+    #[arg(skip)]
+    #[serde(default)]
+    pub confirmed_generation: Option<String>,
+    #[arg(skip)]
+    #[serde(default)]
+    pub request_caps: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct Row {
     pub token: String,
     pub amount_raw: String,
+    pub received_raw: Option<String>,
     pub value_usd: Option<String>,
     pub floor_raw: Option<String>,
     pub quote_out_raw: Option<String>,
@@ -84,8 +91,8 @@ pub struct Row {
 }
 
 impl Row {
-    pub(super) fn new(token: String) -> Self {
-        Self { token, amount_raw: "0".into(), value_usd: None, floor_raw: None,
+    pub(crate) fn new(token: String) -> Self {
+        Self { token, received_raw: None, amount_raw: "0".into(), value_usd: None, floor_raw: None,
             quote_out_raw: None, outcome: "skipped".into(), reason: None, error: None,
             tx_hash: None, tx_status: None, trade: None, intent_id: None, start_out_raw: None,
             announce_status: None, relay: None, intent_status: None, status_error: None, wait_timed_out: false, placement_block: None, warnings: Vec::new() }
@@ -125,7 +132,7 @@ impl Output {
                 return Err(failure.into());
             }
         }
-        eyre::ensure!(!self.tokens.iter().any(|r| r.outcome == "failed"), "sweep contains failed placements or trades; see token rows");
+        eyre::ensure!(!self.tokens.iter().any(|r| r.outcome == "failed"), "batch sale contains failed placements or trades; see token rows");
         Ok(())
     }
 }

@@ -54,7 +54,7 @@ async fn flow_case(url: &str) {
     policy.tokens.push(spend.clone());
     let signer = Arc::new(crate::signer::local::LocalKey::from_private_key(&"01".repeat(32)).unwrap());
     let input = Input { chain_id: "8453".into(), proxy: policy.proxy.clone(), receive: receive.address.clone(), max_usd: "1".into(),
-        max_loss_bps: 100, tokens: vec![from.address.clone()], dry_run: !matches!(scenario.as_str(), "zero_floor" | "large_holding"), self_submit: true, via: Via::Market, wait: None };
+        max_loss_bps: 100, tokens: vec![from.address.clone()], dry_run: !matches!(scenario.as_str(), "zero_floor" | "large_holding"), self_submit: true, via: Via::Market, wait: None, confirmed_generation: None, request_caps: Default::default() };
     let provider = evm::read_provider(url).unwrap();
     assert_eq!(now(&provider).await.unwrap(), 100);
     let mut prices = BTreeMap::from([(from.address.parse().unwrap(), tests::price("1", true)), (receive.address.parse().unwrap(), tests::price("1", true))]);
@@ -100,7 +100,7 @@ async fn flow_case(url: &str) {
     }
     let mut invalid = input.clone(); invalid.max_loss_bps = 10001;
     assert!(sweep(&client, signer.clone(), invalid.clone(), true, None, Wait::MCP).await.is_err());
-    assert!(crate::commands::sweep::run(&client, signer, invalid, false, None, true).await.is_err());
+    assert!(sweep(&client, signer, invalid, false, None, Wait::CLI).await.is_err());
 }
 
 #[test]

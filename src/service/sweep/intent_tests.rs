@@ -15,7 +15,7 @@ fn input(via: Option<&str>, dry: bool) -> Input {
     serde_json::from_value(value).unwrap()
 }
 
-fn rpc(mask: u8, status: &'static str) -> TestRpc {
+pub(super) fn rpc(mask: u8, status: &'static str) -> TestRpc {
     let mut orders = Vec::<order_types::Order>::new();
     TestRpc::start(move |body| {
         let result = match body["method"].as_str().unwrap() {
@@ -35,6 +35,13 @@ fn rpc(mask: u8, status: &'static str) -> TestRpc {
                 }
                 let id = body["params"][0]["topics"][1].as_str().unwrap();
                 let order = orders.iter().find(|o| format!("{:?}", order_types::order_id(o)) == id).unwrap();
+                if body["params"][0]["topics"][0] == json!(IntentSettlerV3::IntentFilled::SIGNATURE_HASH) {
+                    let event = IntentSettlerV3::IntentFilled { id:order_types::order_id(order),owner:order.owner,solver:Address::repeat_byte(5),
+                        recipient:order.owner,caller:Address::repeat_byte(5),amountIn:order.amountIn,requiredOut:order.endAmountOut + U256::from(10),
+                        fee:U256::from(10),receivedOut:order.endAmountOut + U256::from(10),aboveFloor:U256::ZERO }.encode_log_data();
+                    return Some(ok(body,json!([{"address":evm::chain_config("8453").unwrap().settler,"topics":event.topics(),"data":event.data,
+                        "blockNumber":"0x30d40","logIndex":"0x0","transactionIndex":"0x0"}])));
+                }
                 let event = IntentSettlerV3::IntentAnnounced { id: order_types::order_id(order), owner: order.owner,
                     appData: order.appData, order: order.abi_encode().into(), ownerSig: (U256::ZERO, alloy::primitives::Bytes::new()).abi_encode().into() };
                 let log = event.encode_log_data();

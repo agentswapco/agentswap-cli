@@ -51,7 +51,7 @@ async fn preview(chain: u64, url: &str) {
     let spend = intent::TokenPolicy { token: Address::repeat_byte(1).to_string(), allowed: true, cap: "1000000".into(), used: "0".into(), epoch_start: "0".into() };
     policy.tokens.push(spend.clone());
     let input = Input { chain_id: chain.to_string(), proxy: policy.proxy.clone(), receive: policy.tokens[0].token.clone(),
-        max_usd: "1".into(), max_loss_bps: 100, tokens: vec![spend.token.clone()], dry_run: true, self_submit: true, via: Via::Market, wait: None };
+        max_usd: "1".into(), max_loss_bps: 100, tokens: vec![spend.token.clone()], dry_run: true, self_submit: true, via: Via::Market, wait: None, confirmed_generation: None, request_caps: Default::default() };
     let context = Context { client: &client, signer: Arc::new(crate::signer::local::LocalKey::from_private_key(&"01".repeat(32)).unwrap()),
         input, provider: evm::read_provider(url).unwrap(), owner: Address::repeat_byte(4),
         receive: token::Token { address: Address::repeat_byte(3).to_string(), symbol: "OUT".into(), decimals: 6 },

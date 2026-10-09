@@ -23,7 +23,7 @@ fn fix_meta_origin_is_owned_by_routes() {
 #[test]
 fn fix_breaking_sweep_and_quote_copy() {
     let changes = include_str!("../CHANGELOG.md").split("## 0.10.1").next().unwrap();
-    for term in ["**Breaking**", "below_gas_floor", "--self-submit", "--via market", "meta-aggregator", "taker"] {
+    for term in ["**Breaking**", "below_gas_floor", "batch-sell", "--via market", "meta-aggregator", "taker"] {
         assert!(changes.contains(term), "missing {term}");
     }
     let readme = include_str!("../README.md");

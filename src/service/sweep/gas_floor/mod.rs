@@ -1,4 +1,4 @@
-// Fill-cost admission for intent sweeps, using the same app prices as the decay budget.
+// Fill-cost admission for intent sweeps, using the same app prices as the discounted value.
 // Checked integer products compare USD values without rounding or floating point.
 use super::{Context, Row};
 use crate::{evm, service::portfolio::discovery};
@@ -21,17 +21,17 @@ pub(super) async fn skip(context: &Context<'_>, row: &mut Row, decay: U256) -> R
     below(chain, decay, context.receive.decimals, output.value, gas_price, native_price.value)
 }
 
-fn below(chain: u64, decay: U256, decimals: u8, output_price: U256, gas_price: u128, native_price: U256) -> Result<bool> {
+pub(crate) fn below(chain: u64, decay: U256, decimals: u8, output_price: U256, gas_price: u128, native_price: U256) -> Result<bool> {
     let gas = if chain == 8453 { BASE_FILL_GAS } else { BNB_FILL_GAS.max(BASE_FILL_GAS) };
     let mut budget = U512::from(decay).checked_mul(U512::from(output_price))
-        .ok_or_else(|| eyre!("decay budget overflow"))?;
+        .ok_or_else(|| eyre!("discounted value overflow"))?;
     let mut cost = U512::from(native_price).checked_mul(U512::from(gas_price))
         .and_then(|value| value.checked_mul(U512::from(gas)))
         .ok_or_else(|| eyre!("fill cost overflow"))?;
     let scale = U512::from(10).checked_pow(U512::from(decimals.abs_diff(18)))
         .ok_or_else(|| eyre!("fill cost scale overflow"))?;
     if decimals <= 18 {
-        budget = budget.checked_mul(scale).ok_or_else(|| eyre!("decay budget overflow"))?;
+        budget = budget.checked_mul(scale).ok_or_else(|| eyre!("discounted value overflow"))?;
     } else {
         cost = cost.checked_mul(scale).ok_or_else(|| eyre!("fill cost overflow"))?;
     }

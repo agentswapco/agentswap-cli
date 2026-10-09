@@ -109,21 +109,19 @@ fn stop_on_unknown_and_revert_continue_on_refusal_and_confirmed() {
 #[test]
 fn cli_required_thresholds_and_mcp_default_dry_run() {
     use clap::Parser;
-    let args = ["agentswap", "sweep", "--chainid", "8453", "--proxy", "proxy", "--receive", "USDC", "--token", "token", "--max-usd", "5", "--max-loss-bps", "100"];
-    let cli = crate::cli::Cli::try_parse_from(args).unwrap();
-    let crate::cli::Commands::Sweep(input) = cli.command else { panic!("sweep"); };
-    assert!(!input.dry_run);
-    assert!(crate::cli::Cli::try_parse_from(&args[..10]).is_err());
+    let args = ["agentswap", "batch-sell", "plan", "--chainid", "8453", "--owner", "owner", "--agent", "agent", "--receive", "USDC", "--max-loss-bps", "100"];
+    assert!(crate::cli::Cli::try_parse_from(args).is_ok());
+    assert!(crate::cli::Cli::try_parse_from(&args[..11]).is_err());
     let input: Input = serde_json::from_value(json!({"chain_id":"8453","proxy":"proxy","receive":"USDC","max_usd":"5","max_loss_bps":100,"tokens":["token"]})).unwrap();
     assert!(input.dry_run && default_true());
 }
 
 #[test]
-fn sweep_cli_refuses_10000_loss_bps() {
+fn batch_sell_cli_refuses_loss_above_contract_limit() {
     use clap::Parser;
-    let args = ["agentswap", "sweep", "--chainid", "8453", "--proxy", "proxy", "--receive", "USDC", "--token", "token", "--max-usd", "5", "--max-loss-bps"];
-    assert!(crate::cli::Cli::try_parse_from(args.into_iter().chain(["9999"])).is_ok());
-    assert!(crate::cli::Cli::try_parse_from(args.into_iter().chain(["10000"])).is_err());
+    let args = ["agentswap", "batch-sell", "plan", "--chainid", "8453", "--owner", "owner", "--agent", "agent", "--receive", "USDC", "--max-loss-bps"];
+    assert!(crate::cli::Cli::try_parse_from(args.into_iter().chain(["5000"])).is_ok());
+    assert!(crate::cli::Cli::try_parse_from(args.into_iter().chain(["5001"])).is_err());
 }
 
 #[test]
