@@ -27,8 +27,7 @@ for _ in $(seq 1 120); do
   sleep 1
 done
 cast chain-id --rpc-url "$RPC"
-OKEY=$(cast wallet new --json | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["private_key"])')
-AKEY=$(cast wallet new --json | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["private_key"])')
+read -r OKEY AKEY <<< "$(python3 -c 'import secrets; print("0x" + secrets.token_hex(32), "0x" + secrets.token_hex(32))')"
 OWNER=$(cast wallet address --private-key "$OKEY")
 AGENT=$(cast wallet address --private-key "$AKEY")
 printf '%s' "$AKEY" > "$WORK/agent.key"
