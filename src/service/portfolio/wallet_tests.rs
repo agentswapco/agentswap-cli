@@ -7,11 +7,12 @@ use serde_json::json;
 
 #[tokio::test]
 async fn wallet_prices_are_display_only_and_app_prices_win() {
-    for app_price in [false, true] {
+    for source in [None, Some("defillama"), Some("1inch")] {
+        let app_price = source.is_some();
         let rpc = TestRpc::start(|_| panic!("indexed holdings must not use RPC"));
         let provider = evm::read_provider(&rpc.url).unwrap();
         let address = Address::repeat_byte(1);
-        let prices = if app_price { json!({format!("{address:?}"):{"priceUsd":3,"source":"defillama"}}) } else { json!({}) };
+        let prices = if app_price { json!({format!("{address:?}"):{"priceUsd":3,"source":source}}) } else { json!({}) };
         let app = http::Server::start(vec![(200, String::new(), json!({"chainId":4663,"owner":Address::repeat_byte(4),
             "indexed":true,"truncated":false,"tokens":[{"address":address,"balanceRaw":"1000000",
                 "decimals":6,"symbol":"TEST","name":"Test Token","priceUsd":"2"}]}).to_string()),
@@ -20,7 +21,7 @@ async fn wallet_prices_are_display_only_and_app_prices_win() {
         let mut request = tests::input("4663"); request.max_usd = Some("3".into()); request.quote_token = Some(format!("{address:?}"));
         let output = read(&Client::new(&quote.url, None), request, &provider, &app.url).await.unwrap();
         let row = &output.tokens[0];
-        assert_eq!(row.source.as_deref(), Some(if app_price { "defillama" } else { "alchemy" }));
+        assert_eq!(row.source.as_deref(), Some(source.unwrap_or("alchemy")));
         assert_eq!(row.price_usd.as_deref(), Some(if app_price { "3" } else { "2" }));
         assert_eq!(row.value_usd, row.price_usd);
         assert_eq!(row.floor_eligible, app_price);

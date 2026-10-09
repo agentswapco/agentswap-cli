@@ -46,8 +46,8 @@ fn decode(text: &str) -> BTreeMap<Address, Price> {
     let Ok(response) = serde_json::from_str::<Response>(text) else { return BTreeMap::new(); };
     response.prices.into_iter().filter_map(|(address, coin)| {
         let value = amount::fixed(&coin.price_usd.to_string(), true).ok()?;
-        if value == U256::ZERO || !matches!(coin.source.as_str(), "oracle" | "defillama") { return None; }
-        let floor_eligible = coin.source == "defillama" || (coin.observed == Some(true)
+        if value == U256::ZERO || !matches!(coin.source.as_str(), "oracle" | "defillama" | "1inch") { return None; }
+        let floor_eligible = matches!(coin.source.as_str(), "defillama" | "1inch") || (coin.observed == Some(true)
             && (coin.source_count.is_some_and(|n| n >= 2)
                 || matches!(coin.basis.as_deref(), Some("manual_pin" | "stablecoin_par" | "onchain_pool"))));
         Some((address.parse().ok()?, Price { value, source: coin.source, confidence: coin.confidence,

@@ -57,7 +57,14 @@ async fn flow_case(url: &str) {
         max_loss_bps: 100, tokens: vec![from.address.clone()], dry_run: !matches!(scenario.as_str(), "zero_floor" | "large_holding"), self_submit: true };
     let provider = evm::read_provider(url).unwrap();
     assert_eq!(now(&provider).await.unwrap(), 100);
-    let prices = BTreeMap::from([(from.address.parse().unwrap(), tests::price("1", true)), (receive.address.parse().unwrap(), tests::price("1", true))]);
+    let mut prices = BTreeMap::from([(from.address.parse().unwrap(), tests::price("1", true)), (receive.address.parse().unwrap(), tests::price("1", true))]);
+    if scenario == "oneinch_preview" {
+        let app = quote_server::Server::start(vec![(200, String::new(), json!({"prices":{
+            from.address.clone():{"priceUsd":1,"source":"1inch","change24h":null,"asOfSec":0},
+            receive.address.clone():{"priceUsd":1,"source":"1inch","change24h":null,"asOfSec":0}
+        }}).to_string())]);
+        prices = prices::prices(8453, &[from.address.parse().unwrap(), receive.address.parse().unwrap()], &app.url).await;
+    }
     let context = Context { client: &client, signer: signer.clone(), input: input.clone(), provider, owner: Address::repeat_byte(4),
         receive, prices, policy, max: amount::fixed("1", false).unwrap(), server_cap: (!input.dry_run).then_some(U256::ZERO), wait: Wait::MCP };
     if scenario == "pinned_preview" { pinned_sale(context, &spend).await; return; }
@@ -66,11 +73,12 @@ async fn flow_case(url: &str) {
     assert_eq!(output.tokens[0].reason.as_deref(), Some("receive_token"));
     let row = &output.tokens[1];
     match scenario.as_str() {
-        "preview" | "quote_preview" => {
+        "preview" | "quote_preview" | "oneinch_preview" => {
             assert_eq!(row.outcome, "skipped", "{row:?}");
             assert_eq!(row.reason.as_deref(), Some("dry_run"));
             let result = row.trade.as_ref().unwrap();
             assert!(result.signature.is_none() && result.self_submit.is_none());
+            assert_eq!(result.digest.len(), 66);
             assert_eq!(result.order.amount_in, "1000000");
             assert_eq!(result.order.min_out, "990000000000000000");
             assert!(output.check().is_ok());
@@ -249,4 +257,19 @@ fn assert_quote_failure(row: &Row, output: &Output) {
     assert_eq!(row.error.as_deref(), Some(std::env::var("SWEEP_QUOTE_ERROR").unwrap().as_str()));
     assert!(row.trade.is_none());
     assert!(output.check().is_err());
+}
+
+#[test]
+fn sweep_oneinch_only_prices_reach_dry_run_signing() {
+    const NAME: &str = "service::sweep::flow_tests::sweep_oneinch_only_prices_reach_dry_run_signing";
+    if std::env::var("SWEEP_FLOW_CASE").is_ok() {
+        let url = std::env::var("AGENTSWAP_RPC_URL_8453").unwrap();
+        tokio::runtime::Runtime::new().unwrap().block_on(flow_case(&url)); return;
+    }
+    let rpc = fixture(1_000_000_000_000_000_000, 1, 1_000_000);
+    let output = std::process::Command::new(std::env::current_exe().unwrap()).args(["--exact", NAME, "--nocapture"])
+        .env("SWEEP_FLOW_CASE", "oneinch_preview").env("AGENTSWAP_RPC_URL_8453", &rpc.url).output().unwrap();
+    assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert_eq!(rpc.called(""), 1);
+    assert_eq!(rpc.called("eth_sendRawTransaction"), 0);
 }

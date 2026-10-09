@@ -18,16 +18,16 @@ fn json_prices_never_round_through_floats() {
 #[test]
 fn floor_eligible_truth_table() {
     let address = Address::repeat_byte(1);
-    for source in ["defillama", "oracle", "quote"] {
+    for source in ["defillama", "1inch", "oracle", "quote", "alchemy"] {
         for observed in [None, Some(false), Some(true)] {
             for count in [None, Some(0), Some(1), Some(2), Some(3)] {
                 for basis in [None, Some("manual_pin"), Some("stablecoin_par"), Some("onchain_pool"), Some("aggregate"), Some("quote")] {
                     let text = json!({"prices":{format!("{address:?}"):{"priceUsd":1,"source":source,
                         "observed":observed,"sourceCount":count,"basis":basis,"confidence":0.9}}}).to_string();
                     let prices = decode(&text);
-                    if source == "quote" { assert!(prices.is_empty()); continue; }
+                    if matches!(source, "quote" | "alchemy") { assert!(prices.is_empty()); continue; }
                     let trusted = [Some("manual_pin"), Some("stablecoin_par"), Some("onchain_pool")].contains(&basis);
-                    assert_eq!(prices[&address].floor_eligible, source == "defillama"
+                    assert_eq!(prices[&address].floor_eligible, matches!(source, "defillama" | "1inch")
                         || (observed == Some(true) && (count.unwrap_or(0) >= 2 || trusted)), "{text}");
                 }
             }
@@ -63,4 +63,22 @@ async fn price_source_failure_modes_are_unpriced() {
         assert!(prices(8453, &[Address::repeat_byte(1)], &server.url).await.is_empty());
     }
     assert!(prices(8453, &[Address::repeat_byte(1)], "http://127.0.0.1:1").await.is_empty());
+}
+
+#[test]
+fn oneinch_prices_preserve_source_and_drop_unknowns() {
+    let address = Address::repeat_byte(1);
+    let unknown = Address::repeat_byte(2);
+    let text = json!({"prices":{
+        format!("{address:?}"):{"priceUsd":2,"source":"1inch","change24h":null,"asOfSec":0},
+        format!("{unknown:?}"):{"priceUsd":2,"source":"alchemy","observed":true,"sourceCount":3}
+    }}).to_string();
+    let prices = decode(&text);
+    assert!(!prices.contains_key(&unknown));
+    assert_eq!(prices.len(), 1);
+    let price = &prices[&address];
+    assert_eq!(price.value, amount::fixed("2", true).unwrap());
+    assert_eq!(price.source, "1inch");
+    assert!(price.confidence.is_none());
+    assert!(price.floor_eligible);
 }
