@@ -1,6 +1,17 @@
 // Shared AgentSwap API route constants used by the standalone CLI.
 // Exports: endpoint constants and path-formatting helpers.
 // Deps: std formatting only.
+pub const META_ORIGIN: &str = "https://meta-api.agentswap.co";
+#[cfg(test)]
+pub(crate) static TEST_META_ORIGIN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+pub fn meta_origin() -> &'static str {
+    #[cfg(not(test))]
+    { META_ORIGIN }
+    #[cfg(test)]
+    { TEST_META_ORIGIN.get().expect("set a loopback meta origin before calling the entrypoint") }
+}
+
 pub const APP_ORIGIN: &str = "https://app.agentswap.co";
 #[cfg(test)]
 pub(crate) static TEST_APP_ORIGIN: std::sync::OnceLock<String> = std::sync::OnceLock::new();

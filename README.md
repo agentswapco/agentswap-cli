@@ -36,6 +36,9 @@ them. Intents, policy and trade are deployed on Base (8453), Arbitrum One (42161
 Chain (56) and Robinhood Chain (4663) only, and an alias that resolves to another chain is
 refused by those commands.
 
+BNB Smart Chain quotes come from the meta-aggregator and need the owner's V6 proxy as taker.
+Pass `--taker <0x>` to `quote` and `batch-quote`, or `taker` to MCP `quote` and `batch_quote`.
+
 ## Portfolio and grant links
 
 `portfolio` and `grant-link` are read-only on Base (8453), Arbitrum One (42161), BNB Smart
@@ -174,7 +177,10 @@ Status reads scan announcement logs. `--wait` is for intent mode; `--self-submit
 
 Each allowed requested token and the receive token has a result row. Skip reasons include
 `receive_token`, `zero`, `unpriced`, `price_not_independent`, `over_max_usd`, `below_floor` and
-`dry_run`. Market mode additionally reports `no_route`, `quote_failed`, `not_submitted` and
+`dry_run`. Intent mode also reports `below_gas_floor` when the decay budget valued with the
+same prices is below the estimated fill cost. Missing gas or wrapped-native prices add row
+warnings without this skip. `--wait` scans only blocks since the recorded placement block.
+Market mode additionally reports `no_route`, `quote_failed`, `not_submitted` and
 `sweep_stopped`. Failures before broadcast continue; reverted or unknown market broadcasts stop
 later sales. MCP failures carry all token rows. Market exit status is the worst result (0, 1, 3
 or 4); earlier sales can succeed before a later failure.

@@ -50,6 +50,7 @@ fn raw_addresses_on_v6_chains_without_a_registry_are_read_on_chain() {
             if command == "trade" {
                 args.extend(["--proxy", "0x2222222222222222222222222222222222222222"]);
             }
+            if command == "quote" && chain == "56" { args.extend(["--taker", "0x2222222222222222222222222222222222222222"]); }
             let (code, stderr) = run(&args);
             assert_eq!(code, 1, "{command} on {chain}: {stderr}");
             assert!(!stderr.contains("unknown token"), "{command} on {chain} refused the address: {stderr}");

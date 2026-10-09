@@ -23,8 +23,16 @@ fn rpc(mask: u8, status: &'static str) -> TestRpc {
                 let mut block = serde_json::to_value(alloy::rpc::types::Block::<alloy::rpc::types::Transaction>::default()).unwrap();
                 block["timestamp"] = json!("0x64"); block
             }
-            "eth_blockNumber" => json!("0x1"),
+            "eth_gasPrice" => match status {
+                "gas_missing" => return Some(crate::service::test_rpc::failure(body, "unavailable")),
+                "gas_high" => json!("0x3b9aca00"),
+                _ => json!("0x1"),
+            },
+            "eth_blockNumber" => json!("0x30d40"),
             "eth_getLogs" => {
+                if status == "bounded" && body["params"][0]["fromBlock"] != "0x30d40" {
+                    return Some(crate::service::test_rpc::failure(body, "scan predates placement"));
+                }
                 let id = body["params"][0]["topics"][1].as_str().unwrap();
                 let order = orders.iter().find(|o| format!("{:?}", order_types::order_id(o)) == id).unwrap();
                 let event = IntentSettlerV3::IntentAnnounced { id: order_types::order_id(order), owner: order.owner,
@@ -211,3 +219,6 @@ fn gasless_sweep_wait_reports_terminal_and_timeout_states() {
         assert_eq!(rpc.called("eth_sendRawTransaction"), 0);
     }
 }
+
+#[path = "gas_floor/flow_tests.rs"]
+mod fix_tests;

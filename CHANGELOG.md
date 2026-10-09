@@ -4,13 +4,19 @@
 
 ### Changed
 
-- `sweep` and MCP `sweep` default to gasless relayed V6 intents (`via=intent`), reusing intent
+- **Breaking**: `sweep` and MCP `sweep` default to gasless relayed V6 intents (`--via intent`), reusing intent
   signing and relay placement without quotes. Independent prices determine the starting output
   and loss-bounded floor; per-token results include intent IDs and announce status. Optional
   `--wait` reports bounded fill, expiry and cancellation status.
-- `--via market --self-submit` retains market execution and requires the agent's native gas.
+- **Breaking**: `--self-submit` now requires `--via market`. Market execution requires the
+  agent's native gas.
   Sweep requires the selected policy action. One-shot and recurring grant links request both
   market and intent actions, form-encoded as `actions=market%2Cintent`.
+
+- Intent sweeps skip `below_gas_floor` when the decay budget cannot cover the estimated fill
+  cost. Missing gas or wrapped-native prices produce row warnings without this skip.
+- BNB Smart Chain quotes come from the meta-aggregator and need the owner's V6 proxy as taker:
+  use `--taker <0x>` on `quote` and `batch-quote`, or `taker` on MCP `quote` and `batch_quote`.
 
 ## 0.10.1
 

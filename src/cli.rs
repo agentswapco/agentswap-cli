@@ -110,6 +110,9 @@ pub enum Commands {
         /// Unsigned decimal amount in the input token's smallest unit.
         #[arg(short, long)]
         amount: String,
+        /// Owner's V6 proxy; required for BNB Smart Chain meta-aggregator quotes.
+        #[arg(long)]
+        taker: Option<String>,
     },
     /// List supported chains and DEX info
     Chains,
@@ -147,6 +150,9 @@ pub enum Commands {
         /// Ask the service to verify the quoted output; prints the verified output and deviation
         #[arg(long)]
         verify: bool,
+        /// Owner's V6 proxy; required for BNB Smart Chain meta-aggregator quotes.
+        #[arg(long)]
+        taker: Option<String>,
     },
     /// Check service health
     Health,

@@ -11,11 +11,12 @@ pub struct Args {
     pub chain_id: String,
     pub pairs: Vec<String>,
     pub amount: String,
+    pub taker: Option<String>,
     pub json: bool,
 }
 
 pub async fn run(client: &Client, args: Args) -> Result<()> {
-    let results = quote::batch_quote(client, &args.chain_id, &args.pairs, &args.amount).await?;
+    let results = quote::batch_quote(client, &args.chain_id, &args.pairs, &args.amount, args.taker.as_deref()).await?;
 
     if args.json {
         let json_results: Vec<_> = results

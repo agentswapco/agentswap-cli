@@ -6,15 +6,16 @@ use crate::client::Client;
 use crate::service::submit::{NotConfirmed, Wait};
 use crate::service::{intent, market, quote, trade, portfolio, grant_link, sweep};
 use crate::signer::Signer;
-use crate::tokens::{chain_name_to_id, unknown_chain_id, CHAIN_ID_HELP};
+use crate::tokens::{chain_name_to_id, unknown_chain_id};
 use eyre::Result;
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::{ServerCapabilities, ServerInfo},
     tool, tool_handler, tool_router, Json, ServerHandler, ServiceExt,
 };
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+mod models;
+use models::*;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -96,7 +97,7 @@ impl AgentSwapMcp {
         grant_link::grant_link(input).await.map(Json).map_err(tool_error)
     }
 
-    #[tool(description = "Get a swap quote. Amount is an unsigned decimal integer in the input token's smallest unit.")]
+    #[tool(description = "Get a swap quote. BNB Smart Chain uses the meta-aggregator and requires the owner's V6 proxy as taker. Amount is an unsigned decimal integer in the input token's smallest unit.")]
     async fn quote(&self, Parameters(input): Parameters<quote::QuoteInput>) -> std::result::Result<Json<quote::QuoteOutput>, String> {
         quote::quote(&self.client, input)
             .await
@@ -104,9 +105,9 @@ impl AgentSwapMcp {
             .map_err(tool_error)
     }
 
-    #[tool(description = "Get quotes for multiple FROM/TO pairs. Amount is an unsigned decimal integer in the input token's smallest unit.")]
+    #[tool(description = "Get quotes for multiple FROM/TO pairs. BNB Smart Chain uses the meta-aggregator and requires the owner's V6 proxy as taker. Amount is an unsigned decimal integer in the input token's smallest unit.")]
     async fn batch_quote(&self, Parameters(input): Parameters<BatchQuoteInput>) -> std::result::Result<Json<BatchQuoteOutput>, String> {
-        quote::batch_quote(&self.client, &input.chain_id, &input.pairs, &input.amount)
+        quote::batch_quote(&self.client, &input.chain_id, &input.pairs, &input.amount, input.taker.as_deref())
             .await
             .map(|results| Json(BatchQuoteOutput { results }))
             .map_err(tool_error)
@@ -239,43 +240,6 @@ fn bound_trade_cap(input: &mut trade::TradeInput, server_cap: &str) -> std::resu
     Ok(())
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
-struct BatchQuoteInput {
-    #[schemars(description = CHAIN_ID_HELP)]
-    chain_id: String,
-    pairs: Vec<String>,
-    /// Unsigned decimal amount in the input token's smallest unit.
-    amount: String,
-}
-
-#[derive(Debug, Serialize, JsonSchema)]
-struct BatchQuoteOutput {
-    results: Vec<quote::BatchQuoteResult>,
-}
-
-#[derive(Debug, Serialize, JsonSchema)]
-struct IntentListOutput {
-    intents: Vec<intent::IntentRecord>,
-}
-
-#[derive(Debug, Serialize, JsonSchema)]
-struct ValueOutput {
-    value: serde_json::Value,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct TokensInput {
-    #[schemars(description = CHAIN_ID_HELP)]
-    chain_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct PoolsInput {
-    #[schemars(description = CHAIN_ID_HELP)]
-    chain_id: String,
-    address: String,
-}
-
 pub async fn serve_stdio(config: Config) -> Result<()> {
     let service = AgentSwapMcp::new(config)
         .serve(rmcp::transport::stdio())
@@ -299,3 +263,6 @@ fn filter_tokens(tokens: serde_json::Value, chain_id: Option<&str>) -> std::resu
         .collect();
     Ok(serde_json::Value::Object(filtered))
 }
+
+#[cfg(test)]
+mod fix_tests;

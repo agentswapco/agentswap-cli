@@ -49,6 +49,10 @@ pub async fn list(input: ListInput) -> Result<Vec<IntentRecord>> {
 }
 
 pub async fn status(input: StatusInput) -> Result<IntentRecord> {
+    status_since(input, None).await
+}
+
+pub(crate) async fn status_since(input: StatusInput, placement_block: Option<u64>) -> Result<IntentRecord> {
     let config = evm::chain_config(&input.chain_id)?;
     let id = parse_b256(&input.id)?;
     let provider = evm::read_provider(&evm::rpc_url(config))?;
@@ -59,7 +63,10 @@ pub async fn status(input: StatusInput) -> Result<IntentRecord> {
     }
     let settler = IntentSettlerV3::new(config.settler, provider.clone());
     let lookback = evm::event_lookback_blocks(config, input.lookback_blocks);
-    let first_block = evm::event_start_block(&provider, lookback).await?;
+    let first_block = match placement_block {
+        Some(block) => block,
+        None => evm::event_start_block(&provider, lookback).await?,
+    };
     let latest = provider.get_block_number().await?;
     let mut block = first_block;
     while block <= latest {

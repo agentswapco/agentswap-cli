@@ -73,6 +73,8 @@ pub struct Row {
     pub intent_status: Option<String>,
     pub status_error: Option<String>,
     pub wait_timed_out: bool,
+    pub placement_block: Option<u64>,
+    pub warnings: Vec<String>,
     pub outcome: String,
     pub reason: Option<String>,
     pub error: Option<String>,
@@ -86,7 +88,7 @@ impl Row {
         Self { token, amount_raw: "0".into(), value_usd: None, floor_raw: None,
             quote_out_raw: None, outcome: "skipped".into(), reason: None, error: None,
             tx_hash: None, tx_status: None, trade: None, intent_id: None, start_out_raw: None,
-            announce_status: None, relay: None, intent_status: None, status_error: None, wait_timed_out: false }
+            announce_status: None, relay: None, intent_status: None, status_error: None, wait_timed_out: false, placement_block: None, warnings: Vec::new() }
     }
 
     pub(super) fn record(&mut self, result: eyre::Result<TradeOutcome>) -> bool {

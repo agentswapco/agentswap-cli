@@ -1,6 +1,7 @@
 // Sequential grant-bounded sales with independent app-price floors.
 // Uses existing intent and trade services; market mode stops after unconfirmed broadcasts.
 mod math;
+mod gas_floor;
 mod models;
 mod sale;
 mod intent_sale;
@@ -56,7 +57,12 @@ async fn read(client: &Client, signer: Arc<dyn Signer>, input: Input, provider: 
     let receive = token::resolve(&input.receive, config.id).await?;
     let policy = read_policy(&provider, &input, owner, signer.address(), discovery::erc20(&receive.address)?).await?;
     validate_policy(&policy, discovery::erc20(&receive.address)?, now(&provider).await?, input.via)?;
-    let addresses = policy.tokens.iter().filter(|t| t.allowed).map(|t| discovery::erc20(&t.token)).collect::<Result<Vec<_>>>()?;
+    let mut addresses = policy.tokens.iter().filter(|t| t.allowed).map(|t| discovery::erc20(&t.token)).collect::<Result<Vec<_>>>()?;
+    if input.via == Via::Intent {
+        if let Some(native) = evm::wrapped_native(config.id) {
+            if !addresses.contains(&native) { addresses.push(native); }
+        }
+    }
     let prices = prices::prices(config.id, &addresses, app_origin).await;
     // A forced or explicit preview must not sign x402 payments.
     let client = if input.dry_run { client.clone().with_x402(crate::x402::Config::disabled(), None) } else { client.clone() };

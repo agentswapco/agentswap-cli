@@ -31,16 +31,16 @@ impl Client {
             if let Some(object) = body.as_object_mut() { object.remove("taker"); }
             return self.post(crate::routes::QUOTE, &body).await;
         }
-        let taker = body["taker"].as_str().ok_or_else(|| eyre!("quote requires the owner's V6 proxy as taker"))?;
+        let taker = body["taker"].as_str().ok_or_else(|| eyre!("quote requires the owner's V6 proxy as taker; pass --taker <0x> (MCP: taker)"))?;
         let proxy = crate::order_types::parse_address(taker)?;
         eyre::ensure!(!proxy.is_zero(), "quote requires a nonzero V6 proxy as taker");
         let request = json!({"chainId":body["chain_id"],"tokenIn":body["token_in"],
             "tokenOut":body["token_out"],"amountIn":body["amount_in"],"taker":taker,
             "slippageBps":body.get("slippage_bps").cloned().unwrap_or(json!(50))});
         #[cfg(not(test))]
-        let url = "https://meta-api.agentswap.co/quote";
+        let url = format!("{}{}", crate::routes::meta_origin(), crate::routes::QUOTE);
         #[cfg(test)]
-        let url = self.meta_quote_url.as_deref().ok_or_else(|| eyre!("meta quote fixture missing"))?;
+        let url = self.meta_quote_url.clone().unwrap_or_else(|| format!("{}{}", crate::routes::meta_origin(), crate::routes::QUOTE));
         let response = self.http.post(url).json(&request).send().await
             .map_err(|e| eyre!("request failed: {e}"))?;
         let status = response.status();

@@ -2,7 +2,7 @@
 // Price math and spend limits are checked by sale before reaching this signing boundary.
 use super::{Context, Input, Output, Row};
 use crate::service::intent::{self, PlaceInput, TokenPolicy};
-use alloy::primitives::U256;
+use alloy::{primitives::U256, providers::Provider};
 use eyre::Result;
 use std::time::{Duration, Instant};
 
@@ -17,6 +17,9 @@ pub(super) async fn place(context: &Context<'_>, budget: &TokenPolicy, row: &mut
         duration_secs: None, deadline_secs: None, relay: true, self_submit: false,
         dry_run: context.input.dry_run, max_amount: context.server_cap.map(|cap| cap.to_string()),
     };
+    if !context.input.dry_run {
+        row.placement_block = Some(context.provider.get_block_number().await?);
+    }
     let result = intent::place(intent::Announcer { relay: context.client, wait: context.wait },
         input, context.signer.clone(), !context.input.dry_run).await?;
     row.intent_id = Some(result.id);
@@ -38,7 +41,7 @@ pub(super) async fn wait(input: &Input, output: &mut Output) {
         for row in output.tokens.iter_mut().filter(|r| r.wait_timed_out) {
             let Some(id) = row.intent_id.clone() else { continue; };
             let request = intent::StatusInput { chain_id: input.chain_id.clone(), id, lookback_blocks: None };
-            match tokio::time::timeout(duration.saturating_sub(start.elapsed()), intent::status(request)).await {
+            match tokio::time::timeout(duration.saturating_sub(start.elapsed()), intent::status_since(request, row.placement_block)).await {
                 Ok(Ok(record)) => {
                     row.wait_timed_out = !matches!(record.status.as_str(), "filled" | "expired" | "cancelled" | "dead");
                     row.intent_status = Some(record.status);

@@ -93,6 +93,7 @@ pub async fn quote(client: &Client, input: QuoteInput) -> Result<QuoteOutput> {
     parse_raw_amount("quote amount", &input.amount)?;
     let chain_id = chain_name_to_id(&input.chain_id)
         .ok_or_else(|| eyre!("{}", unknown_chain_id(&input.chain_id)))?;
+    validate_taker(chain_id, input.taker.as_deref())?;
     let from = token::resolve(&input.from, chain_id).await?;
     let to = token::resolve(&input.to, chain_id).await?;
     let (body, request) = build_quote_body(&input, chain_id, &from, &to);
@@ -105,13 +106,15 @@ pub async fn batch_quote(
     chain_id: &str,
     pairs: &[String],
     amount: &str,
+    taker: Option<&str>,
 ) -> Result<Vec<BatchQuoteResult>> {
     parse_raw_amount("batch quote amount", amount)?;
     let resolved_chain_id =
         chain_name_to_id(chain_id).ok_or_else(|| eyre!("{}", unknown_chain_id(chain_id)))?;
+    validate_taker(resolved_chain_id, taker)?;
     let mut results = Vec::with_capacity(pairs.len());
     for pair in pairs {
-        results.push(batch_one(client, chain_id, resolved_chain_id, pair, amount).await);
+        results.push(batch_one(client, chain_id, resolved_chain_id, pair, amount, taker).await);
     }
     Ok(results)
 }
@@ -122,6 +125,7 @@ async fn batch_one(
     chain_id: u64,
     pair: &str,
     amount: &str,
+    taker: Option<&str>,
 ) -> BatchQuoteResult {
     let Some((from, to)) = pair.split_once('/') else {
         return batch_error(pair, format!("invalid pair format '{pair}', use FROM/TO"));
@@ -132,12 +136,22 @@ async fn batch_one(
         to: to.to_string(),
         amount: amount.to_string(),
         slippage: None,
-        verify: false, taker: None,
+        verify: false, taker: taker.map(String::from),
     };
     match quote(client, input).await {
         Ok(out) => format_batch_success(pair, chain_id, out),
         Err(err) => batch_error(pair, crate::redact::urls(&format!("{err}"))),
     }
+}
+
+fn validate_taker(chain: u64, taker: Option<&str>) -> Result<()> {
+    if crate::client::uses_meta(chain) && taker.is_none() {
+        return Err(eyre!("BNB Smart Chain quotes require the owner's V6 proxy as taker; pass --taker <0x> (MCP: taker)"));
+    }
+    if let Some(taker) = taker {
+        eyre::ensure!(!crate::order_types::parse_address(taker)?.is_zero(), "taker must be a nonzero V6 proxy address");
+    }
+    Ok(())
 }
 
 fn format_batch_success(pair: &str, chain_id: u64, out: QuoteOutput) -> BatchQuoteResult {
@@ -202,7 +216,7 @@ mod tests {
                 "--amount", "1000000", "--slippage", "50", "--verify",
             ])
             .expect("chainid quote arguments");
-            let crate::cli::Commands::Quote { chain_id, from, to, amount, slippage, verify } = cli.command else {
+            let crate::cli::Commands::Quote { chain_id, from, to, amount, slippage, verify, .. } = cli.command else {
                 panic!("expected quote command");
             };
             QuoteInput { chain_id, from, to, amount, slippage, verify, taker: None }
@@ -259,6 +273,16 @@ mod tests {
             assert_eq!(context.token_in_decimals, expected_decimals);
             assert_eq!(body["amount_in"], "1");
         }
+    }
+
+    #[test]
+    fn taker_validation_rejects_zero_and_malformed_addresses() {
+        assert!(validate_taker(56, None).is_err());
+        assert!(validate_taker(8453, None).is_ok());
+        for invalid in ["", "bad", "0x", &alloy::primitives::Address::ZERO.to_string()] {
+            assert!(validate_taker(56, Some(invalid)).is_err());
+        }
+        assert!(validate_taker(56, Some(&alloy::primitives::Address::repeat_byte(6).to_string())).is_ok());
     }
 
 }

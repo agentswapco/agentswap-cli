@@ -20,7 +20,8 @@ mod x402;
 use clap::Parser;
 use cli::{Cli, Commands, IntentCommands};
 use eyre::Result;
-use std::sync::Arc;
+mod startup;
+use startup::{exit_code, signer_from_file};
 
 #[tokio::main]
 async fn main() {
@@ -40,14 +41,6 @@ async fn main() {
         }
         std::process::exit(exit_code(&e));
     }
-}
-
-/// 1 for anything refused or failed before a transaction was sent; a sent transaction that did
-/// not confirm carries its own status. Argument errors exit 2 from clap.
-fn exit_code(error: &eyre::Report) -> i32 {
-    error
-        .downcast_ref::<service::submit::NotConfirmed>()
-        .map_or(1, service::submit::NotConfirmed::exit_code)
 }
 
 async fn run_cli(cli: Cli) -> Result<()> {
@@ -99,6 +92,7 @@ async fn run_cli(cli: Cli) -> Result<()> {
         Commands::BatchQuote {
             chain_id,
             pairs,
+            taker,
             amount,
         } => {
             commands::batch_quote::run(
@@ -106,6 +100,7 @@ async fn run_cli(cli: Cli) -> Result<()> {
                 commands::batch_quote::Args {
                     chain_id,
                     pairs,
+                    taker,
                     amount,
                     json: cli.json,
                 },
@@ -136,6 +131,7 @@ async fn run_cli(cli: Cli) -> Result<()> {
             amount,
             slippage,
             verify,
+            taker,
         } => {
             commands::quote::run(
                 &client,
@@ -146,6 +142,7 @@ async fn run_cli(cli: Cli) -> Result<()> {
                     amount,
                     slippage,
                     verify,
+                    taker,
                     json: cli.json,
                 },
             )
@@ -284,18 +281,11 @@ async fn run_cli(cli: Cli) -> Result<()> {
     }
 }
 
-fn signer_from_file(path: Option<&str>) -> Result<Option<Arc<dyn signer::Signer>>> {
-    match path {
-        Some(path) => {
-            let key = signer::local::LocalKey::from_key_file(path)?;
-            Ok(Some(Arc::new(key)))
-        }
-        None => Ok(None),
-    }
-}
-
 #[cfg(test)]
 #[path = "main_tests.rs"]
 mod tests;
 #[cfg(test)]
 mod holdings_tests;
+
+#[cfg(test)]
+mod fix_tests;

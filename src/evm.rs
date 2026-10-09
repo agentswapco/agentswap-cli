@@ -46,6 +46,13 @@ pub fn chain_config(chain_id: &str) -> Result<ChainConfig> {
     Ok(ChainConfig { id, rpc, factory: FACTORY, settler: SETTLER, generation: INTENT_GENERATION, lens: LENS })
 }
 
+pub fn wrapped_native(chain: u64) -> Option<Address> {
+    if chain == 56 {
+        return Some(alloy::primitives::address!("0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"));
+    }
+    crate::tokens::resolve_token("WETH", chain).and_then(|(address, _, _)| address.parse().ok())
+}
+
 pub fn rpc_url(config: ChainConfig) -> String {
     let key = format!("AGENTSWAP_RPC_URL_{}", config.id);
     std::env::var(key)
