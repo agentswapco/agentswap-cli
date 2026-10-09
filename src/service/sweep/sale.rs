@@ -34,12 +34,20 @@ pub(super) async fn sell(context: &Context<'_>, budget: &TokenPolicy, row: &mut 
         from.decimals, context.receive.decimals, context.input.max_loss_bps)?;
     row.floor_raw = Some(floor.to_string());
     if floor == U256::ZERO { row.reason = Some("below_floor".into()); return Ok(false); }
-    let request = quote::QuoteInput { chain_id: context.input.chain_id.clone(), from: budget.token.clone(), to: context.receive.address.clone(), amount: raw.to_string(), slippage: None, verify: true };
-    let checked = quote::quote(context.client, request).await.ok();
-    let quoted = checked.as_ref().and_then(|q| q.response["output"].as_str().and_then(|s| order_types::parse_raw_amount("quote output", s).ok()));
+    let request = quote::QuoteInput { chain_id: context.input.chain_id.clone(), from: budget.token.clone(), to: context.receive.address.clone(), amount: raw.to_string(), slippage: None, verify: false };
+    let checked = match quote::quote(context.client, request).await {
+        Ok(checked) => checked,
+        Err(error) => {
+            let message = error.to_string().to_ascii_lowercase();
+            if message.starts_with("http 404 ") && (message.contains("no executable route") || message.contains("no route")) {
+                row.reason = Some("no_route".into()); return Ok(false);
+            }
+            row.reason = Some("quote_failed".into()); return Err(error);
+        }
+    };
+    let quoted = checked.response["output"].as_str().and_then(|s| order_types::parse_raw_amount("quote output", s).ok());
     row.quote_out_raw = quoted.map(|q| q.to_string());
     if let Some(reason) = math::quote_skip(quoted, floor) { row.reason = Some(reason.into()); return Ok(false); }
-    let checked = checked.ok_or_else(|| eyre::eyre!("no_route"))?;
     let body = serde_json::json!({"chain_id":checked.request.chain_id, "token_in":checked.request.token_in,
         "token_out":checked.request.token_out, "amount_in":checked.request.amount_in, "verify":true});
     let client = context.client.clone().with_pinned_quote(body, checked.response);

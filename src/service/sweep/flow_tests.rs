@@ -4,6 +4,8 @@ use super::*;
 use crate::service::{test_rpc::{TestRpc, ok}};
 use alloy::{primitives::U256, sol_types::{SolCall, SolValue}};
 use serde_json::json;
+#[path = "../../client/test_server.rs"]
+mod quote_server;
 
 fn fixture(output: u64, generation: u64, balance: u64) -> TestRpc {
     TestRpc::start(move |body| {
@@ -41,7 +43,7 @@ fn fixture(output: u64, generation: u64, balance: u64) -> TestRpc {
 
 async fn flow_case(url: &str) {
     let scenario = std::env::var("SWEEP_FLOW_CASE").unwrap();
-    let client = Client::new(url, None);
+    let client = Client::new(&std::env::var("SWEEP_QUOTE_URL").unwrap_or_else(|_| url.into()), None);
     let from = token::from_registry("USDC", 8453).unwrap();
     let mut receive = token::from_registry("WETH", 8453).unwrap();
     if scenario == "zero_floor" { receive.decimals = 0; }
@@ -62,7 +64,7 @@ async fn flow_case(url: &str) {
     assert_eq!(output.tokens[0].reason.as_deref(), Some("receive_token"));
     let row = &output.tokens[1];
     match scenario.as_str() {
-        "preview" => {
+        "preview" | "quote_preview" => {
             assert_eq!(row.outcome, "skipped", "{row:?}");
             assert_eq!(row.reason.as_deref(), Some("dry_run"));
             let result = row.trade.as_ref().unwrap();
@@ -78,7 +80,11 @@ async fn flow_case(url: &str) {
             if scenario == "zero_floor" { assert_eq!(row.floor_raw.as_deref(), Some("0")); }
         }
         "below" => assert_eq!(row.reason.as_deref(), Some("below_floor")),
-        "no_route" => assert_eq!(row.reason.as_deref(), Some("no_route")),
+        "no_route" | "quote_no_route" => {
+            assert_eq!(row.reason.as_deref(), Some("no_route"));
+            assert!(row.error.is_none());
+        }
+        "quote_error" => assert_quote_failure(row, &output),
         "changed" => { assert_eq!(row.outcome, "failed"); assert!(row.error.as_ref().unwrap().contains("changed")); }
         _ => panic!("bad scenario"),
     }
@@ -127,4 +133,80 @@ fn guarded_flow(scenario: &str, name: &str, balance: u64) {
     assert_eq!(rpc.called(""), 0, "no quote binding or execute_trade");
     assert_eq!(rpc.called("eth_sendRawTransaction"), 0);
     assert_eq!(rpc.called("eth_getLogs"), 0);
+}
+
+#[test]
+fn sweep_quote_request_omits_verify() {
+    quote_flow("quote_preview", "service::sweep::flow_tests::sweep_quote_request_omits_verify", 200,
+        &json!({"router": Address::repeat_byte(8), "output":"1000000000000000000", "calldata":"0x"}).to_string(), "");
+}
+
+#[test]
+fn sweep_quote_pinned_binding_rejects_differing_requote() {
+    quote_flow("quote_preview", "service::sweep::flow_tests::sweep_quote_pinned_binding_rejects_differing_requote", 200,
+        &json!({"router": Address::repeat_byte(8), "output":"1000000000000000000", "calldata":"0x"}).to_string(), "");
+}
+
+#[test]
+fn sweep_quote_404_no_executable_route_is_no_route() {
+    quote_flow("quote_no_route", "service::sweep::flow_tests::sweep_quote_404_no_executable_route_is_no_route",
+        404, "no executable route found", "");
+}
+
+#[test]
+fn sweep_quote_other_errors_keep_redacted_text() {
+    for (status, body, expected) in [
+        (404, "unknown endpoint", "HTTP 404 Fixture: unknown endpoint"),
+        (401, "invalid key", "HTTP 401 Unauthorized"),
+        (429, "rate limited", "HTTP 429 Fixture: rate limited"),
+        (500, "upstream https://user:pass@rpc.example/SECRET?key=SECRET failed", "HTTP 500 Fixture: upstream https://rpc.example/[redacted] failed"),
+    ] {
+        quote_flow("quote_error", "service::sweep::flow_tests::sweep_quote_other_errors_keep_redacted_text", status, body, expected);
+        if std::env::var("SWEEP_FLOW_CASE").is_ok() { break; }
+    }
+}
+
+fn quote_flow(scenario: &str, name: &str, status: u16, body: &str, expected: &str) {
+    if std::env::var("SWEEP_FLOW_CASE").is_ok() {
+        let url = std::env::var("AGENTSWAP_RPC_URL_8453").unwrap();
+        tokio::runtime::Runtime::new().unwrap().block_on(flow_case(&url)); return;
+    }
+    let rpc = fixture(1_000_000_000_000_000_000, 1, 1_000_000);
+    let server = quote_server::Server::start(vec![(status, String::new(), body.into())]);
+    let output = std::process::Command::new(std::env::current_exe().unwrap()).args(["--exact", name, "--nocapture"])
+        .env("SWEEP_FLOW_CASE", scenario).env("AGENTSWAP_RPC_URL_8453", &rpc.url)
+        .env("SWEEP_QUOTE_URL", &server.url).env("SWEEP_QUOTE_ERROR", expected).output().unwrap();
+    assert!(output.status.success(), "{scenario}: {}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    let requests = server.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1, "trade must reuse the checked sweep response");
+    let request: serde_json::Value = serde_json::from_str(&requests[0].body).unwrap();
+    assert!(request.get("verify").is_none(), "{request}");
+    assert_eq!(requests[0].method, "POST");
+    assert_eq!(requests[0].target, crate::routes::QUOTE);
+    assert!(!requests[0].keyed && !requests[0].paid);
+    drop(requests);
+    if scenario == "quote_preview" {
+        let checked: serde_json::Value = serde_json::from_str(body).unwrap();
+        let mut bound = request.clone(); bound["verify"] = json!(true);
+        let pinned = Client::new(&server.url, None).with_pinned_quote(bound.clone(), checked.clone());
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            assert_eq!(pinned.quote(&bound).await.unwrap(), checked);
+            for (field, value) in [("amount_in", json!("1000001")), ("chain_id", json!(56)),
+                ("token_in", json!(Address::repeat_byte(9))), ("token_out", json!(Address::repeat_byte(9))),
+                ("verify", json!(false)), ("slippage_bps", json!(1))] {
+                let mut changed = bound.clone(); changed[field] = value;
+                assert!(pinned.quote(&changed).await.unwrap_err().to_string().contains("differs"));
+            }
+        });
+        assert_eq!(server.requests.lock().unwrap().len(), 1, "differing re-quotes must not reach HTTP");
+    }
+    assert_eq!(rpc.called("eth_sendRawTransaction"), 0);
+}
+
+fn assert_quote_failure(row: &Row, output: &Output) {
+    assert_eq!(row.reason.as_deref(), Some("quote_failed"), "{row:?}");
+    assert_eq!(row.outcome, "failed");
+    assert_eq!(row.error.as_deref(), Some(std::env::var("SWEEP_QUOTE_ERROR").unwrap().as_str()));
+    assert!(row.trade.is_none());
+    assert!(output.check().is_err());
 }
