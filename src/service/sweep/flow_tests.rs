@@ -61,7 +61,8 @@ async fn flow_case(url: &str) {
     let scenario = std::env::var("SWEEP_FLOW_CASE").unwrap();
     match scenario.as_str() {
         "preview" => {
-            assert_eq!(row.outcome, "dry_run", "{row:?}");
+            assert_eq!(row.outcome, "skipped", "{row:?}");
+            assert_eq!(row.reason.as_deref(), Some("dry_run"));
             let result = row.trade.as_ref().unwrap();
             assert!(result.signature.is_none() && result.self_submit.is_none());
             assert_eq!(result.order.amount_in, "1000000");

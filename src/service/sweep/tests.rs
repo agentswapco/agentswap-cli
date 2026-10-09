@@ -100,8 +100,8 @@ fn stop_on_unknown_and_revert_continue_on_refusal_and_confirmed() {
         else { assert!(result.is_ok()); }
     }
     let mut row = Row::new(String::new());
-    assert!(!row.record(Ok(trade(None, true)))); assert_eq!(row.outcome, "dry_run");
-    assert!(!row.record(Ok(trade(None, false)))); assert_eq!(row.outcome, "signed");
+    assert!(!row.record(Ok(trade(None, true)))); assert_eq!(row.outcome, "skipped"); assert_eq!(row.reason.as_deref(), Some("dry_run"));
+    assert!(!row.record(Ok(trade(None, false)))); assert_eq!(row.outcome, "skipped"); assert_eq!(row.reason.as_deref(), Some("not_submitted"));
     row.record(Err(eyre!("refused")));
     assert_eq!(crate::exit_code(&Output { owner: String::new(), dry_run: false, note: None, tokens: vec![row] }.check().unwrap_err()), 1);
 }

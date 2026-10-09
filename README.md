@@ -146,7 +146,8 @@ independent app prices; routes below the floor are skipped.
 
 Without `--allow-trade`, execution is forced to dry-run. MCP defaults `dry_run` to true.
 `--self-submit` pays gas from the agent key's wallet. Without it, a live sweep returns signed
-calldata and reports `signed`; dry runs report `dry_run`. Confirmed sales report `sold`.
+calldata with outcome `skipped` and reason `not_submitted`; dry runs use reason `dry_run`.
+Confirmed sales report `sold`.
 Every basket token has a result row with raw amount, USD value, floor, quote output and outcome.
 Pre-broadcast failures continue; reverted or unknown broadcasts stop later sales, reported as
 `sweep_stopped`. The exit code is the worst result (0, 1, 3 or 4); exit 1 can follow earlier

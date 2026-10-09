@@ -64,7 +64,8 @@ impl Row {
                 if let Some(submit) = &trade.self_submit {
                     self.tx_hash = submit.tx_hash.clone(); self.tx_status = submit.tx_status;
                 }
-                self.outcome = if trade.dry_run { "dry_run" } else if self.tx_hash.is_none() { "signed" } else { "sold" }.into();
+                self.reason = if trade.dry_run { Some("dry_run".into()) } else if self.tx_hash.is_none() { Some("not_submitted".into()) } else { None };
+                self.outcome = if self.reason.is_some() { "skipped" } else { "sold" }.into();
                 if let Some(failure) = trade.not_confirmed() {
                     self.outcome = "failed".into(); self.error = Some(failure.to_string());
                 }
