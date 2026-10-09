@@ -12,3 +12,4 @@ pub mod submit;
 mod test_rpc;
 pub mod token;
 pub mod trade;
+pub mod sweep;

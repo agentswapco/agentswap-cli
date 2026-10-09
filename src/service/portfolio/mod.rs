@@ -2,7 +2,7 @@
 // Discovers ERC-20 holdings, reads bounded concurrent balances, values and optionally quotes them.
 pub(crate) mod amount;
 pub(crate) mod discovery;
-mod prices;
+pub(crate) mod prices;
 mod sources;
 #[cfg(test)]
 #[path = "../../client/test_server.rs"]

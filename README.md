@@ -119,15 +119,38 @@ registry is accepted by `quote`, `trade` and `buy-quota` on the chains `trade` s
 must answer `decimals()`; it is read on chain before any quote or order, and displays label it
 with its shortened address.
 
-`agentswap mcp` exposes eleven tools: quote, batch_quote, tokens, pools, trade, intent_place,
-intent_list, intent_status, policy, portfolio and grant_link. `--allow-trade` permits live execution by trade and
-intent_place; without it those two run as dry-runs. Intent listing requires an owner or agent filter. MCP `trade` additionally defaults `dry_run` to true, while the
+`agentswap mcp` exposes twelve tools: quote, batch_quote, tokens, pools, trade, intent_place,
+intent_list, intent_status, policy, portfolio, grant_link and sweep. `--allow-trade` permits live execution by trade, sweep and
+intent_place; without it those three run as dry-runs. Intent listing requires an owner or agent filter. MCP `trade` and `sweep` additionally defaults `dry_run` to true, while the
 CLI defaults to a live trade once `--allow-trade` is set.
 
 Intent and policy reads inspect the latest 200,000 blocks on Base, Arbitrum One, BNB Smart Chain
 and Robinhood Chain. BNB Smart Chain uses 9,000 blocks with the built-in public RPC; set
 `AGENTSWAP_RPC_URL_56` or `AGENTSWAP_RPC_URL` for a keyed endpoint to use the full lookback, or
 pass `--lookback-blocks`.
+
+## Sweep
+
+```sh
+agentswap --allow-trade sweep --chainid 8453 --proxy "$PROXY" --key-file agent.key \
+  --receive USDC --max-usd 5 --max-loss-bps 100 --self-submit --json
+```
+
+`sweep` and MCP `sweep` require `max_usd` (USD decimal) and `max_loss_bps`, a live market
+policy and a receive token in its basket. Each sale spends the minimum of owner balance,
+remaining epoch budget and owner-to-proxy allowance. Add `--token` addresses or widen
+`--lookback-blocks` when cap events are older than the scan range. Prices are available on
+Base, Arbitrum One and BNB Smart Chain; unpriced holdings are skipped on all chains.
+Both input and receive prices must be floor-eligible. Floors use integer arithmetic and
+independent app prices; routes below the floor are skipped.
+
+Without `--allow-trade`, execution is forced to dry-run. MCP defaults `dry_run` to true.
+`--self-submit` pays gas from the agent key's wallet. Without it, a live sweep returns signed
+calldata and reports `signed`; dry runs report `dry_run`. Confirmed sales report `sold`.
+Every basket token has a result row with raw amount, USD value, floor, quote output and outcome.
+Pre-broadcast failures continue; reverted or unknown broadcasts stop later sales, reported as
+`sweep_stopped`. The exit code is the worst result (0, 1, 3 or 4); exit 1 can follow earlier
+confirmed sales. MCP failures carry the full result. A sweep can exceed a single-trade timeout.
 
 ## Exit status
 

@@ -91,6 +91,10 @@ async fn run_cli(cli: Cli) -> Result<()> {
 
     match cli.command {
         Commands::Portfolio(_) | Commands::GrantLink(_) => unreachable!("read-only commands dispatched above"),
+        Commands::Sweep(input) => {
+            let signer = signer.ok_or_else(|| eyre::eyre!("sweep requires --key-file"))?;
+            commands::sweep::run(&client, signer, input, cli.allow_trade, cli.trade_max_amount.as_deref(), cli.json).await
+        }
         Commands::BatchQuote {
             chain_id,
             pairs,

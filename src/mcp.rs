@@ -4,7 +4,7 @@
 
 use crate::client::Client;
 use crate::service::submit::{NotConfirmed, Wait};
-use crate::service::{intent, market, quote, trade, portfolio, grant_link};
+use crate::service::{intent, market, quote, trade, portfolio, grant_link, sweep};
 use crate::signer::Signer;
 use crate::tokens::{chain_name_to_id, unknown_chain_id, CHAIN_ID_HELP};
 use eyre::Result;
@@ -57,7 +57,7 @@ impl AgentSwapMcp {
             route.attr.description = Some(format!("{} {}",
                 route.attr.description.as_deref().unwrap_or_default(), crate::tokens::V6_CHAINS_NOTE).into());
         }
-        for route in tool_router.map.values_mut().filter(|route| matches!(route.attr.name.as_ref(), "portfolio" | "grant_link")) {
+        for route in tool_router.map.values_mut().filter(|route| matches!(route.attr.name.as_ref(), "portfolio" | "grant_link" | "sweep")) {
             route.attr.description = Some(format!("{} {}", route.attr.description.as_deref().unwrap_or_default(), crate::tokens::HOLDINGS_CHAINS_NOTE).into());
         }
         Self {
@@ -73,6 +73,16 @@ impl AgentSwapMcp {
 
 #[tool_router(router = tool_router)]
 impl AgentSwapMcp {
+    #[tool(description = "Sell small grant-basket holdings with independent price floors. Requires max_usd, max_loss_bps, a live market grant and receive basket membership. dry_run defaults true and is forced without --allow-trade; requires --key-file. self_submit pays gas from the agent wallet. Reverted or unknown broadcasts stop later sales; failures return all token rows. Pricing is available on Base, Arbitrum One and BNB Smart Chain.")]
+    async fn sweep(&self, Parameters(input): Parameters<sweep::Input>) -> std::result::Result<Json<sweep::Output>, String> {
+        let signer = self.signer.clone().ok_or("sweep requires --key-file")?;
+        let output = sweep::sweep(&self.client, signer, input, self.allow_trade, self.trade_max_amount.as_deref(), Wait::MCP).await.map_err(tool_error)?;
+        if let Err(error) = output.check() {
+            return Err(format!("{}\n{}", tool_error(error), serde_json::to_string(&output).map_err(|e| e.to_string())?));
+        }
+        Ok(Json(output))
+    }
+
     #[tool(description = "Discover ERC-20 holdings from wallet-tokens, service catalog, registry, explicit addresses and best-effort Transfer logs. App prices include provenance and floor_eligible; source failures and scanned range are reported; max_usd is an unsigned USD decimal, quotes full eligible balances and unpriced tokens. Quotes never sign payments. Older tokens may be missing.")]
     async fn portfolio(&self, Parameters(input): Parameters<portfolio::Input>) -> std::result::Result<Json<portfolio::Output>, String> {
         portfolio::portfolio(&self.client, input).await.map(Json).map_err(tool_error)
@@ -84,10 +94,7 @@ impl AgentSwapMcp {
     }
 
     #[tool(description = "Get a swap quote. Amount is an unsigned decimal integer in the input token's smallest unit.")]
-    async fn quote(
-        &self,
-        Parameters(input): Parameters<quote::QuoteInput>,
-    ) -> std::result::Result<Json<quote::QuoteOutput>, String> {
+    async fn quote(&self, Parameters(input): Parameters<quote::QuoteInput>) -> std::result::Result<Json<quote::QuoteOutput>, String> {
         quote::quote(&self.client, input)
             .await
             .map(Json)
@@ -95,10 +102,7 @@ impl AgentSwapMcp {
     }
 
     #[tool(description = "Get quotes for multiple FROM/TO pairs. Amount is an unsigned decimal integer in the input token's smallest unit.")]
-    async fn batch_quote(
-        &self,
-        Parameters(input): Parameters<BatchQuoteInput>,
-    ) -> std::result::Result<Json<BatchQuoteOutput>, String> {
+    async fn batch_quote(&self, Parameters(input): Parameters<BatchQuoteInput>) -> std::result::Result<Json<BatchQuoteOutput>, String> {
         quote::batch_quote(&self.client, &input.chain_id, &input.pairs, &input.amount)
             .await
             .map(|results| Json(BatchQuoteOutput { results }))
@@ -200,7 +204,7 @@ impl AgentSwapMcp {
 impl ServerHandler for AgentSwapMcp {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_instructions("AgentSwap tools: quote, batch_quote, tokens, pools, trade, intent_place, intent_list, intent_status, policy, portfolio, grant_link. Portfolio and grant_link are read-only; grant links require owner review in the app.")
+            .with_instructions("AgentSwap tools: quote, batch_quote, tokens, pools, trade, intent_place, intent_list, intent_status, policy, portfolio, grant_link, sweep. Sweep defaults to dry_run and requires --allow-trade for signing. Portfolio and grant_link are read-only; grant links require owner review in the app.")
     }
 }
 

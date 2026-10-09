@@ -17,3 +17,5 @@ pub mod register;
 pub mod route_explain;
 pub mod tokens;
 pub mod trade;
+
+pub mod sweep;

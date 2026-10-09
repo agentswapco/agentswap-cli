@@ -4,6 +4,9 @@
 
 ### Added
 
+- `sweep` command and MCP tool: sequential grant-bounded trades using independent app-price
+  floors, per-token outcomes, dry-run previews and stop-on-unconfirmed submission.
+
 - Read-only `portfolio` and MCP `portfolio`: ERC-20 discovery with provenance, authoritative
   balances, app wallet-tokens and prices, live chain-filtered catalog, price provenance and floor
   eligibility, best-effort scanned block ranges and full-balance route checks.
