@@ -96,7 +96,7 @@ fn trade_input(dry_run: bool, allowed: bool) -> trade::TradeInput {
         amount: "1".to_string(), slippage: None,
         min_out: if !dry_run && allowed { Some("1".to_string()) } else { None },
         max_amount: None, mode: "agent-order".to_string(), proxy: format!("{:?}", Address::repeat_byte(2)),
-        nonce: Some("1".to_string()), deadline_secs: Some(120), dry_run, self_submit: dry_run || !allowed,
+        nonce: Some("1".to_string()), deadline_secs: Some(120), dry_run, self_submit: dry_run || !allowed, verify_quote: true,
     }
 }
 

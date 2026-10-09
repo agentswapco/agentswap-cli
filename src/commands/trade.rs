@@ -59,7 +59,19 @@ fn input(args: Args) -> TradeInput {
         deadline_secs: args.deadline_secs,
         dry_run: args.dry_run,
         self_submit: args.self_submit,
+        verify_quote: true,
     }
+}
+
+#[test]
+fn cli_trade_keeps_quote_verification_enabled() {
+    let trade = input(Args {
+        chain_id: "base".into(), from: "USDC".into(), to: "WETH".into(), amount: "1".into(),
+        slippage: None, min_out: None, max_amount: None, mode: "agent-order".into(),
+        proxy: alloy::primitives::Address::repeat_byte(2).to_string(), nonce: None,
+        deadline_secs: None, dry_run: true, self_submit: false, json: false,
+    });
+    assert!(trade.verify_quote);
 }
 
 fn print_outcome(outcome: &trade::TradeOutcome, json: bool) -> Result<()> {

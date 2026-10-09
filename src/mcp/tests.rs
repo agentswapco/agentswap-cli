@@ -8,6 +8,18 @@ use async_trait::async_trait;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[test]
+fn trade_mcp_schema_is_unchanged_by_internal_verification() {
+    let client = Client::new("http://127.0.0.1:1", None);
+    let server = AgentSwapMcp::new(Config { client: client.clone(), intent_client: client,
+        signer: None, allow_trade: false, trade_max_amount: None });
+    let tools = server.tool_router.list_all();
+    let trade = tools.iter().find(|tool| tool.name == "trade").unwrap();
+    let schema = serde_json::to_value(&trade.input_schema).unwrap();
+    assert_eq!(alloy::primitives::keccak256(serde_json::to_vec(&schema).unwrap()).to_string(),
+        "0xe4a1bde6e857a3a5680755e09da592d10c0bb12b9dd2ce83c8c42ab68cfc1fff");
+}
+
+#[test]
 fn arc_is_in_the_mcp_v6_chain_description() {
     let server = AgentSwapMcp::new(Config {
         client: Client::new("http://127.0.0.1:1", None),
@@ -78,7 +90,7 @@ async fn malformed_mcp_trade_cap_rejects_before_signing() {
             max_amount: None, mode: "agent-order".to_string(),
             proxy: "0x2222222222222222222222222222222222222222".to_string(),
             nonce: Some("1".to_string()), deadline_secs: Some(120), dry_run: true,
-            self_submit: false,
+            self_submit: false, verify_quote: true,
         })).await;
         let error = match result {
             Ok(_) => panic!("malformed operator cap {cap:?} must fail"),

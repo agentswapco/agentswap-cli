@@ -46,6 +46,9 @@ pub struct TradeInput {
     pub dry_run: bool,
     #[serde(default)]
     pub self_submit: bool,
+    #[serde(skip, default = "default_true")]
+    #[schemars(skip)]
+    pub(crate) verify_quote: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -119,7 +122,7 @@ fn quote_input(input: &TradeInput) -> QuoteInput {
         to: input.to.clone(),
         amount: input.amount.clone(),
         slippage: input.slippage,
-        verify: true,
+        verify: input.verify_quote,
     }
 }
 

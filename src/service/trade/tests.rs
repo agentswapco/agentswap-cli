@@ -30,8 +30,23 @@ fn trade_input(min_out: Option<String>, dry_run: bool) -> TradeInput {
         amount: "1".to_string(), slippage: Some(50), min_out, max_amount: None,
         mode: "agent-order".to_string(),
         proxy: "0x2222222222222222222222222222222222222222".to_string(), nonce: Some("1".to_string()),
-        deadline_secs: Some(120), dry_run, self_submit: false,
+        deadline_secs: Some(120), dry_run, self_submit: false, verify_quote: true,
     }
+}
+
+#[test]
+fn trade_quote_verification_is_internal_and_defaults_to_true() {
+    let mut input = trade_input(Some("1".into()), true);
+    assert!(quote_input(&input).verify);
+    input.verify_quote = false;
+    assert!(!quote_input(&input).verify);
+    let mut json = serde_json::to_value(&input).unwrap();
+    assert!(json.get("verify_quote").is_none());
+    let restored: TradeInput = serde_json::from_value(json.clone()).unwrap();
+    assert!(quote_input(&restored).verify);
+    json["verify_quote"] = serde_json::json!(false);
+    let forged: TradeInput = serde_json::from_value(json).unwrap();
+    assert!(quote_input(&forged).verify);
 }
 
 #[test]

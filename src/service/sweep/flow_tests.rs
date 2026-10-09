@@ -51,15 +51,17 @@ async fn flow_case(url: &str) {
     let mut spend = policy.tokens[0].clone();
     spend.token = from.address.clone(); spend.cap = "1000000".into();
     policy.tokens[0].token = receive.address.clone();
-    policy.tokens.push(spend);
+    policy.tokens.push(spend.clone());
     let signer = Arc::new(crate::signer::local::LocalKey::from_private_key(&"01".repeat(32)).unwrap());
     let input = Input { chain_id: "8453".into(), proxy: policy.proxy.clone(), receive: receive.address.clone(), max_usd: "1".into(),
         max_loss_bps: 100, tokens: vec![from.address.clone()], dry_run: !matches!(scenario.as_str(), "zero_floor" | "large_holding"), self_submit: true };
     let provider = evm::read_provider(url).unwrap();
     assert_eq!(now(&provider).await.unwrap(), 100);
     let prices = BTreeMap::from([(from.address.parse().unwrap(), tests::price("1", true)), (receive.address.parse().unwrap(), tests::price("1", true))]);
-    let output = run(Context { client: &client, signer: signer.clone(), input: input.clone(), provider, owner: Address::repeat_byte(4),
-        receive, prices, policy, max: amount::fixed("1", false).unwrap(), server_cap: (!input.dry_run).then_some(U256::ZERO), wait: Wait::MCP }).await.unwrap();
+    let context = Context { client: &client, signer: signer.clone(), input: input.clone(), provider, owner: Address::repeat_byte(4),
+        receive, prices, policy, max: amount::fixed("1", false).unwrap(), server_cap: (!input.dry_run).then_some(U256::ZERO), wait: Wait::MCP };
+    if scenario == "pinned_preview" { pinned_sale(context, &spend).await; return; }
+    let output = run(context).await.unwrap();
     assert_eq!(output.tokens.len(), 2);
     assert_eq!(output.tokens[0].reason.as_deref(), Some("receive_token"));
     let row = &output.tokens[1];
@@ -91,6 +93,44 @@ async fn flow_case(url: &str) {
     let mut invalid = input.clone(); invalid.max_loss_bps = 10001;
     assert!(sweep(&client, signer.clone(), invalid.clone(), true, None, Wait::MCP).await.is_err());
     assert!(crate::commands::sweep::run(&client, signer, invalid, false, None, true).await.is_err());
+}
+
+#[test]
+fn sweep_sale_reaches_digest_with_actual_pinned_request() {
+    const NAME: &str = "service::sweep::flow_tests::sweep_sale_reaches_digest_with_actual_pinned_request";
+    if std::env::var("SWEEP_FLOW_CASE").is_ok() {
+        let url = std::env::var("AGENTSWAP_RPC_URL_8453").unwrap();
+        tokio::runtime::Runtime::new().unwrap().block_on(flow_case(&url)); return;
+    }
+    let rpc = fixture(1_000_000_000_000_000_000, 1, 1_000_000);
+    let output = std::process::Command::new(std::env::current_exe().unwrap()).args(["--exact", NAME, "--nocapture"])
+        .env("SWEEP_FLOW_CASE", "pinned_preview").env("AGENTSWAP_RPC_URL_8453", &rpc.url).output().unwrap();
+    assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert_eq!(rpc.called(""), 1, "one HTTP quote for the sale and replay");
+    assert_eq!(rpc.called("eth_sendRawTransaction"), 0);
+}
+
+async fn pinned_sale(context: Context<'_>, budget: &crate::service::intent::TokenPolicy) {
+    let input = sale::trade_input(&context, budget, U256::from(1_000_000), U256::from(990_000_000_000_000_000u64));
+    let request = crate::service::quote::QuoteInput { chain_id: input.chain_id.clone(), from: input.from.clone(),
+        to: input.to.clone(), amount: input.amount.clone(), slippage: input.slippage, verify: false };
+    let from = token::from_registry("USDC", 8453).unwrap();
+    let (body, _) = crate::service::quote::build_quote_body(&request, 8453, &from, &context.receive);
+    let checked = crate::service::quote::quote(context.client, request).await.unwrap();
+    let pinned = context.client.clone().with_pinned_quote(body, checked.response);
+    let signer = context.signer.clone();
+    let context = Context { client: &pinned, ..context };
+    let output = run(context).await.unwrap();
+    output.check().unwrap();
+    let sale = output.tokens[1].trade.as_ref().expect("sale reaches the dry-run signing boundary");
+    assert!(sale.dry_run && sale.signature.is_none());
+    assert_eq!(sale.digest.len(), 66);
+    let replay = crate::service::trade::execute_trade(&pinned, signer, input, false, Wait::MCP).await
+        .expect("sale input must match the actual checked request through execute_trade");
+    assert_eq!(replay.order.amount_in, sale.order.amount_in);
+    assert_eq!(replay.order.min_out, sale.order.min_out);
+    assert!(replay.dry_run && replay.signature.is_none());
+    assert_eq!(replay.digest.len(), 66);
 }
 
 #[test]
@@ -187,13 +227,13 @@ fn quote_flow(scenario: &str, name: &str, status: u16, body: &str, expected: &st
     drop(requests);
     if scenario == "quote_preview" {
         let checked: serde_json::Value = serde_json::from_str(body).unwrap();
-        let mut bound = request.clone(); bound["verify"] = json!(true);
+        let bound = request.clone();
         let pinned = Client::new(&server.url, None).with_pinned_quote(bound.clone(), checked.clone());
         tokio::runtime::Runtime::new().unwrap().block_on(async {
             assert_eq!(pinned.quote(&bound).await.unwrap(), checked);
             for (field, value) in [("amount_in", json!("1000001")), ("chain_id", json!(56)),
                 ("token_in", json!(Address::repeat_byte(9))), ("token_out", json!(Address::repeat_byte(9))),
-                ("verify", json!(false)), ("slippage_bps", json!(1))] {
+                ("verify", json!(true)), ("slippage_bps", json!(1))] {
                 let mut changed = bound.clone(); changed[field] = value;
                 assert!(pinned.quote(&changed).await.unwrap_err().to_string().contains("differs"));
             }
