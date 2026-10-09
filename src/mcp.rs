@@ -75,7 +75,7 @@ impl AgentSwapMcp {
 
 #[tool_router(router = tool_router)]
 impl AgentSwapMcp {
-    #[tool(description = "Sell small grant-basket holdings with independent price floors. Requires max_usd, max_loss_bps, a live market grant and receive basket membership. dry_run defaults true and is forced without --allow-trade; requires --key-file. self_submit pays gas from the agent wallet. Reverted or unknown broadcasts stop later sales; failures return all token rows. Pricing is available on Base, Arbitrum One and BNB Smart Chain.")]
+    #[tool(description = "Sell small grant-basket holdings with independent price floors. Requires a nonempty tokens array of basket ERC-20 addresses to sell, max_usd, max_loss_bps, a live market grant and receive basket membership. Reads policy and token budgets without scanning logs. dry_run defaults true and is forced without --allow-trade; requires --key-file. self_submit pays gas from the agent wallet. Reverted or unknown broadcasts stop later sales; failures return all token rows. Pricing is available on Base, Arbitrum One and BNB Smart Chain.")]
     async fn sweep(&self, Parameters(input): Parameters<sweep::Input>) -> std::result::Result<Json<sweep::Output>, String> {
         let signer = self.signer.clone().ok_or("sweep requires --key-file")?;
         let output = sweep::sweep(&self.client, signer, input, self.allow_trade, self.trade_max_amount.as_deref(), Wait::MCP).await.map_err(tool_error)?;
@@ -85,7 +85,7 @@ impl AgentSwapMcp {
         Ok(Json(output))
     }
 
-    #[tool(description = "Discover ERC-20 holdings from wallet-tokens, service catalog, registry, explicit addresses and best-effort Transfer logs. App prices include provenance and floor_eligible; source failures and scanned range are reported; max_usd is an unsigned USD decimal, quotes full eligible balances and unpriced tokens. Quotes never sign payments. Older tokens may be missing.")]
+    #[tool(description = "Discover ERC-20 holdings from wallet-tokens and explicit addresses without scanning logs. Indexed holdings include balances and metadata; service catalog and registry reads are used only when indexing is unavailable. App prices include provenance and floor_eligible; Alchemy fallback prices are display-only and never floor-eligible. max_usd is an unsigned USD decimal, quotes full eligible balances and unpriced tokens. Quotes never sign payments. Discovery may be incomplete.")]
     async fn portfolio(&self, Parameters(input): Parameters<portfolio::Input>) -> std::result::Result<Json<portfolio::Output>, String> {
         portfolio::portfolio(&self.client, input).await.map(Json).map_err(tool_error)
     }

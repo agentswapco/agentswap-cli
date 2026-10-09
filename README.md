@@ -49,16 +49,18 @@ agentswap grant-link --chainid 42161 --owner "$OWNER" --agent "$AGENT" \
   --token "$TOKEN:1000000" --receive USDC --epoch 1w --expiry 30d
 ```
 
-Portfolio combines the app's `/api/wallet-tokens`, the live service token catalog filtered by
-chain, registry tokens, repeatable `--token` addresses and incoming Transfer logs.
-Every row reports discovery sources; balances come from `balanceOf`, and zero balances are omitted.
+Portfolio combines the app's `/api/wallet-tokens` with repeatable `--token` addresses, without
+scanning logs. Indexed tokens use the endpoint's balance, decimals, symbol and name without
+per-token RPC reads. Explicit tokens absent from that response are read on chain. When indexing
+is unavailable, discovery falls back to the live service catalog filtered by chain and registry
+tokens, reading their balances on chain. Every row reports discovery sources; zero balances are omitted.
 `wallet_tokens` is `indexed`, `unindexed` or `unavailable`; failed sources contribute no candidates.
-Catalog failures are reported in `catalog_error`. A failed log chunk stops the scan while preserving
-earlier discoveries; `log_scan` reports `from_block`, `to_block_scanned` and an optional error.
-A null scan bound means no block was available or no chunk completed. Older holdings may be missing;
-use `--token` addresses or wider `--lookback-blocks` to extend discovery. Failed balance reads carry
+Catalog failures are reported in `catalog_error`. Discovery may be incomplete;
+use `--token` addresses to extend it. Failed balance reads carry
 a row status; the command fails if none of the candidate balances can be read.
-App `/api/prices` prices and USD values use decimal integer arithmetic. Missing prices are unpriced.
+App `/api/prices` prices and USD values use decimal integer arithmetic. When an app price is absent,
+the wallet-token `priceUsd` is shown with source `alchemy` and `floor_eligible: false`; it is never
+a sale-floor source. Tokens without either price are unpriced.
 Rows carry price `source`, `confidence`, `basis`, `observed`, `source_count` and `floor_eligible`.
 DefiLlama prices qualify for a floor; oracle prices qualify only when observed and either supported
 by at least two sources or based on `manual_pin`, `stablecoin_par` or `onchain_pool`.
@@ -133,13 +135,16 @@ pass `--lookback-blocks`.
 
 ```sh
 agentswap --allow-trade sweep --chainid 8453 --proxy "$PROXY" --key-file agent.key \
-  --receive USDC --max-usd 5 --max-loss-bps 100 --self-submit --json
+  --token "$WETH" --token "$CBETH" --receive USDC --max-usd 5 --max-loss-bps 100 --self-submit --json
 ```
 
-`sweep` and MCP `sweep` require `max_usd` (USD decimal) and `max_loss_bps`, a live market
-policy and a receive token in its basket. Each sale spends the minimum of owner balance,
-remaining epoch budget and owner-to-proxy allowance. Add `--token` addresses or widen
-`--lookback-blocks` when cap events are older than the scan range. Prices are available on
+`sweep` and MCP `sweep` require `max_usd` (USD decimal), `max_loss_bps` and at least one basket
+token address to sell: repeat `--token` on the CLI or pass a nonempty MCP `tokens` array.
+The agent takes the spend-token addresses listed in `grant-link` output and passes them to `sweep`
+after the owner approves the grant. A live market policy and an allowed receive token are required.
+Membership, caps, usage and epoch start are read with `agentTokenInfo`; expiry, action mask and
+generation are read with `policyOf`. No logs are scanned. Each sale spends the minimum of owner
+balance, remaining epoch budget and owner-to-proxy allowance. Prices are available on
 Base, Arbitrum One and BNB Smart Chain; unpriced holdings are skipped on all chains.
 Both input and receive prices must be floor-eligible. Floors use integer arithmetic and
 independent app prices; routes below the floor are skipped.
@@ -148,7 +153,8 @@ Without `--allow-trade`, execution is forced to dry-run. MCP defaults `dry_run` 
 `--self-submit` pays gas from the agent key's wallet. Without it, a live sweep returns signed
 calldata with outcome `skipped` and reason `not_submitted`; dry runs use reason `dry_run`.
 Confirmed sales report `sold`.
-Every basket token has a result row with raw amount, USD value, floor, quote output and outcome.
+Each allowed requested token and the receive token has a result row with raw amount, USD value,
+floor, quote output and outcome.
 Pre-broadcast failures continue; reverted or unknown broadcasts stop later sales, reported as
 `sweep_stopped`. The exit code is the worst result (0, 1, 3 or 4); exit 1 can follow earlier
 confirmed sales. MCP failures carry the full result. A sweep can exceed a single-trade timeout.

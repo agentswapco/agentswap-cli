@@ -8,7 +8,7 @@ pub async fn portfolio(cli: &Cli, input: portfolio::Input) -> Result<()> {
     let output = portfolio::portfolio(&Client::new(&cli.url, key), input).await?;
     if cli.json { println!("{}", serde_json::to_string_pretty(&output)?); }
     else {
-        println!("Log scan: {}\nwallet-tokens: {}\n{}", serde_json::to_string(&output.log_scan)?, serde_json::to_string(&output.wallet_tokens)?, output.warning);
+        println!("wallet-tokens: {}\n{}", serde_json::to_string(&output.wallet_tokens)?, output.warning);
         for row in output.tokens {
             println!("{} {} raw={} USD={} status={} dust={} sources={}", row.address, row.symbol,
                 row.balance_raw.as_deref().unwrap_or("unknown"), row.value_usd.as_deref().unwrap_or("unpriced"),

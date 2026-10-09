@@ -10,6 +10,8 @@ mod http;
 #[cfg(test)]
 mod source_tests;
 #[cfg(test)]
+mod wallet_tests;
+#[cfg(test)]
 pub(crate) mod tests;
 
 use alloy::{primitives::{Address, U256}, providers::DynProvider};
@@ -36,15 +38,13 @@ pub struct Input {
     /// Quote output symbol or address; defaults to USDC.
     #[arg(long)]
     pub quote_token: Option<String>,
-    /// Incoming Transfer event lookback in blocks.
-    #[arg(long)]
-    pub lookback_blocks: Option<u64>,
 }
 
-#[derive(Debug, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct Row {
     pub address: String,
     pub symbol: String,
+    pub name: Option<String>,
     pub decimals: Option<u8>,
     pub balance_raw: Option<String>,
     pub price_usd: Option<String>,
@@ -66,9 +66,6 @@ pub struct Row {
 pub struct Output {
     pub chain_id: u64,
     pub owner: String,
-    pub from_block: Option<u64>,
-    pub to_block: Option<u64>,
-    pub log_scan: discovery::LogScan,
     pub wallet_tokens: sources::WalletTokens,
     pub wallet_tokens_truncated: bool,
     pub catalog_error: Option<String>,
@@ -87,38 +84,39 @@ pub(crate) async fn read(client: &Client, input: Input, provider: &DynProvider, 
     let owner = order_types::parse_address(&input.owner)?;
     let max = input.max_usd.as_deref().map(|s| amount::fixed(s, false)).transpose()?;
     let client = client.clone().with_x402(crate::x402::Config::disabled(), None);
-    let (mut candidates, log_scan, to_block) = discovery::discover(provider, config, owner, &input.tokens, input.lookback_blocks).await?;
-    let (wallet_tokens, wallet_tokens_truncated) = sources::wallet_tokens(app_origin, config.id, owner, &mut candidates).await;
-    let catalog_error = sources::catalog(&client, config.id, &mut candidates).await.err()
-        .map(|_| "Service catalog unavailable; this source found nothing".to_string());
-    let mut rows = balances(provider, config.id, owner, candidates).await?;
+    let (wallet_tokens, wallet_tokens_truncated, mut rows) = sources::wallet_tokens(app_origin, config.id, owner).await;
+    let indexed = wallet_tokens == sources::WalletTokens::Indexed;
+    let mut candidates = discovery::discover(config, &input.tokens, indexed)?;
+    let catalog_error = if indexed { None } else { sources::catalog(&client, config.id, &mut candidates).await.err()
+        .map(|_| "Service catalog unavailable; this source found nothing".to_string()) };
+    for row in &mut rows {
+        if let Some(sources) = candidates.remove(&row.address.parse::<Address>()?) { row.sources.extend(sources); }
+    }
+    let mut rows = balances(provider, config.id, owner, candidates, rows).await?;
     let addresses = rows.iter().filter_map(|r| r.address.parse().ok()).collect::<Vec<_>>();
     let prices = prices::prices(config.id, &addresses, app_origin).await;
     value_rows(&client, &input, provider, &mut rows, &prices, max).await?;
-    let mut warning = "Tokens received before the scanned block range may be missing; add --token addresses or widen --lookback-blocks to extend discovery. USD values are indicative; quotes are not sale floors.".to_string();
+    let mut warning = "Holdings discovery may be incomplete; add --token addresses to extend discovery. USD values are indicative; quotes are not sale floors.".to_string();
     if wallet_tokens != sources::WalletTokens::Indexed { warning.push_str(" wallet-tokens source found nothing."); }
     if wallet_tokens_truncated { warning.push_str(" wallet-tokens results are truncated."); }
     if let Some(error) = &catalog_error { warning.push_str(&format!(" {error}.")); }
-    if log_scan.error.is_some() { warning.push_str(" Transfer log scan stopped early; see log_scan.error."); }
     if max.is_some() && token::from_registry(input.quote_token.as_deref().unwrap_or("USDC"), config.id).is_none()
         && discovery::erc20(input.quote_token.as_deref().unwrap_or("USDC")).is_err() {
         warning.push_str(" Quote token symbol is unavailable on this chain; supply its receive address through --quote-token. no_route here does not establish that no economic route exists.");
     }
-    Ok(Output { chain_id: config.id, owner: format!("{owner:?}"), from_block: log_scan.from_block, to_block,
-        log_scan, wallet_tokens, wallet_tokens_truncated, catalog_error,
+    Ok(Output { chain_id: config.id, owner: format!("{owner:?}"), wallet_tokens, wallet_tokens_truncated, catalog_error,
         warning, tokens: rows })
 }
 
 async fn value_rows(client: &Client, input: &Input, provider: &DynProvider, rows: &mut [Row],
     prices: &std::collections::BTreeMap<Address, prices::Price>, max: Option<U256>) -> Result<()> {
+    let target = input.quote_token.as_deref().and_then(|t| t.parse::<Address>().ok());
+    let indexed_target = rows.iter().find(|r| r.address.parse::<Address>().ok() == target
+        && r.sources.iter().any(|s| s == "wallet-tokens")).cloned();
     for row in rows {
-        let Some(raw) = row.balance_raw.as_deref() else { continue; };
-        let Some(decimals) = row.decimals else { continue; };
-        let raw = order_types::parse_u256(raw)?;
         let price = prices.get(&row.address.parse::<Address>()?);
-        let (value, below) = price.map(|p| amount::valuation(raw, p.value, decimals, max))
-            .map_or((None, false), |(v, b)| (Some(v), b));
-        row.price_usd = price.map(|p| amount::render(&p.value.to_string(), 18));
+        let price_value = price.map(|p| p.value).or_else(|| row.price_usd.as_deref().and_then(|p| amount::fixed(p, false).ok()));
+        row.price_usd = price_value.map(|p| amount::render(&p.to_string(), 18));
         if let Some(price) = price {
             row.source = Some(price.source.clone());
             row.confidence = price.confidence.clone();
@@ -127,10 +125,15 @@ async fn value_rows(client: &Client, input: &Input, provider: &DynProvider, rows
             row.source_count = price.source_count;
             row.floor_eligible = price.floor_eligible;
         }
+        let Some(raw) = row.balance_raw.as_deref() else { continue; };
+        let Some(decimals) = row.decimals else { continue; };
+        let raw = order_types::parse_u256(raw)?;
+        let (value, below) = price_value.map(|p| amount::valuation(raw, p, decimals, max))
+            .map_or((None, false), |(v, b)| (Some(v), b));
         row.value_usd = value;
-        row.status = if price.is_some() { "priced" } else { "unpriced" }.into();
-        if max.is_some() && (below || price.is_none()) {
-            row.quote_out_raw = quote_row(client, input, row, decimals, raw, provider).await.ok();
+        row.status = if price_value.is_some() { "priced" } else { "unpriced" }.into();
+        if max.is_some() && (below || price_value.is_none()) {
+            row.quote_out_raw = quote_row(client, input, row, decimals, raw, provider, indexed_target.as_ref()).await.ok();
             row.dust = below && row.quote_out_raw.is_some();
             if row.quote_out_raw.is_none() { row.status = "no_route".into(); }
         }
@@ -138,10 +141,9 @@ async fn value_rows(client: &Client, input: &Input, provider: &DynProvider, rows
     Ok(())
 }
 
-async fn balances(provider: &DynProvider, chain: u64, owner: Address, candidates: discovery::Candidates) -> Result<Vec<Row>> {
-    let mut out = Vec::new();
+async fn balances(provider: &DynProvider, chain: u64, owner: Address, candidates: discovery::Candidates, mut out: Vec<Row>) -> Result<Vec<Row>> {
     let candidates = candidates.into_iter().collect::<Vec<_>>();
-    let mut readable = candidates.is_empty();
+    let mut readable = !out.is_empty() || candidates.is_empty();
     for chunk in candidates.chunks(8) {
         let mut jobs = tokio::task::JoinSet::new();
         for (address, sources) in chunk {
@@ -166,17 +168,20 @@ async fn read_row(provider: &DynProvider, chain: u64, owner: Address, address: A
     let metadata = token::read_metadata(provider, address, chain).await;
     let status = if balance.is_err() { "balance_error" } else if metadata.is_err() { "metadata_error" } else { "unpriced" };
     Some(Row { address: format!("{address:?}"), symbol: metadata.as_ref().map(|m| m.symbol.clone()).unwrap_or_default(),
-        decimals: metadata.ok().map(|m| m.decimals), balance_raw: balance.ok().map(|b| b.to_string()),
+        name: None, decimals: metadata.ok().map(|m| m.decimals), balance_raw: balance.ok().map(|b| b.to_string()),
         price_usd: None, value_usd: None, source: None, confidence: None, basis: None, observed: None, source_count: None, floor_eligible: false, sources, status: status.into(), quote_out_raw: None, dust: false })
 }
 
-async fn quote_row(client: &Client, input: &Input, row: &Row, decimals: u8, raw: U256, provider: &DynProvider) -> Result<String> {
+async fn quote_row(client: &Client, input: &Input, row: &Row, decimals: u8, raw: U256, provider: &DynProvider, indexed_target: Option<&Row>) -> Result<String> {
     let chain = discovery::config(&input.chain_id)?.id;
     let target = input.quote_token.as_deref().unwrap_or("USDC");
-    let to = match token::from_registry(target, chain) {
+    let to = if let Some(row) = indexed_target {
+        token::Token { address: row.address.clone(), symbol: row.symbol.clone(),
+            decimals: row.decimals.ok_or_else(|| eyre::eyre!("quote token decimals unavailable"))? }
+    } else { match token::from_registry(target, chain) {
         Some(token) => token,
         None => token::read_metadata(provider, discovery::erc20(target)?, chain).await?,
-    };
+    } };
     let from = token::Token { address: row.address.clone(), symbol: row.symbol.clone(), decimals };
     let input = quote::QuoteInput { chain_id: chain.to_string(), from: from.address.clone(), to: to.address.clone(),
         amount: raw.to_string(), slippage: None, verify: false };

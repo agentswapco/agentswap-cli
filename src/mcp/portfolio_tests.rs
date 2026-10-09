@@ -67,7 +67,7 @@ fn portfolio_configured_x402_never_signs_or_retries() {
         .args(["--exact", CASE, "--nocapture"]).env("AGENTSWAP_PORTFOLIO_TEST_CASE", CASE)
         .env("AGENTSWAP_RPC_URL_4663", &rpc.url).output().unwrap();
     assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-    assert_eq!(rpc.called("eth_getLogs"), 2);
+    assert_eq!(rpc.called("eth_getLogs"), 0);
 }
 
 #[tokio::test]

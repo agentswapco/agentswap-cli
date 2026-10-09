@@ -21,11 +21,10 @@ pub struct Input {
     #[arg(long, value_parser = clap::value_parser!(u16).range(0..10000))]
     #[schemars(range(min = 0, max = 9999))]
     pub max_loss_bps: u16,
-    #[arg(long = "token")]
-    #[serde(default)]
+    /// Basket ERC-20 address to sell; required and repeatable.
+    #[arg(long = "token", required = true)]
+    #[schemars(length(min = 1))]
     pub tokens: Vec<String>,
-    #[arg(long)]
-    pub lookback_blocks: Option<u64>,
     /// Preview only; forced without --allow-trade. MCP defaults to true.
     #[arg(long)]
     #[serde(default = "super::default_true")]

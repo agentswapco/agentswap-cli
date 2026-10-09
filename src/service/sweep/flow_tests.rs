@@ -52,7 +52,7 @@ async fn flow_case(url: &str) {
     policy.tokens.push(spend);
     let signer = Arc::new(crate::signer::local::LocalKey::from_private_key(&"01".repeat(32)).unwrap());
     let input = Input { chain_id: "8453".into(), proxy: policy.proxy.clone(), receive: receive.address.clone(), max_usd: "1".into(),
-        max_loss_bps: 100, tokens: vec![], lookback_blocks: Some(1), dry_run: !matches!(scenario.as_str(), "zero_floor" | "large_holding"), self_submit: true };
+        max_loss_bps: 100, tokens: vec![from.address.clone()], dry_run: !matches!(scenario.as_str(), "zero_floor" | "large_holding"), self_submit: true };
     let provider = evm::read_provider(url).unwrap();
     assert_eq!(now(&provider).await.unwrap(), 100);
     let prices = BTreeMap::from([(from.address.parse().unwrap(), tests::price("1", true)), (receive.address.parse().unwrap(), tests::price("1", true))]);
@@ -100,6 +100,7 @@ fn sweep_flow_preview_routes_and_policy_change() {
             .env("SWEEP_FLOW_CASE", name).env("AGENTSWAP_RPC_URL_8453", &rpc.url).output().unwrap();
         assert!(output.status.success(), "{name}: {}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
         assert_eq!(rpc.called("eth_sendRawTransaction"), 0);
+        assert_eq!(rpc.called("eth_getLogs"), 0);
         assert_eq!(rpc.called(""), usize::from(name != "changed"), "one checked quote per attempted sale");
     }
 }
@@ -125,4 +126,5 @@ fn guarded_flow(scenario: &str, name: &str, balance: u64) {
     assert!(output.status.success(), "{scenario}: {}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(rpc.called(""), 0, "no quote binding or execute_trade");
     assert_eq!(rpc.called("eth_sendRawTransaction"), 0);
+    assert_eq!(rpc.called("eth_getLogs"), 0);
 }

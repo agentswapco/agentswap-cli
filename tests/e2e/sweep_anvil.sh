@@ -34,17 +34,8 @@ printf '%s' "$AKEY" > "$WORK/agent.key"
 for who in "$OWNER" "$AGENT"; do cast rpc anvil_setBalance "$who" "$(cast to-hex 100000000000000000000)" --rpc-url "$RPC" >/dev/null; done
 cast send --private-key "$OKEY" "$FACTORY" 'deploy(address)' "$OWNER" --rpc-url "$RPC" >/dev/null
 PROXY=$(cast call "$FACTORY" 'proxyOf(address)(address)' "$OWNER" --rpc-url "$RPC")
-# Locate the cbETH balance mapping on the fork, restoring every non-matching slot.
-CB_SLOT=
-for slot in $(seq 0 100); do
-  key=$(cast index address "$OWNER" "$slot")
-  previous=$(cast storage "$CBETH" "$key" --rpc-url "$RPC")
-  cast rpc anvil_setStorageAt "$CBETH" "$key" "$(cast to-uint256 123456789)" --rpc-url "$RPC" >/dev/null
-  balance=$(cast call "$CBETH" 'balanceOf(address)(uint256)' "$OWNER" --rpc-url "$RPC" | awk '{print $1}')
-  cast rpc anvil_setStorageAt "$CBETH" "$key" "$previous" --rpc-url "$RPC" >/dev/null
-  if [ "$balance" = 123456789 ]; then CB_SLOT=$key; break; fi
-done
-[ -n "$CB_SLOT" ] || { echo 'FAIL cbETH balance mapping unavailable'; exit 1; }
+# crpc balance-slot matched cbETH's nonzero self-balance to mapping slot 51 on Base.
+CB_SLOT=$(cast index address "$OWNER" 51)
 CAP=1000000000000000
 cast send --private-key "$OKEY" "$WETH" 'deposit()' --value "$CAP" --rpc-url "$RPC" >/dev/null
 cast rpc anvil_setStorageAt "$CBETH" "$CB_SLOT" "$(cast to-uint256 "$CAP")" --rpc-url "$RPC" >/dev/null
@@ -57,7 +48,7 @@ done
 export AGENTSWAP_RPC_URL_8453=$RPC
 BEFORE=$(cast call "$USDC" 'balanceOf(address)(uint256)' "$OWNER" --rpc-url "$RPC" | awk '{print $1}')
 "$BIN" --allow-trade sweep --chainid 8453 --proxy "$PROXY" --key-file "$WORK/agent.key" \
-  --receive USDC --max-usd 100 --max-loss-bps 500 --self-submit --lookback-blocks 100 --json > "$WORK/first.json"
+  --receive USDC --token "$WETH" --token "$CBETH" --max-usd 100 --max-loss-bps 500 --self-submit --json > "$WORK/first.json"
 python3 - "$WORK/first.json" <<'PY'
 import json,sys
 rows=json.load(open(sys.argv[1]))['tokens']
@@ -76,11 +67,11 @@ for token in "$WETH" "$CBETH"; do
 done
 echo 'PASS exact allowances consumed'
 "$BIN" --allow-trade sweep --chainid 8453 --proxy "$PROXY" --key-file "$WORK/agent.key" \
-  --receive USDC --max-usd 100 --max-loss-bps 500 --self-submit --lookback-blocks 100 --json > "$WORK/second.json"
+  --receive USDC --token "$WETH" --token "$CBETH" --max-usd 100 --max-loss-bps 500 --self-submit --json > "$WORK/second.json"
 python3 - "$WORK/second.json" <<'PY'
 import json,sys
 rows=json.load(open(sys.argv[1]))['tokens']
-assert len(rows)==3 and all(r['outcome']=='skipped' and r['reason']=='zero' for r in rows),rows
+assert len(rows)==3 and all(r['outcome']=='skipped' and r['reason'] in ('zero','receive_token') for r in rows),rows
 print('PASS second sweep sells nothing')
 PY
 # A large cbETH holding probes price impact on thinner liquidity at a zero-loss floor.
@@ -91,7 +82,7 @@ cast send --private-key "$OKEY" "$PROXY" 'grantAgent(address,uint64,uint32,uint8
   "$AGENT" "$((NOW + 86400))" 604800 1 "[$CBETH,$USDC]" "[$THIN_CAP,0]" --rpc-url "$RPC" >/dev/null
 cast send --private-key "$OKEY" "$CBETH" 'approve(address,uint256)' "$PROXY" "$THIN_CAP" --rpc-url "$RPC" >/dev/null
 "$BIN" sweep --chainid 8453 --proxy "$PROXY" --key-file "$WORK/agent.key" \
-  --receive USDC --max-usd 10000000 --max-loss-bps 0 --dry-run --lookback-blocks 100 --json > "$WORK/thin.json"
+  --receive USDC --token "$CBETH" --max-usd 10000000 --max-loss-bps 0 --dry-run --json > "$WORK/thin.json"
 python3 - "$WORK/thin.json" <<'PY'
 import json,sys
 rows=json.load(open(sys.argv[1]))['tokens']

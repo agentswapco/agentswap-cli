@@ -11,8 +11,13 @@ fn sweep_command_and_required_risk_inputs_are_exposed() {
     for flag in ["--max-usd", "--max-loss-bps", "--receive", "--proxy", "--self-submit", "--dry-run", "--token"] {
         assert!(help.contains(flag), "missing {flag}");
     }
-    for absent in ["--max-usd", "--max-loss-bps"] {
+    assert!(!help.contains("--lookback-blocks"));
+    let portfolio = Command::new(binary).args(["portfolio", "--help"]).output().unwrap();
+    assert!(portfolio.status.success());
+    assert!(!String::from_utf8(portfolio.stdout).unwrap().contains("--lookback-blocks"));
+    for absent in ["--max-usd", "--max-loss-bps", "--token"] {
         let mut args = vec!["sweep", "--chainid", "8453", "--proxy", "proxy", "--receive", "USDC"];
+        if absent != "--token" { args.extend(["--token", "token"]); }
         if absent != "--max-usd" { args.extend(["--max-usd", "5"]); }
         if absent != "--max-loss-bps" { args.extend(["--max-loss-bps", "100"]); }
         let output = Command::new(binary).args(args).output().unwrap();

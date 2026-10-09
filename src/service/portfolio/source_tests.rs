@@ -21,12 +21,11 @@ async fn wallet_tokens_failure_modes_find_nothing() {
     }
     for (status, body) in cases {
         let server = Server::start(vec![(status, String::new(), body)]);
-        let mut candidates = Candidates::new();
-        add(&mut candidates, Address::repeat_byte(2), "explicit");
-        assert_eq!(wallet_tokens(&server.url, 8453, owner, &mut candidates).await, (WalletTokens::Unavailable, false));
-        assert_eq!(candidates.len(), 1);
+        let (state, truncated, rows) = wallet_tokens(&server.url, 8453, owner).await;
+        assert_eq!((state, truncated), (WalletTokens::Unavailable, false));
+        assert!(rows.is_empty());
     }
-    assert_eq!(wallet_tokens("http://127.0.0.1:1", 8453, owner, &mut Candidates::new()).await.0, WalletTokens::Unavailable);
+    assert_eq!(wallet_tokens("http://127.0.0.1:1", 8453, owner).await.0, WalletTokens::Unavailable);
 }
 
 #[tokio::test]
@@ -36,12 +35,11 @@ async fn wallet_tokens_indexed_unindexed_and_truncated() {
         let server = Server::start(vec![(200, String::new(), json!({"chainId":8453,"owner":owner,
             "indexed":indexed,"truncated":true,"tokens":[{"address":Address::repeat_byte(1),"balanceRaw":"10"},
             {"address":Address::repeat_byte(2),"balanceRaw":"0"}]}).to_string())]);
-        let mut candidates = Candidates::new();
-        let (state, truncated) = wallet_tokens(&server.url, 8453, owner, &mut candidates).await;
+        let (state, truncated, rows) = wallet_tokens(&server.url, 8453, owner).await;
         assert_eq!(state, if indexed { WalletTokens::Indexed } else { WalletTokens::Unindexed });
         assert_eq!(truncated, indexed);
-        assert_eq!(candidates.len(), usize::from(indexed));
-        if indexed { assert!(candidates[&Address::repeat_byte(1)].contains("wallet-tokens")); }
+        assert_eq!(rows.len(), usize::from(indexed));
+        if indexed { assert_eq!(rows[0].sources, vec!["wallet-tokens"]); }
         let requests = server.requests.lock().unwrap();
         assert_eq!(requests[0].method, "GET");
         assert_eq!(requests[0].target, format!("/api/wallet-tokens?chain=8453&owner={owner:?}"));

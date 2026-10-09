@@ -9,10 +9,9 @@ use test_rpc::{TestRpc, ok, failure};
 
 fn fixture() -> TestRpc {
     TestRpc::start(|body| {
-        let token = Address::repeat_byte(1);
         let result = match body["method"].as_str().unwrap_or("") {
             "eth_blockNumber" => json!("0x10"),
-            "eth_getLogs" => json!([{"address":format!("{token:?}"), "topics":[keccak256("Transfer(address,address,uint256)"), Address::repeat_byte(2).into_word(), Address::repeat_byte(4).into_word()], "data":format!("0x{}", hex::encode(U256::from(1234500).abi_encode())), "blockNumber":"0x10", "transactionIndex":"0x0", "logIndex":"0x0", "blockHash":alloy::primitives::B256::ZERO, "transactionHash":alloy::primitives::B256::ZERO, "removed":false}]),
+            "eth_getLogs" => panic!("portfolio must not scan logs"),
             "alchemy_getTokenBalances" => return Some(failure(body, "method not found")),
             "eth_call" => {
                 let tx = &body["params"][0];
@@ -65,12 +64,13 @@ fn cli_portfolio_and_grant_link_ignore_signer_files() {
                     assert_eq!(value["tokens"][0]["quote_out_raw"], "99");
                     assert_eq!(value["tokens"][0]["dust"], false);
                     assert!(["indexed", "unindexed", "unavailable"].contains(&value["wallet_tokens"].as_str().unwrap()));
-                    assert!(value["log_scan"]["error"].is_null());
+                    assert!(value.get("log_scan").is_none());
                 }
             } else { assert!(text.contains("1234500")); }
         }
     }
     assert_eq!(rpc.called("eth_sendRawTransaction"), 0);
+    assert_eq!(rpc.called("eth_getLogs"), 0);
 }
 
 fn exchange(stdin: &mut impl Write, stdout: &mut impl BufRead, request: Value) -> Value {
@@ -103,4 +103,5 @@ fn mcp_portfolio_and_grant_link_over_stdio() {
     drop(stdin);
     assert!(child.wait().unwrap().success());
     assert_eq!(rpc.called("eth_sendRawTransaction"), 0);
+    assert_eq!(rpc.called("eth_getLogs"), 0);
 }
