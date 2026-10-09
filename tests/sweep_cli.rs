@@ -20,3 +20,13 @@ fn sweep_command_and_required_risk_inputs_are_exposed() {
         assert!(String::from_utf8_lossy(&output.stderr).contains(absent));
     }
 }
+
+#[test]
+fn sweep_help_states_key_loss_bound_and_unpriced_chains() {
+    let output = Command::new(env!("CARGO_BIN_EXE_agentswap")).args(["sweep", "--help"]).output().unwrap();
+    assert!(output.status.success());
+    let help = String::from_utf8(output.stdout).unwrap();
+    assert!(help.contains("Requires --key-file"), "{help}");
+    assert!(help.contains("less than 10000"), "{help}");
+    assert!(help.contains("sells nothing on chains without prices, including Robinhood Chain (4663)"), "{help}");
+}

@@ -15,10 +15,11 @@ alloy::sol! {
 pub(super) async fn sell(context: &Context<'_>, budget: &TokenPolicy, row: &mut Row) -> Result<bool> {
     let address = discovery::erc20(&budget.token)?;
     let receive = discovery::erc20(&context.receive.address)?;
-    if address == receive || order_types::parse_u256(&budget.cap)? == U256::ZERO {
+    if address == receive { row.reason = Some("receive_token".into()); return Ok(false); }
+    if order_types::parse_u256(&budget.cap)? == U256::ZERO {
         row.reason = Some("zero".into()); return Ok(false);
     }
-    let raw = current_amount(context, address).await?;
+    let (balance, raw) = current_amount(context, address).await?;
     row.amount_raw = raw.to_string();
     if raw == U256::ZERO { row.reason = Some("zero".into()); return Ok(false); }
     let config = discovery::config(&context.input.chain_id)?;
@@ -26,12 +27,13 @@ pub(super) async fn sell(context: &Context<'_>, budget: &TokenPolicy, row: &mut 
     let input_price = context.prices.get(&address);
     let output_price = context.prices.get(&receive);
     row.value_usd = input_price.map(|p| amount::valuation(raw, p.value, from.decimals, None).0);
-    if let Some(reason) = math::price_skip(raw, from.decimals, input_price, output_price, context.max) {
+    if let Some(reason) = math::price_skip(balance, from.decimals, input_price, output_price, context.max) {
         row.reason = Some(reason.into()); return Ok(false);
     }
     let floor = math::floor(raw, input_price.ok_or_else(|| eyre::eyre!("unpriced"))?, output_price.ok_or_else(|| eyre::eyre!("unpriced"))?,
         from.decimals, context.receive.decimals, context.input.max_loss_bps)?;
     row.floor_raw = Some(floor.to_string());
+    if floor == U256::ZERO { row.reason = Some("below_floor".into()); return Ok(false); }
     let request = quote::QuoteInput { chain_id: context.input.chain_id.clone(), from: budget.token.clone(), to: context.receive.address.clone(), amount: raw.to_string(), slippage: None, verify: true };
     let checked = quote::quote(context.client, request).await.ok();
     let quoted = checked.as_ref().and_then(|q| q.response["output"].as_str().and_then(|s| order_types::parse_raw_amount("quote output", s).ok()));
@@ -45,7 +47,7 @@ pub(super) async fn sell(context: &Context<'_>, budget: &TokenPolicy, row: &mut 
     Ok(row.record(trade::execute_trade(&client, context.signer.clone(), input, !context.input.dry_run, context.wait).await))
 }
 
-async fn current_amount(context: &Context<'_>, token: Address) -> Result<U256> {
+async fn current_amount(context: &Context<'_>, token: Address) -> Result<(U256, U256)> {
     let proxy = order_types::parse_address(&context.input.proxy)?;
     let contract = UserProxyV6::new(proxy, context.provider.clone());
     let policy = contract.policyOf(context.signer.address()).call().await?;
@@ -53,11 +55,11 @@ async fn current_amount(context: &Context<'_>, token: Address) -> Result<U256> {
     eyre::ensure!(policy.expiry > now && policy.actionMask & 1 != 0, "agent policy is inactive");
     eyre::ensure!(policy.generation.to_string() == context.policy.generation, "agent policy changed during sweep");
     let info = contract.agentTokenInfo(context.signer.address(), token).call().await?;
-    if !info.allowed { return Ok(U256::ZERO); }
+    if !info.allowed { return Ok((U256::ZERO, U256::ZERO)); }
     let remaining = math::remaining(info.cap, info.used, info.epochStart, u64::from(policy.epochLen), now);
     let balance = discovery::balance(&context.provider, token, context.owner).await?;
     let allowance = AllowanceReader::new(token, context.provider.clone()).allowance(context.owner, proxy).call().await?;
-    Ok(math::spendable(balance, remaining, allowance))
+    Ok((balance, math::spendable(balance, remaining, allowance)))
 }
 
 fn trade_input(context: &Context<'_>, budget: &TokenPolicy, raw: U256, floor: U256) -> trade::TradeInput {

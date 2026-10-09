@@ -117,3 +117,24 @@ fn cli_required_thresholds_and_mcp_default_dry_run() {
     let input: Input = serde_json::from_value(json!({"chain_id":"8453","proxy":"proxy","receive":"USDC","max_usd":"5","max_loss_bps":100})).unwrap();
     assert!(input.dry_run && default_true());
 }
+
+#[test]
+fn sweep_cli_refuses_10000_loss_bps() {
+    use clap::Parser;
+    let args = ["agentswap", "sweep", "--chainid", "8453", "--proxy", "proxy", "--receive", "USDC", "--max-usd", "5", "--max-loss-bps"];
+    assert!(crate::cli::Cli::try_parse_from(args.into_iter().chain(["9999"])).is_ok());
+    assert!(crate::cli::Cli::try_parse_from(args.into_iter().chain(["10000"])).is_err());
+}
+
+#[test]
+fn sweep_failure_text_is_wrapped_once() {
+    let mut outcome = trade(Some(TxStatus::Unknown), false);
+    outcome.self_submit.as_mut().unwrap().tx_error = Some("receipt timed out".into());
+    let mut row = Row::new(String::new());
+    row.record(Ok(outcome));
+    assert_eq!(row.error.as_deref(), Some("receipt timed out"));
+    let output = Output { owner: String::new(), dry_run: false, note: None, tokens: vec![row] };
+    let error = output.check().unwrap_err().to_string();
+    assert_eq!(error.matches("transaction test-hash").count(), 1, "{error}");
+    assert_eq!(error.matches("receipt timed out").count(), 1, "{error}");
+}

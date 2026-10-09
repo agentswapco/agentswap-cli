@@ -14,11 +14,12 @@ pub struct Input {
     /// Receive ERC-20 symbol or address; must belong to the grant basket.
     #[arg(long)]
     pub receive: String,
-    /// Unsigned USD decimal threshold, up to 18 fractional places.
+    /// Unsigned USD decimal threshold for the owner's whole holding, up to 18 fractional places.
     #[arg(long)]
     pub max_usd: String,
-    /// Maximum loss relative to independent prices, in basis points (0..=10000).
-    #[arg(long)]
+    /// Maximum loss relative to independent prices, in basis points (0 or greater, less than 10000).
+    #[arg(long, value_parser = clap::value_parser!(u16).range(0..10000))]
+    #[schemars(range(min = 0, max = 9999))]
     pub max_loss_bps: u16,
     #[arg(long = "token")]
     #[serde(default)]
@@ -67,7 +68,7 @@ impl Row {
                 self.reason = if trade.dry_run { Some("dry_run".into()) } else if self.tx_hash.is_none() { Some("not_submitted".into()) } else { None };
                 self.outcome = if self.reason.is_some() { "skipped" } else { "sold" }.into();
                 if let Some(failure) = trade.not_confirmed() {
-                    self.outcome = "failed".into(); self.error = Some(failure.to_string());
+                    self.outcome = "failed".into(); self.error = failure.error;
                 }
                 self.trade = Some(trade);
             }

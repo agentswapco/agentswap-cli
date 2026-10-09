@@ -89,7 +89,7 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Sell grant-basket holdings under a USD threshold using independent price floors.
-    /// Requires a live market grant and receive basket membership. Live signing needs --allow-trade.
+    /// Requires --key-file, a live market grant and receive basket membership. Live signing needs --allow-trade.
     #[command(after_help = crate::tokens::HOLDINGS_CHAINS_NOTE)]
     Sweep(crate::service::sweep::Input),
     /// Discover ERC-20 holdings and optionally quote balances below a USD threshold.

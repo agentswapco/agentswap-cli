@@ -30,7 +30,7 @@ struct Context<'a> {
 pub async fn sweep(client: &Client, signer: Arc<dyn Signer>, mut input: Input, allow: bool, cap: Option<&str>, wait: Wait) -> Result<Output> {
     input.dry_run |= !allow;
     let max = amount::fixed(&input.max_usd, false)?;
-    eyre::ensure!(input.max_loss_bps <= 10_000, "max-loss-bps must be at most 10000");
+    eyre::ensure!(input.max_loss_bps < 10_000, "max-loss-bps must be less than 10000");
     let server_cap = cap.map(|c| order_types::parse_raw_amount("sweep max-amount", c)).transpose()?;
     let config = discovery::config(&input.chain_id)?;
     let provider = evm::read_provider(&evm::rpc_url(config))?;
