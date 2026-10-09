@@ -22,6 +22,8 @@ mod tests;
 #[cfg(test)]
 mod portfolio_tests;
 #[cfg(test)]
+mod sweep_tests;
+#[cfg(test)]
 mod cli_dry_run_tests;
 #[cfg(test)]
 mod dry_run_fixture;

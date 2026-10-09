@@ -37,7 +37,7 @@ pub struct Cli {
     #[arg(short = 'k', long, global = true, env = "SR_API_KEY")]
     pub api_key: Option<String>,
 
-    /// Local signer key file for `trade`, `intent place` and the MCP signing tools; also the
+    /// Local signer key file for `trade`, `sweep`, `intent place` and the MCP signing tools; also the
     /// fallback x402 signer when --x402-key-file is unset
     #[arg(long, global = true, env = "AGENTSWAP_KEY_FILE")]
     pub key_file: Option<String>,
@@ -71,14 +71,13 @@ pub struct Cli {
     #[arg(long, global = true, env = "AGENTSWAP_X402_ASSET", default_value = "USDC")]
     pub x402_asset: String,
 
-    /// Allow signing and live execution of `trade`, `intent place` and the MCP `trade` and
-    /// `intent_place` tools. Without it they return unsigned dry-run previews: no intent or
+    /// Allow signing and live execution of `trade`, `sweep`, `intent place` and their MCP tools. Without it they return unsigned dry-run previews: no intent or
     /// AgentOrder signatures, authorization envelopes, signed calldata, relay or broadcast.
     #[arg(long, global = true)]
     pub allow_trade: bool,
 
     /// Cap on amountIn for `trade` and `intent place` as unsigned decimal digits in raw token
-    /// units; refuses to sign or submit above it. Also bounds the MCP `trade` and `intent_place`
+    /// units; refuses to sign or submit above it. Also bounds `sweep` and the MCP `trade`, `sweep` and `intent_place`
     /// tools.
     #[arg(long = "max-amount", global = true, env = "AGENTSWAP_TRADE_MAX_AMOUNT")]
     pub trade_max_amount: Option<String>,
@@ -194,8 +193,8 @@ pub enum Commands {
         #[arg(long)]
         hash: String,
     },
-    /// Run an MCP server over stdio exposing eleven tools: quote, batch_quote, tokens, pools,
-    /// trade, intent_place, intent_list, intent_status, policy, portfolio and grant_link
+    /// Run an MCP server over stdio exposing twelve tools: quote, batch_quote, tokens, pools,
+    /// trade, intent_place, intent_list, intent_status, policy, portfolio, grant_link and sweep
     Mcp,
     /// Place, list, or inspect V6 open intents
     Intent {
