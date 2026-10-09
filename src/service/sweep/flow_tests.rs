@@ -10,7 +10,7 @@ fn fixture(output: u64, generation: u64) -> TestRpc {
         let result = match body["method"].as_str() {
             None => return Some(json!({"router": Address::repeat_byte(8), "output":output.to_string(), "calldata":"0x"})),
             Some("eth_getBlockByNumber") => {
-                let mut block = serde_json::to_value(alloy::rpc::types::Block::default()).unwrap();
+                let mut block = serde_json::to_value(alloy::rpc::types::Block::<alloy::rpc::types::Transaction>::default()).unwrap();
                 block["timestamp"] = json!("0x64"); block
             }
             Some("eth_call") => {
