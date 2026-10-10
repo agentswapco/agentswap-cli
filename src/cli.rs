@@ -290,7 +290,8 @@ mod tests;
 #[derive(Subcommand)]
 pub enum BatchSellCommands {
     /// Create one unsigned grant request with exact balance caps and caller-selected criteria;
-    /// at most 100 tokens including receive, larger selections are refused.
+    /// at most 100 tokens including receive, larger selections are refused. Always pass --name with
+    /// a short agent name the owner will recognise on the review page.
     Plan(crate::service::batch_sell::PlanInput),
     /// Execute a confirmed request. Requires --key-file; live signing requires --allow-trade.
     Run(crate::service::batch_sell::RunInput),

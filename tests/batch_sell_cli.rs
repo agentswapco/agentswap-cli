@@ -5,7 +5,7 @@ use std::process::Command;
 #[test]
 fn batch_sell_executable_surface() {
     let binary = env!("CARGO_BIN_EXE_agentswap");
-    for (sub, flags) in [("plan", vec!["--min-usd", "--max-usd", "--max-loss-bps", "--receive", "--owner", "--agent", "--token", "--exclude"]),
+    for (sub, flags) in [("plan", vec!["--min-usd", "--max-usd", "--max-loss-bps", "--receive", "--owner", "--agent", "--token", "--exclude", "--name", "--note"]),
         ("run", vec!["--request", "--via", "--wait", "--key-file"])] {
         let help = Command::new(binary).args(["batch-sell", sub, "--help"]).output().unwrap();
         assert!(help.status.success());

@@ -139,6 +139,7 @@ pass `--lookback-blocks`.
 
 ```sh
 agentswap batch-sell plan --chainid 8453 --owner "$OWNER" --agent "$AGENT" \
+  --name "Dust sweeper" --note "Sell small holdings for USDC" \
   --receive USDC --max-loss-bps 500 --json
 # Give the returned review URL to the owner. After confirmation:
 agentswap --allow-trade batch-sell run --request "$REQUEST_URL" --key-file agent.key --wait 60 --json
@@ -147,6 +148,12 @@ agentswap --allow-trade batch-sell run --request "$REQUEST_URL" --key-file agent
 Agents use `plan`, give the owner the returned URL, then use `run` after the owner confirms.
 MCP `batch_sell_plan` and `batch_sell_run` expose the same inputs in snake_case, with `tokens`
 for repeatable `--token`.
+
+Always pass `--name`, a short agent name the owner will recognise; the review page shows it beside
+the agent address. `--note` gives the owner the reason for the sale. The request carries them as
+`label` and `note`. A name is at most 32 characters and a note at most 140, counted in UTF-16 code
+units; control and invisible characters are refused before any request is sent, and runs of
+whitespace collapse to one space.
 
 `plan` discovers the portfolio and accepts optional `--min-usd`, `--max-usd`, repeatable `--token`
 and repeatable `--exclude` criteria. There is no default holding-size threshold. Explicit tokens

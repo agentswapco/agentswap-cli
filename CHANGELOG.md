@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.1
+
+### Added
+
+- `batch-sell plan --name` and `--note`, and `name` and `note` on MCP `batch_sell_plan`, send the
+  agent's name and the reason for the sale with the review request as `label` and `note`; the
+  owner's review page shows them. Both are optional; always pass a name the owner will recognise.
+  A name is at most 32 characters and a note at most 140, counted in UTF-16 code units. Longer
+  text, blank text and control or invisible characters are refused before any request is sent.
+
 ## 0.11.0
 
 ### Changed

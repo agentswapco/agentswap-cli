@@ -6,8 +6,14 @@ use alloy::{primitives::{Address, U256, U512}, providers::Provider};
 use eyre::{Result, ensure, eyre};
 use std::collections::BTreeSet;
 
-pub async fn plan(client: &Client, input: PlanInput) -> Result<PlanOutput> {
+/// Review-page limits for the request `label` (from `name`) and `note`, in UTF-16 code units.
+const MAX_NAME: usize = 32;
+const MAX_NOTE: usize = 140;
+
+pub async fn plan(client: &Client, mut input: PlanInput) -> Result<PlanOutput> {
     ensure!((1..=5000).contains(&input.max_loss_bps), "max-loss-bps must be 1..5000");
+    input.name = review_text("name", input.name.as_deref(), MAX_NAME)?;
+    input.note = review_text("note", input.note.as_deref(), MAX_NOTE)?;
     let config = discovery::config(&input.chain_id)?;
     discovery::erc20(&input.owner)?; discovery::erc20(&input.agent)?;
     let filters = Filters::new(&input)?;
@@ -47,6 +53,20 @@ pub async fn plan(client: &Client, input: PlanInput) -> Result<PlanOutput> {
     output.count = tokens.len(); output.total_value_usd = amount::render(&total.to_string(), 18);
     for body in requests(&input, config.id, &receive.address, &tokens)? { output.requests.push(request::post(&body).await?); }
     Ok(output)
+}
+
+/// Refuses text the review page would strip or truncate: C0/C1 controls, zero-width and direction
+/// marks, blank text, and lengths over `max` UTF-16 code units. Whitespace runs collapse to one space.
+fn review_text(field: &str, value: Option<&str>, max: usize) -> Result<Option<String>> {
+    let Some(value) = value else { return Ok(None) };
+    ensure!(!value.chars().any(|c| c.is_control()
+        || matches!(c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}')),
+        "{field} contains a control or invisible character");
+    let text = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    ensure!(!text.is_empty(), "{field} is empty");
+    let units = text.encode_utf16().count();
+    ensure!(units <= max, "{field} must be at most {max} characters (UTF-16 code units); got {units}");
+    Ok(Some(text))
 }
 
 struct Filters { tokens: BTreeSet<Address>, exclude: BTreeSet<Address>, min: Option<U256>, max: Option<U256> }
@@ -90,7 +110,8 @@ fn requests(input: &PlanInput, chain: u64, receive: &str, tokens: &[GrantToken])
     let expiry = chrono::DateTime::from_timestamp(i64::try_from(now + 86400)?, 0).ok_or_else(|| eyre!("invalid expiry"))?
         .to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     let mut tokens = tokens.to_vec(); tokens.push(GrantToken { address: receive.into(), cap: "0".into() });
-    Ok(vec![GrantRequest { v: 1, chain_id: chain, agent: input.agent.clone(), owner: Some(input.owner.clone()), label: None, note: None,
+    Ok(vec![GrantRequest { v: 1, chain_id: chain, agent: input.agent.clone(), owner: Some(input.owner.clone()),
+            label: input.name.clone(), note: input.note.clone(),
             tokens, epoch: "1w".into(), expiry, actions: vec!["market".into(), "intent".into()],
             purpose: "batch-sell".into(), max_loss_bps: input.max_loss_bps, signature: None }])
 }

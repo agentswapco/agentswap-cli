@@ -15,6 +15,14 @@ pub struct PlanInput {
     /// Agent wallet that will execute the confirmed batch sale.
     #[arg(long)]
     pub agent: String,
+    /// Short agent name the owner will recognise, shown on the review page; always pass one. At most
+    /// 32 characters counted in UTF-16 code units; control and invisible characters are refused.
+    #[arg(long)]
+    pub name: Option<String>,
+    /// Reason for the sale, shown to the owner on the review page. At most 140 characters counted in
+    /// UTF-16 code units; control and invisible characters are refused.
+    #[arg(long)]
+    pub note: Option<String>,
     /// Receive ERC-20 symbol or address; requires a floor-eligible independent price.
     #[arg(long)]
     pub receive: String,

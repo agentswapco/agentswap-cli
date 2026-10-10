@@ -15,11 +15,18 @@ pub(super) fn plan_args() -> Vec<String> {
 }
 
 fn child(name: &str, app: &http::Server, args: &[String]) -> std::process::Output {
+    spawn(name, app, args, None)
+}
+
+/// Runs one test in a child; with `refuse`, the child passes only if the command fails with that text.
+fn spawn(name: &str, app: &http::Server, args: &[String], refuse: Option<&str>) -> std::process::Output {
     let rpc = test_rpc::TestRpc::start(|body| Some(test_rpc::ok(body, json!("0x1"))));
-    std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", name, "--nocapture"])
+    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    command.args(["--exact", name, "--nocapture"])
         .env("BATCH_APP", &app.url).env("BATCH_ARGS", serde_json::to_string(args).unwrap())
-        .env("AGENTSWAP_RPC_URL", &rpc.url).env("AGENTSWAP_RPC_URL_8453", &rpc.url).output().unwrap()
+        .env("AGENTSWAP_RPC_URL", &rpc.url).env("AGENTSWAP_RPC_URL_8453", &rpc.url);
+    if let Some(expected) = refuse { command.env("BATCH_REFUSE", expected); }
+    command.output().unwrap()
 }
 
 fn enter() -> bool {
@@ -27,8 +34,9 @@ fn enter() -> bool {
     routes::TEST_APP_ORIGIN.set(url).unwrap();
     let args: Vec<String> = serde_json::from_str(&std::env::var("BATCH_ARGS").unwrap()).unwrap();
     let result = tokio::runtime::Runtime::new().unwrap().block_on(run_cli(Cli::try_parse_from(args).unwrap()));
-    if std::env::var("BATCH_REFUSE").is_ok() {
-        assert!(result.unwrap_err().to_string().contains("confirmed"));
+    if let Ok(expected) = std::env::var("BATCH_REFUSE") {
+        let error = result.unwrap_err().to_string();
+        assert!(error.contains(&expected), "{error}");
     } else { result.unwrap(); }
     true
 }
@@ -96,7 +104,7 @@ fn batch_sell_run_refuses_unconfirmed_before_signing_or_rpc() {
         let args = ["agentswap", "batch-sell", "run", "--request", "abcdefghijklmnopqrstuv"].map(String::from);
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "batch_sell_tests::batch_sell_run_refuses_unconfirmed_before_signing_or_rpc", "--nocapture"])
-            .env("BATCH_APP", &app.url).env("BATCH_ARGS", serde_json::to_string(&args).unwrap()).env("BATCH_REFUSE", "1").output().unwrap();
+            .env("BATCH_APP", &app.url).env("BATCH_ARGS", serde_json::to_string(&args).unwrap()).env("BATCH_REFUSE", "confirmed").output().unwrap();
         assert!(output.status.success(), "{} {}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
         let requests = app.requests.lock().unwrap();
         assert_eq!(requests.len(), 1); assert_eq!(requests[0].method, "GET");
@@ -142,5 +150,42 @@ fn batch_sell_plan_filters_and_economic_floor() {
         assert!(text.contains(reason), "{flag}: {text}");
         let requests = app.requests.lock().unwrap();
         assert_eq!(requests.iter().filter(|r| r.method == "POST").count(), usize::from(flag == "large"));
+    }
+}
+
+#[test]
+fn batch_sell_plan_sends_name_and_note_as_label_and_note() {
+    if enter() { return; }
+    let (name, note) = ("\u{e9}".repeat(32), "n".repeat(140));
+    for (extra, label, text) in [
+        (vec!["--name", "  Dust   sweeper ", "--note", "Sell small holdings for WETH"], json!("Dust sweeper"), json!("Sell small holdings for WETH")),
+        (vec!["--name", name.as_str(), "--note", note.as_str()], json!(name), json!(note)),
+        (vec![], Value::Null, Value::Null)] {
+        let app = http::Server::start(responses(1));
+        let mut args = plan_args(); args.extend(extra.into_iter().map(String::from));
+        let output = child("batch_sell_tests::batch_sell_plan_sends_name_and_note_as_label_and_note", &app, &args);
+        assert!(output.status.success(), "{} {}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        let requests = app.requests.lock().unwrap();
+        let posts: Vec<_> = requests.iter().filter(|r| r.method == "POST").collect();
+        assert_eq!(posts.len(), 1);
+        let body: Value = serde_json::from_str(&posts[0].body).unwrap();
+        assert_eq!((body.get("label"), body.get("note")), (Some(&label), Some(&text)));
+    }
+}
+
+#[test]
+fn batch_sell_plan_refuses_bad_name_or_note_before_any_request() {
+    if enter() { return; }
+    for (flag, value, error) in [("--name", "a".repeat(33), "name must be at most 32 characters"),
+        ("--name", "\u{1f600}".repeat(16) + "a", "name must be at most 32 characters"),
+        ("--note", "n".repeat(141), "note must be at most 140 characters"),
+        ("--name", "Dust\u{202e}sweeper".to_string(), "name contains a control or invisible character"),
+        ("--note", "line\nbreak".to_string(), "note contains a control or invisible character"),
+        ("--name", "   ".to_string(), "name is empty")] {
+        let app = http::Server::start(responses(1));
+        let mut args = plan_args(); args.extend([flag.to_string(), value.clone()]);
+        let output = spawn("batch_sell_tests::batch_sell_plan_refuses_bad_name_or_note_before_any_request", &app, &args, Some(error));
+        assert!(output.status.success(), "{flag} {value:?}: {} {}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        assert_eq!(app.requests.lock().unwrap().len(), 0, "{flag} {value:?}");
     }
 }
