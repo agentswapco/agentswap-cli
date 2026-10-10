@@ -5,11 +5,12 @@
 ### Changed
 
 - **Breaking**: replaced `sweep` with `batch-sell plan` and `batch-sell run`, and MCP `sweep`
-  with `batch_sell_plan` and `batch_sell_run`. Agents plan, give the owner the review URLs,
+  with `batch_sell_plan` and `batch_sell_run`. Agents plan, give the owner the review URL,
   then run after confirmation. Selection criteria are optional; no holding-size threshold defaults.
-- Plans POST unsigned requests with exact balance caps, split at the API token limit including
-  the receive entry. Output includes URLs, count, total value, required requested discount and
-  left-out reasons. `below_gas_floor` applies when the discount budget cannot cover estimated fill cost.
+- A plan POSTs one unsigned request with exact balance caps and at most 100 tokens including the
+  receive entry; larger selections are refused. Output includes the request URL, count, total
+  value, required requested discount and left-out reasons. `below_gas_floor` applies when the
+  discount budget cannot cover estimated fill cost.
 - Runs require a confirmed request and use its proxy, tokens, receive entry and confirmed discount.
   Intent mode is the default; `--wait` reports status and observed net proceeds. `--via market`
   submits from the agent wallet. Live signing requires `--allow-trade`.

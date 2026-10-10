@@ -214,7 +214,7 @@ impl AgentSwapMcp {
 impl ServerHandler for AgentSwapMcp {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_instructions("AgentSwap tools: quote, batch_quote, tokens, pools, trade, intent_place, intent_list, intent_status, policy, portfolio, grant_link, batch_sell_plan, batch_sell_run. Use batch_sell_plan, give the owner the URLs, then batch_sell_run after confirmation. Signing requires --allow-trade. Portfolio and grant_link are read-only; grant links require owner review in the app.")
+            .with_instructions("AgentSwap tools: quote, batch_quote, tokens, pools, trade, intent_place, intent_list, intent_status, policy, portfolio, grant_link, batch_sell_plan, batch_sell_run. Use batch_sell_plan, give the owner the returned URL, then batch_sell_run after confirmation. Signing requires --allow-trade. Portfolio and grant_link are read-only; grant links require owner review in the app.")
     }
 }
 

@@ -11,7 +11,7 @@ pub async fn dispatch(cli: &Cli, command: &BatchSellCommands) -> Result<()> {
             if cli.json { println!("{}", serde_json::to_string_pretty(&output)?); }
             else {
                 for link in &output.requests { println!("{}", link.url); }
-                println!("{} tokens; total ${}; requested discount {} bps; {} request(s)", output.count, output.total_value_usd, output.max_loss_bps, output.requests.len());
+                println!("{} tokens; total ${}; requested discount {} bps", output.count, output.total_value_usd, output.max_loss_bps);
                 for row in &output.left_out { println!("Left out {}: {}", row.token, row.reason); }
                 for warning in &output.warnings { eprintln!("{warning}"); }
             }

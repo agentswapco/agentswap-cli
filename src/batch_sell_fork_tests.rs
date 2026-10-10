@@ -1,5 +1,6 @@
-// Optional real-fork batch-sale flow: plan, owner grant, receipts, depletion and stale generation.
-// AGENTSWAP_FORK_URL enables it; CHAIN=56 also requires BSC_WBNB, BSC_ETH and BSC_USDT.
+// Real-fork batch-sale flow: plan, owner grant, receipts, proceeds, depletion and stale generation.
+// Ignored by default; run with AGENTSWAP_FORK_URL set and `cargo test -- --ignored`.
+// CHAIN=56 also requires BSC_WBNB, BSC_ETH and BSC_USDT.
 #[path = "batch_sell_fork_fixture.rs"]
 mod fixture;
 #[path = "client/test_server.rs"]
@@ -13,6 +14,7 @@ const NAME: &str = "batch_sell_fork_tests::batch_sell_fork_owner_confirmed_marke
 const ID: &str = "abcdefghijklmnopqrstuv";
 
 #[test]
+#[ignore = "requires AGENTSWAP_FORK_URL"]
 fn batch_sell_fork_owner_confirmed_market() {
     if let Ok(app) = std::env::var("BATCH_FORK_CHILD") {
         use clap::Parser;
@@ -21,11 +23,7 @@ fn batch_sell_fork_owner_confirmed_market() {
         tokio::runtime::Runtime::new().unwrap().block_on(crate::run_cli(crate::cli::Cli::try_parse_from(args).unwrap())).unwrap();
         return;
     }
-    let Ok(url) = std::env::var("AGENTSWAP_FORK_URL") else {
-        use std::io::Write;
-        writeln!(std::io::stdout(), "SKIPPED {NAME}: AGENTSWAP_FORK_URL is not set").unwrap();
-        return;
-    };
+    let url = std::env::var("AGENTSWAP_FORK_URL").unwrap_or_else(|_| panic!("{NAME} needs AGENTSWAP_FORK_URL"));
     let fork = Fork::start(&url);
     tokio::runtime::Runtime::new().unwrap().block_on(flow(&fork));
 }
@@ -40,8 +38,9 @@ async fn flow(fork: &Fork) {
     fork.grant(proxy).await;
     let record = confirmed(fork, request).await;
     assert_eq!(record["confirmed"]["proxy"],json!(proxy));
+    let before = receive_balance(fork).await;
     let output = run(fork, &record, &prices, false);
-    receipts(fork,proxy,&output).await;
+    receipts(fork,proxy,&output,before).await;
     let second = run(fork,&record,&prices,false);
     let rows = second["tokens"].as_array().unwrap();
     assert_eq!(rows.len(),3);
@@ -137,10 +136,16 @@ fn run(fork: &Fork, record: &Value, prices: &Value, changed: bool) -> Value {
     }
 }
 
-async fn receipts(fork: &Fork, proxy: Address, output: &Value) {
+async fn receive_balance(fork: &Fork) -> U256 {
+    let provider = crate::evm::read_provider(&fork.rpc).unwrap();
+    crate::service::portfolio::discovery::balance(&provider,fork.tokens[2],fork.owner).await.unwrap()
+}
+
+async fn receipts(fork: &Fork, proxy: Address, output: &Value, before: U256) {
     let provider = crate::evm::read_provider(&fork.rpc).unwrap();
     let rows: Vec<_> = output["tokens"].as_array().unwrap().iter().filter(|r|r["outcome"]=="sold").collect();
     assert_eq!(rows.len(),2,"{output}");
+    let mut proceeds = U256::ZERO;
     for row in rows {
         assert_eq!(row["amount_raw"],fork.cap.to_string());
         assert_eq!(row["tx_status"],"confirmed");
@@ -151,8 +156,11 @@ async fn receipts(fork: &Fork, proxy: Address, output: &Value) {
         assert_eq!(event.agent,fork.agent); assert_eq!(event.amountIn,fork.cap);
         assert!(event.amountOut>U256::ZERO);
         assert_eq!(row["received_raw"],event.amountOut.to_string());
+        proceeds += event.amountOut;
         let input: Address = row["token"].as_str().unwrap().parse().unwrap();
         assert_eq!(crate::service::portfolio::discovery::balance(&provider,input,fork.owner).await.unwrap(),fork.cap);
     }
+    let after = receive_balance(fork).await;
+    assert_eq!(after.checked_sub(before),Some(proceeds),"owner receive balance must rise by the summed amountOut");
     assert_eq!(rpc(&fork.rpc,"eth_chainId",json!([])).await,format!("0x{:x}",fork.chain));
 }

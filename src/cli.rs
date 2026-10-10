@@ -88,7 +88,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Plan a batch sale, share the review URLs, then run after owner confirmation.
+    /// Plan a batch sale, share the review URL, then run after owner confirmation.
     #[command(after_help = crate::tokens::HOLDINGS_CHAINS_NOTE)]
     BatchSell { #[command(subcommand)] command: BatchSellCommands },
     /// Discover ERC-20 holdings and optionally quote balances below a USD threshold.
@@ -289,7 +289,8 @@ mod tests;
 
 #[derive(Subcommand)]
 pub enum BatchSellCommands {
-    /// Create unsigned grant requests with exact balance caps and caller-selected criteria.
+    /// Create one unsigned grant request with exact balance caps and caller-selected criteria;
+    /// at most 100 tokens including receive, larger selections are refused.
     Plan(crate::service::batch_sell::PlanInput),
     /// Execute a confirmed request. Requires --key-file; live signing requires --allow-trade.
     Run(crate::service::batch_sell::RunInput),

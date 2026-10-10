@@ -1,8 +1,9 @@
 // Fork-only setup helpers: fresh identities, local transactions and captured CLI output.
-// Every write targets anvil; the optional fork test exercises these helpers together.
+// Every write targets anvil; the ignored fork test exercises these helpers together.
 use alloy::{primitives::{Address, U256, keccak256}, sol_types::{SolCall, SolValue}};
 use serde_json::{Value, json};
 use std::process::{Child, Command};
+use std::time::{Duration, Instant};
 use crate::{evm, service::token, signer::{Signer, local::LocalKey}};
 
 alloy::sol! {
@@ -47,9 +48,21 @@ impl Fork {
         use std::io::Write;
         let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&key).unwrap();
         file.write_all(hex::encode(secret).as_bytes()).unwrap();
-        let fork = Self { rpc:format!("http://127.0.0.1:{port}"), chain, owner, agent, key, tokens,
+        let mut fork = Self { rpc:format!("http://127.0.0.1:{port}"), chain, owner, agent, key, tokens,
             cap:U256::from(if chain == 56 { 100_000_000_000_000_000u64 } else { 10_000_000_000_000_000u64 }), child };
-        assert!(Command::new("waitfor").args([&format!("port:{port}"), "-t", "60", "-i", "1"]).status().unwrap().success());
+        // Poll eth_chainId every second, for at most 120 s, until the local node answers.
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let request = json!({"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]});
+        let deadline = Instant::now() + Duration::from_secs(120);
+        let answer = loop {
+            let reply = runtime.block_on(async { reqwest::Client::new().post(&fork.rpc).json(&request)
+                .timeout(Duration::from_secs(5)).send().await.ok()?.json::<Value>().await.ok() });
+            if let Some(result) = reply.and_then(|body| body["result"].as_str().map(String::from)) { break result; }
+            assert!(fork.child.try_wait().unwrap().is_none(), "anvil exited before answering eth_chainId");
+            assert!(Instant::now() < deadline, "anvil did not answer eth_chainId within 120 s");
+            std::thread::sleep(Duration::from_secs(1));
+        };
+        assert_eq!(answer, format!("0x{chain:x}"), "AGENTSWAP_FORK_URL must serve CHAIN");
         fork
     }
 
@@ -95,7 +108,7 @@ impl Fork {
 
     pub fn cli(&self, app: &str, rpc: &str, args: &[String]) -> Result<Value, String> {
         let output = Command::new(std::env::current_exe().unwrap())
-            .args(["--exact",super::NAME,"--nocapture"])
+            .args(["--exact",super::NAME,"--ignored","--nocapture"])
             .env("BATCH_FORK_CHILD",app).env("BATCH_FORK_ARGS",serde_json::to_string(args).unwrap())
             .env("AGENTSWAP_RPC_URL",rpc).env(format!("AGENTSWAP_RPC_URL_{}",self.chain),rpc).output().unwrap();
         let text = String::from_utf8(output.stdout).unwrap();

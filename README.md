@@ -140,7 +140,7 @@ pass `--lookback-blocks`.
 ```sh
 agentswap batch-sell plan --chainid 8453 --owner "$OWNER" --agent "$AGENT" \
   --receive USDC --max-loss-bps 500 --json
-# Give the returned review URL(s) to the owner. After confirmation:
+# Give the returned review URL to the owner. After confirmation:
 agentswap --allow-trade batch-sell run --request "$REQUEST_URL" --key-file agent.key --wait 60 --json
 ```
 
