@@ -192,8 +192,9 @@ native gas. The selected action and receive token must be allowed by the live gr
 Without `--allow-trade`, execution returns unsigned previews. `--wait <secs>` applies to intent
 mode and shares a bounded status wait across placements. Each status round makes one read of the
 owner's intent history from the intent index, which also holds intents published without an
-on-chain announce; intents the index cannot settle, or every intent when the index is
-unreachable, are read in one batched `IntentLensV3.previewMany` call. The wait scans no logs and
+on-chain announce; intents the index cannot settle, intents the index lists as expired (an
+expiry stands only when the lens agrees), or every intent when the index is unreachable, are read
+in one batched `IntentLensV3.previewMany` call. The wait scans no logs and
 ends once every intent is filled, expired or cancelled.
 
 Each intent is a 10-minute Dutch auction. It starts `--start-premium-bps` above independent market
@@ -217,9 +218,11 @@ MCP failures carry all token rows. Market exit status is the worst result (0, 1,
 needs no key file. Per token it gives the status (`sold`, `partly_sold`, `open`, `expired`,
 `not_placed` or `unsold`), the cap, the amount sold (the grant budget spent on the token), net
 proceeds from fill records, the sold amount's value at independent prices, the discount versus
-market in percent, and the fill transaction and time. The summary gives tokens sold, total
-proceeds, the market value of what sold, the average and worst discount, the value still unsold
-(capped at the owner's balance), the grant expiry, and next steps: report again after open
+market in percent, and the fill transaction and time. The summary gives tokens sold and the market
+value of what sold, split into amounts with fill records (their net proceeds and value) and amounts
+without one (value only, proceeds unknown: market sales, or the index unreachable), the average and
+worst discount, the value still unsold (capped at the owner's balance; a warning names a token
+whose unsold amount is zero only because the owner holds none), the grant expiry, and next steps: report again after open
 intents close, or rerun while the grant is valid. Values and discounts use the independent prices
 read with the report, not prices at fill time, and only floor-eligible prices count. The report
 reads the request, makes one Multicall3 call for the grant budgets, token metadata and owner

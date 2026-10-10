@@ -97,13 +97,17 @@ async fn matched(index: &Origins<'_>, (owner, agent, generation): (Address, Addr
             return Vec::new();
         }
     };
-    let mut out = Vec::new();
+    let (mut out, mut overdue) = (Vec::new(), 0);
     for mut intent in history.into_iter().filter(|i| i.agent == Some((agent, generation)) && i.order.tokenOut == receive && spend.contains(&i.order.tokenIn)) {
-        if intent.status == "open" && now_ms > intent.deadline_ms.saturating_add(EXPIRY_GRACE_MS) { intent.status = "expired".into(); }
+        if intent.status == "open" && now_ms > intent.deadline_ms.saturating_add(EXPIRY_GRACE_MS) { intent.status = "expired".into(); overdue += 1; }
         let fill = if intent.status == "filled" { intentscan::fill(index, intent.id).await.unwrap_or_else(|error| {
             warnings.push(format!("fill record for {:?} unavailable: {}", intent.id, crate::redact::urls(&error.to_string()))); None
         }) } else { None };
         out.push((intent, fill));
+    }
+    if overdue > 0 {
+        warnings.push(format!("{overdue} intent{} the index still lists as open {} reported as expired: {} deadline passed with no fill recorded",
+            if overdue == 1 { "" } else { "s" }, if overdue == 1 { "is" } else { "are" }, if overdue == 1 { "its" } else { "their" }));
     }
     out
 }

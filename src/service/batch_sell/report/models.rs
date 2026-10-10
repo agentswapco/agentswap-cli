@@ -87,11 +87,21 @@ pub struct FillRow {
 pub struct Summary {
     pub tokens_sold: usize,
     pub tokens_total: usize,
+    /// Net proceeds from fill records only; sold amounts without one are counted under
+    /// `unknown_proceeds_*`, not here.
     pub received_raw: String,
     pub received: String,
     pub received_usd: Option<String>,
     /// Independent market value of every sold amount, in USD.
     pub sold_value_usd: String,
+    /// Tokens with sold amounts that have fill records, and those amounts' value in USD; the
+    /// counterpart of `received`.
+    pub known_proceeds_tokens: usize,
+    pub known_proceeds_value_usd: String,
+    /// Tokens with sold amounts that have no fill record (market sales, or the intent index
+    /// unreachable), and those amounts' value in USD; their proceeds are unknown.
+    pub unknown_proceeds_tokens: usize,
+    pub unknown_proceeds_value_usd: String,
     /// Discount over all fills with known proceeds, weighted by market value.
     pub average_discount_pct: Option<String>,
     pub worst_discount_pct: Option<String>,

@@ -232,7 +232,7 @@ fn gasless_sweep_wait_reports_terminal_and_timeout_states() {
 }
 
 /// Stream-only intents: the relay answers `{id, mode: "broadcast"}` and no IntentAnnounced log
-/// exists; the intent index alone settles status and proceeds, and no log is scanned.
+/// exists; the intent index settles status and proceeds (an expiry once the lens agrees), and no log is scanned.
 #[test]
 fn stream_only_intents_settle_from_the_index_without_announce_logs() {
     const NAME: &str = "service::sweep::intent_tests::stream_only_intents_settle_from_the_index_without_announce_logs";
@@ -245,7 +245,7 @@ fn stream_only_intents_settle_from_the_index_without_announce_logs() {
     let weth = token::from_registry("WETH", 8453).unwrap().address;
     for status in ["filled", "expired"] {
         let orders = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let (rpc, index) = (rpc_sharing(5, "missing", orders.clone()), stream_index(orders, status, signer().address()));
+        let (rpc, index) = (rpc_sharing(5, if status == "expired" { "expired" } else { "missing" }, orders.clone()), stream_index(orders, status, signer().address()));
         let relay = relay_server::Server::start(vec![(200, String::new(), json!({"id": format!("{:?}", B256::repeat_byte(1)), "mode": "broadcast"}).to_string())]);
         let record = json!({"id": "abcdefghijklmnopqrstuv", "status": "confirmed", "confirmed": {"proxy": Address::repeat_byte(6), "generation": "1", "maxLossBps": 100},
             "request": {"v": 1, "chainId": 8453, "agent": signer().address(), "owner": Address::repeat_byte(4), "purpose": "batch-sell", "maxLossBps": 500,

@@ -79,7 +79,9 @@ fn app() -> TestHttp {
 
 const CREATED: u64 = 1_799_997_600_000;
 
-fn index() -> TestHttp {
+/// The intent index with the first `keep` history items: sold, part, lapsed, expired, then three
+/// that do not match this sale.
+fn index(keep: usize) -> TestHttp {
     let [a, b, c, _] = spend();
     let e = |v: u64| U256::from(v) * U256::from(E18);
     let order = |token, amount, out, nonce| { let mut o = fixture::order(owner(), token, 1, out, 1, nonce); o.amountIn = amount; o };
@@ -89,7 +91,7 @@ fn index() -> TestHttp {
     let page = fixture::page(vec![item(&sold, agent(), 1, "filled", CREATED + 600_000), item(&part, agent(), 1, "filled", CREATED + 600_000),
         item(&lapsed, agent(), 1, "open", CREATED + 600_000), item(&expired, agent(), 1, "expired", CREATED + 600_000),
         item(&other_agent, Address::repeat_byte(8), 1, "filled", CREATED), item(&other_generation, agent(), 2, "filled", CREATED),
-        item(&other_out, agent(), 1, "filled", CREATED)], None);
+        item(&other_out, agent(), 1, "filled", CREATED)].into_iter().take(keep).collect(), None);
     let id = |o: &crate::order_types::Order| crate::order_types::order_id(o);
     let fills = [(id(&sold), fixture::fill(id(&sold), "196000000", B256::repeat_byte(0xa1), 1_799_998_000_000)),
         (id(&part), fixture::fill(id(&part), "10100000", B256::repeat_byte(0xb1), 1_799_998_100_000))];
@@ -101,7 +103,7 @@ fn index() -> TestHttp {
 
 #[tokio::test]
 async fn report_rows_summary_and_next_steps_from_mocked_sources() {
-    let (rpc, app, index) = (chain(), app(), index());
+    let (rpc, app, index) = (chain(), app(), index(7));
     let origins = Origins { stream: &index.url, data: &index.url };
     let report = build(record(), &crate::evm::read_provider(&rpc.url).unwrap(), &app.url, &origins).await.unwrap();
     assert_eq!(rpc.called("eth_call"), 1, "one batched chain read");
@@ -124,8 +126,36 @@ async fn report_without_the_index_uses_grant_budgets_and_says_proceeds_are_unkno
     let statuses: Vec<_> = report.tokens.iter().map(|r| (r.status.clone(), r.sold_raw.clone(), r.received_raw.is_none())).collect();
     assert_eq!(statuses, vec![("sold".into(), e(100), true), ("partly_sold".into(), e(20), true), ("not_placed".into(), "0".into(), true), ("not_placed".into(), "0".into(), true)]);
     assert!(report.warnings[0].starts_with("intent records unavailable"), "{:?}", report.warnings);
-    assert_eq!(report.summary.received_raw, "0");
+    let s = &report.summary;
+    assert_eq!((s.received_raw.as_str(), s.known_proceeds_tokens, s.unknown_proceeds_tokens, s.unknown_proceeds_value_usd.as_str()), ("0", 0, 2, "210"));
     assert_eq!(report.summary.average_discount_pct, None);
+    let text = text(&report);
+    assert!(!text.lines().any(|l| l.starts_with("Received")) && text.contains("Proceeds unknown for 2 tokens ($210.00 sold): no fill record."), "{text}");
+}
+
+#[tokio::test]
+async fn market_sold_and_index_filled_rows_split_known_and_unknown_proceeds() {
+    let (rpc, app, index) = (chain(), app(), index(1));
+    let origins = Origins { stream: &index.url, data: &index.url };
+    let report = build(record(), &crate::evm::read_provider(&rpc.url).unwrap(), &app.url, &origins).await.unwrap();
+    let s = &report.summary;
+    assert_eq!((s.tokens_sold, s.received_raw.as_str(), s.sold_value_usd.as_str()), (2, "196000000", "210"));
+    assert_eq!((s.known_proceeds_tokens, s.known_proceeds_value_usd.as_str()), (1, "200"));
+    assert_eq!((s.unknown_proceeds_tokens, s.unknown_proceeds_value_usd.as_str()), (1, "10"));
+    let text = text(&report);
+    assert!(text.contains("Sold 2/4 tokens worth $210.00 at independent prices.\nReceived 196 USDC ($196.00) for $200.00 sold with fill records.\n\
+        Proceeds unknown for 1 token ($10.00 sold): no fill record.\n"), "{text}");
+}
+
+#[test]
+fn zero_unsold_from_an_empty_balance_is_labelled() {
+    let token = rows::Token { address: spend()[0], symbol: "AAA".into(), decimals: 0, cap: U256::from(10), sold: U256::from(4), balance: U256::ZERO };
+    let map = std::collections::BTreeMap::new();
+    let prices = rows::Prices { map: &map, receive: usdc(), receive_decimals: 6 };
+    let (mut tally, mut warnings) = (rows::Tally::default(), Vec::new());
+    let row = rows::row(&token, &[], &prices, &mut tally, &mut warnings);
+    assert_eq!((row.status.as_str(), row.unsold_raw.as_str()), ("sold", "0"));
+    assert!(warnings.contains(&"AAA: 6 of the cap was not sold; the owner holds none of this token, so none is left to sell".to_string()), "{warnings:?}");
 }
 
 #[tokio::test]

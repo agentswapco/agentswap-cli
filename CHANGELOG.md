@@ -8,8 +8,11 @@
   request for its owner without a key file: per token status (`sold`, `partly_sold`, `open`,
   `expired`, `not_placed` or `unsold`), cap, amount sold from the grant budget, net proceeds from
   fill records, value at independent prices, discount versus market in percent, and fill
-  transaction and time; then tokens sold, total proceeds, market value sold, average and worst
-  discount, unsold value, grant expiry and next steps. It reads the request, one Multicall3 call
+  transaction and time; then tokens sold, market value sold split into amounts with fill records
+  (net proceeds and value) and amounts without one (value only, proceeds unknown), average and
+  worst discount, unsold value, grant expiry and next steps. Warnings name intents the index still
+  lists as open past their deadline, reported as expired, and tokens whose unsold amount is zero
+  only because the owner holds none. It reads the request, one Multicall3 call
   and the public intent index at intentscan.net, and scans no logs. The human output is a Markdown
   table.
 - The README batch-sell section and the MCP descriptions tell agents to send the owner the report
@@ -19,8 +22,9 @@
 
 - `batch-sell run --wait` and MCP `batch_sell_run` read intent status from the owner's intent
   history in the intent index, once per round, which includes intents published without an
-  on-chain announce. Intents the index cannot settle, or all of them when it is unreachable, are
-  read in one batched `IntentLensV3.previewMany` call. The wait no longer scans `IntentAnnounced`
+  on-chain announce. Intents the index cannot settle, intents it lists as expired (the expiry
+  stands only when the lens agrees, so a late-indexed fill is not missed), or all of them when it
+  is unreachable, are read in one batched `IntentLensV3.previewMany` call. The wait no longer scans `IntentAnnounced`
   logs.
 - Intent proceeds in `batch-sell run` come from the intent index's fill records, net of the
   protocol fee, with `IntentFilled` logs from the placement block as the fallback.

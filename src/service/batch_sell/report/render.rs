@@ -43,8 +43,15 @@ pub fn text(report: &ReportOutput) -> String {
     let mut out = format!("Batch sale {} on {} ({}): receive {}, discount floor {}%\n{}\n\n", report.request,
         crate::tokens::chain_id_to_name(report.chain_id), report.chain_id, report.receive.symbol,
         super::rows::pct(i128::from(report.max_loss_bps)), table(report));
-    let _ = writeln!(out, "Sold {}/{} tokens: {} {} received ({}) for {} at independent prices.", s.tokens_sold, s.tokens_total,
-        short(&s.received, 6), report.receive.symbol, usd(s.received_usd.as_deref()), usd(Some(&s.sold_value_usd)));
+    let _ = writeln!(out, "Sold {}/{} tokens worth {} at independent prices.", s.tokens_sold, s.tokens_total, usd(Some(&s.sold_value_usd)));
+    if s.known_proceeds_tokens > 0 {
+        let _ = writeln!(out, "Received {} {} ({}) for {} sold with fill records.", short(&s.received, 6), report.receive.symbol,
+            usd(s.received_usd.as_deref()), usd(Some(&s.known_proceeds_value_usd)));
+    }
+    if s.unknown_proceeds_tokens > 0 {
+        let _ = writeln!(out, "Proceeds unknown for {} token{} ({} sold): no fill record.", s.unknown_proceeds_tokens,
+            if s.unknown_proceeds_tokens == 1 { "" } else { "s" }, usd(Some(&s.unknown_proceeds_value_usd)));
+    }
     if let (Some(average), Some(worst)) = (&s.average_discount_pct, &s.worst_discount_pct) {
         let _ = writeln!(out, "Discount vs market: average {average}%, worst {worst}% on {}.", s.worst_discount_token.as_deref().unwrap_or("-"));
     }

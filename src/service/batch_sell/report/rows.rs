@@ -32,6 +32,11 @@ pub(super) struct Tally {
     received: U256,
     received_all: U256,
     sold_usd: U256,
+    /// Value of sold amounts with and without fill records, and the tokens holding each.
+    known_usd: U256,
+    unknown_usd: U256,
+    known_tokens: usize,
+    unknown_tokens: usize,
     unsold_usd: U256,
     worst: Option<(i128, String)>,
     sold_tokens: usize,
@@ -91,6 +96,10 @@ pub(super) fn row(token: &Token, intents: &[&(Intent, Option<Fill>)], prices: &P
         warnings.push(format!("{}: {} sold without a fill record; its proceeds are not counted", token.symbol, amount::render(&(sold - known_in).to_string(), token.decimals.into())));
     }
     let unsold = token.cap.saturating_sub(sold).min(token.balance);
+    if unsold.is_zero() && token.cap > sold {
+        warnings.push(format!("{}: {} of the cap was not sold; the owner holds none of this token, so none is left to sell", token.symbol,
+            amount::render(&(token.cap - sold).to_string(), token.decimals.into())));
+    }
     let open: Vec<u64> = intents.iter().filter(|(i, _)| i.status == "open").map(|(i, _)| i.deadline_ms).collect();
     let price = prices.get(token.address);
     let discount = discount(token, known_in, received, prices, tally);
@@ -102,6 +111,7 @@ pub(super) fn row(token: &Token, intents: &[&(Intent, Option<Fill>)], prices: &P
     let value = price.map(|p| usd(sold, p, token.decimals));
     let unsold_value = price.map(|p| usd(unsold, p, token.decimals));
     tally.sold_usd += value.unwrap_or_default();
+    split(tally, price.map(|p| (usd(known_in, p, token.decimals), usd(sold - known_in, p, token.decimals))), known_in, sold);
     tally.unsold_usd += unsold_value.unwrap_or_default();
     if price.is_none() && !(sold.is_zero() && unsold.is_zero()) { warnings.push(format!("{}: no independent price; its USD values are not counted", token.symbol)); }
     let render = |raw: U256| amount::render(&raw.to_string(), token.decimals.into());
@@ -113,6 +123,15 @@ pub(super) fn row(token: &Token, intents: &[&(Intent, Option<Fill>)], prices: &P
         value_usd: value.map(|v| amount::render(&v.to_string(), 18)), discount_pct: discount.map(pct),
         unsold_raw: unsold.to_string(), unsold_value_usd: unsold_value.map(|v| amount::render(&v.to_string(), 18)),
         open_until: open.iter().copied().max().map(time), fills: fills(intents) }
+}
+
+/// Sold value with known proceeds versus sold value whose proceeds have no fill record.
+fn split(tally: &mut Tally, values: Option<(U256, U256)>, known_in: U256, sold: U256) {
+    let (known, unknown) = values.unwrap_or_default();
+    tally.known_usd += known;
+    tally.unknown_usd += unknown;
+    tally.known_tokens += usize::from(!known_in.is_zero());
+    tally.unknown_tokens += usize::from(sold > known_in);
 }
 
 fn discount(token: &Token, known_in: U256, received: U256, prices: &Prices, tally: &mut Tally) -> Option<i128> {
@@ -131,6 +150,8 @@ pub(super) fn summary(tally: Tally, total: usize, prices: &Prices) -> Summary {
     Summary { tokens_sold: tally.sold_tokens, tokens_total: total, received_raw: tally.received_all.to_string(),
         received: amount::render(&tally.received_all.to_string(), prices.receive_decimals.into()), received_usd,
         sold_value_usd: amount::render(&tally.sold_usd.to_string(), 18),
+        known_proceeds_tokens: tally.known_tokens, known_proceeds_value_usd: amount::render(&tally.known_usd.to_string(), 18),
+        unknown_proceeds_tokens: tally.unknown_tokens, unknown_proceeds_value_usd: amount::render(&tally.unknown_usd.to_string(), 18),
         average_discount_pct: discount_bps(tally.market, tally.received).map(pct),
         worst_discount_pct: tally.worst.as_ref().map(|(bps, _)| pct(*bps)), worst_discount_token: tally.worst.map(|(_, s)| s),
         unsold_value_usd: amount::render(&tally.unsold_usd.to_string(), 18), open_intents: tally.open }

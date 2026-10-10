@@ -46,8 +46,9 @@ async fn round(input: &Input, owner: Address, provider: &DynProvider, origins: &
     let mut unresolved = Vec::new();
     for (index, row) in output.tokens.iter_mut().enumerate().filter(|(_, r)| r.wait_timed_out) {
         let id = row.intent_id.as_deref().and_then(|id| id.parse::<B256>().ok());
+        // The index can list a fill late, so its "expired" stands only when this round's lens agrees.
         match id.and_then(|id| indexed.get(&id)) {
-            Some((status, _)) if terminal(status) => record(row, status),
+            Some((status, _)) if terminal(status) && status != "expired" => record(row, status),
             Some((status, deadline)) if status == "open" && now <= *deadline => record(row, status),
             _ => unresolved.push(index),
         }
@@ -55,8 +56,8 @@ async fn round(input: &Input, owner: Address, provider: &DynProvider, origins: &
     if !unresolved.is_empty() { chain(provider, config, unresolved, output).await; }
 }
 
-/// One lens read for every intent the index did not settle: missing, unreachable, or still open
-/// after its deadline.
+/// One lens read for every intent the index did not settle: missing, unreachable, expired, or
+/// still open after its deadline.
 async fn chain(provider: &DynProvider, config: evm::ChainConfig, unresolved: Vec<usize>, output: &mut Output) {
     let (known, missing): (Vec<usize>, Vec<usize>) = unresolved.into_iter().partition(|&i| output.tokens[i].order.is_some());
     for index in missing { fail(&mut output.tokens[index], "signed order unavailable"); }
@@ -168,5 +169,20 @@ pub(super) mod tests {
         let statuses: Vec<_> = output.tokens.iter().map(|r| (r.intent_status.as_deref(), r.wait_timed_out)).collect();
         assert_eq!(statuses, vec![(Some("open"), true), (Some("expired"), false), (Some("expired"), false)]);
         assert_eq!(reads.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn index_expired_is_final_only_when_the_lens_agrees() {
+        for (lens_filled, expected) in [(true, "filled"), (false, "expired")] {
+            let (mut output, orders) = rows(1);
+            let page = fixture::page(vec![fixture::item(8453, &orders[0], Address::repeat_byte(2), 1, "expired", 5_000, 6_000)], None);
+            let index = TestHttp::start(move |_| (200, page.clone()));
+            let reads = Arc::new(AtomicUsize::new(0));
+            let rpc = lens(lens_filled, reads.clone());
+            status::wait(&input(30), owner(), &evm::read_provider(&rpc.url).unwrap(), &Origins { stream: &index.url, data: "http://127.0.0.1:1" }, 1_000, &mut output).await;
+            let row = &output.tokens[0];
+            assert_eq!((row.intent_status.as_deref(), row.wait_timed_out), (Some(expected), false));
+            assert_eq!(reads.load(Ordering::SeqCst), 1, "one lens read settles the index's expired");
+        }
     }
 }

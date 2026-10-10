@@ -21,6 +21,8 @@
   "request": "abcdefghijklmnopqrstuv",
   "summary": {
     "average_discount_pct": "1.85",
+    "known_proceeds_tokens": 2,
+    "known_proceeds_value_usd": "210",
     "open_intents": 0,
     "received": "206.1",
     "received_raw": "206100000",
@@ -28,6 +30,8 @@
     "sold_value_usd": "210",
     "tokens_sold": 2,
     "tokens_total": 4,
+    "unknown_proceeds_tokens": 0,
+    "unknown_proceeds_value_usd": "0",
     "unsold_value_usd": "25",
     "worst_discount_pct": "2.00",
     "worst_discount_token": "AAA (0x1111...1111)"
@@ -119,6 +123,7 @@
     }
   ],
   "warnings": [
+    "1 intent the index still lists as open is reported as expired: its deadline passed with no fill recorded",
     "DDD (0x4444...4444): no independent price; its USD values are not counted"
   ]
 }
