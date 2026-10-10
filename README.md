@@ -211,7 +211,10 @@ fill records or confirmed execution events when known, and retain not-sold reaso
 exclude the protocol fee.
 `floor_below_confirmed_discount` and `unpriced_for_confirmed_discount` relay refusals are reported
 per token and execution continues. Unknown received amounts remain null. Placement timeouts do
-not imply a fill or trigger resubmission. Reverted or unknown market broadcasts stop later sales;
+not imply a fill or trigger resubmission. A relay HTTP 504, a timed-out stream publish, leaves the
+token `placement_unknown` with its signed intent, which may be live: `--wait` polls it by its id
+like a placed intent and records the index's or lens's status, or `not_placed` when the index
+never lists it and the lens reports it expired. It is never signed or sent again. Reverted or unknown market broadcasts stop later sales;
 MCP failures carry all token rows. Market exit status is the worst result (0, 1, 3 or 4).
 
 `report` accepts a request ID or app review URL, refuses requests that were never confirmed, and

@@ -22,16 +22,7 @@ pub(super) async fn place(context: &Context<'_>, budget: &TokenPolicy, row: &mut
     let result = match intent::place(intent::Announcer { relay: context.client, wait: context.wait, pacer: Some(&context.pacer) },
         input, context.signer.clone(), !context.input.dry_run).await {
         Ok(result) => result,
-        Err(error) => {
-            if error.downcast_ref::<crate::client::RateLimited>().is_some() { row.reason = Some("relay_rate_limited".into()); }
-            let text = error.to_string();
-            if text.starts_with("HTTP 422") {
-                for code in ["floor_below_confirmed_discount", "unpriced_for_confirmed_discount"] {
-                    if text.contains(code) { row.reason = Some(code.into()); return Ok(()); }
-                }
-            }
-            return Err(error);
-        }
+        Err(error) => return refused(row, error),
     };
     row.order = Some(order(&result.order)?);
     row.intent_id = Some(result.id);
@@ -40,6 +31,27 @@ pub(super) async fn place(context: &Context<'_>, budget: &TokenPolicy, row: &mut
     row.outcome = if result.dry_run { "skipped" } else { "placed" }.into();
     row.reason = result.dry_run.then(|| "dry_run".into());
     Ok(())
+}
+
+/// Relay answers that end the row without an error: a floor refusal, or a publish the relay timed
+/// out on, kept with its signed order as `placement_unknown` for the status wait. Others return.
+fn refused(row: &mut Row, error: eyre::Report) -> Result<()> {
+    if let Some(unknown) = error.downcast_ref::<intent::PublishUnknown>() {
+        row.order = Some(order(&unknown.outcome.order)?);
+        row.intent_id = Some(unknown.outcome.id.clone());
+        row.announce_status = Some("unknown".into());
+        row.outcome = "placement_unknown".into();
+        row.error = Some(crate::redact::urls(&error.to_string()));
+        return Ok(());
+    }
+    if error.downcast_ref::<crate::client::RateLimited>().is_some() { row.reason = Some("relay_rate_limited".into()); }
+    let text = error.to_string();
+    if text.starts_with("HTTP 422") {
+        for code in ["floor_below_confirmed_discount", "unpriced_for_confirmed_discount"] {
+            if text.contains(code) { row.reason = Some(code.into()); return Ok(()); }
+        }
+    }
+    Err(error)
 }
 
 /// The signed order back from its DTO, for lens status reads.

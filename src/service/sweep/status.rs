@@ -9,7 +9,7 @@ use std::{collections::BTreeMap, time::{Duration, Instant}};
 /// Pause between status rounds.
 const POLL: Duration = Duration::from_secs(5);
 
-fn terminal(status: &str) -> bool { matches!(status, "filled" | "expired" | "cancelled" | "dead") }
+fn terminal(status: &str) -> bool { matches!(status, "filled" | "expired" | "cancelled" | "dead" | "not_placed") }
 
 pub(crate) fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
@@ -22,7 +22,7 @@ pub(super) async fn wait(input: &Input, owner: Address, provider: &DynProvider, 
     if duration.is_zero() { return; }
     let start = Instant::now();
     for row in &mut output.tokens {
-        if row.announce_status.as_deref() == Some("accepted") { row.wait_timed_out = true; }
+        if matches!(row.announce_status.as_deref(), Some("accepted" | "unknown")) { row.wait_timed_out = true; }
     }
     while start.elapsed() < duration && output.tokens.iter().any(|r| r.wait_timed_out) {
         let left = duration.saturating_sub(start.elapsed());
@@ -47,7 +47,11 @@ async fn round(input: &Input, owner: Address, provider: &DynProvider, origins: &
     for (index, row) in output.tokens.iter_mut().enumerate().filter(|(_, r)| r.wait_timed_out) {
         let id = row.intent_id.as_deref().and_then(|id| id.parse::<B256>().ok());
         // The index can list a fill late, so its "expired" stands only when this round's lens agrees.
-        match id.and_then(|id| indexed.get(&id)) {
+        let listed = id.and_then(|id| indexed.get(&id));
+        if listed.is_some() && row.announce_status.as_deref() == Some("unknown") {
+            row.announce_status = Some("accepted".into()); row.outcome = "placed".into();
+        }
+        match listed {
             Some((status, _)) if terminal(status) && status != "expired" => record(row, status),
             Some((status, deadline)) if status == "open" && now <= *deadline => record(row, status),
             _ => unresolved.push(index),
@@ -65,7 +69,12 @@ async fn chain(provider: &DynProvider, config: evm::ChainConfig, unresolved: Vec
     let orders = known.iter().filter_map(|&i| output.tokens[i].order.clone()).collect();
     match intent::preview_statuses(provider, config, orders).await {
         Ok(statuses) if statuses.len() == known.len() => {
-            for (index, status) in known.into_iter().zip(statuses) { record(&mut output.tokens[index], &status); }
+            for (index, status) in known.into_iter().zip(statuses) {
+                let row = &mut output.tokens[index];
+                // A timed-out publish the index never listed and the lens finds expired was never live.
+                let unseen = status == "expired" && row.announce_status.as_deref() == Some("unknown");
+                record(row, if unseen { "not_placed" } else { &status });
+            }
         }
         Ok(_) => for index in known { fail(&mut output.tokens[index], "lens returned a different number of intents"); },
         Err(error) => {
@@ -168,6 +177,19 @@ pub(super) mod tests {
         status::wait(&input(1), owner(), &evm::read_provider(&rpc.url).unwrap(), &Origins { stream: &index.url, data: "http://127.0.0.1:1" }, 1_000, &mut output).await;
         let statuses: Vec<_> = output.tokens.iter().map(|r| (r.intent_status.as_deref(), r.wait_timed_out)).collect();
         assert_eq!(statuses, vec![(Some("open"), true), (Some("expired"), false), (Some("expired"), false)]);
+        assert_eq!(reads.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn timed_out_publish_is_polled_and_ends_not_placed_when_never_listed() {
+        let (mut output, _) = rows(1);
+        output.tokens[0].announce_status = Some("unknown".into());
+        let index = TestHttp::start(|_| (200, fixture::page(Vec::new(), None)));
+        let reads = Arc::new(AtomicUsize::new(0));
+        let rpc = lens(false, reads.clone());
+        status::wait(&input(30), owner(), &evm::read_provider(&rpc.url).unwrap(), &Origins { stream: &index.url, data: "http://127.0.0.1:1" }, 1_000, &mut output).await;
+        let row = &output.tokens[0];
+        assert_eq!((row.intent_status.as_deref(), row.wait_timed_out, row.announce_status.as_deref()), (Some("not_placed"), false, Some("unknown")));
         assert_eq!(reads.load(Ordering::SeqCst), 1);
     }
 

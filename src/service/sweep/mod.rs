@@ -21,6 +21,8 @@ mod intent_tests;
 mod batch_tests;
 #[cfg(test)]
 mod pace_tests;
+#[cfg(test)]
+mod unknown_tests;
 pub use models::{Input, Output, Row, Via};
 /// Default and largest Dutch-curve start above independent market value, in basis points.
 pub const DEFAULT_START_PREMIUM_BPS: u16 = 100;

@@ -22,8 +22,8 @@ mod read;
 #[cfg(test)]
 mod tests;
 pub use models::{
-    IntentRecord, ListInput, PlaceInput, PlaceOutcome, PolicyInput, PolicyOutput, StatusInput,
-    TokenPolicy,
+    IntentRecord, ListInput, PlaceInput, PlaceOutcome, PolicyInput, PolicyOutput, PublishUnknown,
+    StatusInput, TokenPolicy,
 };
 pub use read::{list, policy, status};
 pub use pace::Pacer;
@@ -115,11 +115,12 @@ async fn finish_place(
         .call()
         .await
         .map_err(authorization_error)?;
-    let (relay, submission) = announce_intent(announcer, &input, signer, config, &order, &envelope).await?;
-    outcome.relay = relay;
-    if let Some(submission) = submission { outcome.record(submission); }
     outcome.envelope = Some(hex_bytes(&envelope));
     outcome.signature = Some(format!("0x{}", hex::encode(sig.as_bytes())));
+    let (relay, submission) = announce_intent(announcer, &input, signer, config, &order, &envelope).await
+        .map_err(|error| PublishUnknown::classify(error, input.relay, &outcome))?;
+    outcome.relay = relay;
+    if let Some(submission) = submission { outcome.record(submission); }
     Ok(outcome)
 }
 

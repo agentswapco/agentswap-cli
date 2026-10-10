@@ -1,6 +1,6 @@
 // Request and response models for the intent service, shared by the CLI and MCP.
-// Exports: PlaceInput, PlaceOutcome, ListInput, StatusInput, PolicyInput, IntentRecord,
-// PolicyOutput, TokenPolicy.
+// Exports: PlaceInput, PlaceOutcome, PublishUnknown, ListInput, StatusInput, PolicyInput,
+// IntentRecord, PolicyOutput, TokenPolicy.
 // Deps: serde, schemars, crate::order_types DTOs, crate::tokens for the chain-selector copy.
 
 use crate::order_types;
@@ -72,6 +72,31 @@ pub struct PlaceOutcome {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tx_explorer_url: Option<String>,
 }
+
+/// The relay answered HTTP 504: its stream publish timed out, so the signed intent may be live.
+/// Carries the signed outcome so the caller can poll it by id; the intent is never signed again.
+#[derive(Debug)]
+pub struct PublishUnknown {
+    pub outcome: Box<PlaceOutcome>,
+    error: String,
+}
+
+impl PublishUnknown {
+    /// `error` as PublishUnknown when it is a relay HTTP 504, else unchanged.
+    pub(super) fn classify(error: eyre::Report, relay: bool, outcome: &PlaceOutcome) -> eyre::Report {
+        let text = error.to_string();
+        if !relay || !text.starts_with("HTTP 504") { return error; }
+        Self { outcome: Box::new(outcome.clone()), error: text }.into()
+    }
+}
+
+impl std::fmt::Display for PublishUnknown {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}; intent {} may be live", self.error, self.outcome.id)
+    }
+}
+
+impl std::error::Error for PublishUnknown {}
 
 impl PlaceOutcome {
     pub(super) fn record(&mut self, submission: Submission) {

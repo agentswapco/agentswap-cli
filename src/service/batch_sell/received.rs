@@ -22,7 +22,7 @@ pub(super) async fn report(chain: &str, proxy: &str, receive: &str, origins: &Or
         } else if row.tx_status == Some(TxStatus::Confirmed) {
             market_received(&provider, proxy.parse()?, receive.parse()?, row).await
         } else {
-            if matches!(row.intent_status.as_deref(), Some("expired" | "cancelled" | "dead")) {
+            if matches!(row.intent_status.as_deref(), Some("expired" | "cancelled" | "dead" | "not_placed")) {
                 row.outcome = "skipped".into(); row.reason = row.intent_status.clone();
             }
             continue;

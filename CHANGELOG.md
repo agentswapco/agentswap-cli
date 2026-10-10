@@ -34,6 +34,11 @@
   resend the identical signed intent once; a second 429 marks the token failed with reason
   `relay_rate_limited` and the run continues with the next token. Other relay errors are not
   retried.
+- A relay HTTP 504 in `batch-sell run` and MCP `batch_sell_run`, a timed-out stream publish, marks
+  the token `placement_unknown` instead of failed and keeps its signed intent. `--wait` polls it by
+  its id like a placed intent and records filled, open, expired or cancelled from the intent index
+  or the lens, or `not_placed` when the index never lists it and the lens reports it expired.
+  The intent is never signed or sent again.
 - `intent status`, `intent list --owner` and MCP `intent_status` and `intent_list` read orders from
   the intent index first, so intents the relay published only to the off-chain stream, with no
   `IntentAnnounced` log, resolve. Log reads remain the fallback, and `intent status` then reports

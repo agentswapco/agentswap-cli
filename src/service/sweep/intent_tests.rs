@@ -20,7 +20,7 @@ pub(super) fn rpc(mask: u8, status: &'static str) -> TestRpc {
 }
 
 /// The sweep RPC fixture; every order whose hash the signer checks is appended to `orders`.
-fn rpc_sharing(mask: u8, status: &'static str, orders: Arc<std::sync::Mutex<Vec<order_types::Order>>>) -> TestRpc {
+pub(super) fn rpc_sharing(mask: u8, status: &'static str, orders: Arc<std::sync::Mutex<Vec<order_types::Order>>>) -> TestRpc {
     TestRpc::start(move |body| {
         let result = match body["method"].as_str().unwrap() {
             "eth_getBlockByNumber" => {
@@ -276,7 +276,7 @@ async fn stream_only_run(signer: Arc<crate::signer::local::LocalKey>) {
 
 /// Intent index fixture: history rows for every signed order in `status`, and a fill record
 /// for each when filled.
-fn stream_index(orders: Arc<std::sync::Mutex<Vec<order_types::Order>>>, status: &'static str, agent: Address) -> crate::service::test_http::TestHttp {
+pub(super) fn stream_index(orders: Arc<std::sync::Mutex<Vec<order_types::Order>>>, status: &'static str, agent: Address) -> crate::service::test_http::TestHttp {
     use crate::service::intentscan::fixture;
     crate::service::test_http::TestHttp::start(move |target| {
         let orders = orders.lock().unwrap().clone();
