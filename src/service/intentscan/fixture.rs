@@ -1,6 +1,6 @@
-// Intent-index fixtures shared by service tests: orders, history rows and fill records.
-// Rows carry real ABI encodings, so the decoder runs exactly as against the live index.
-use crate::order_types::{self, IntentAuthorization, Order};
+// Intent-index and lens fixtures shared by service tests: orders, history rows, fill records and
+// IntentLensV3 views. Rows carry real ABI encodings, so decoders run as against live services.
+use crate::order_types::{self, IntentAuthorization, IntentLensV3, Order};
 use alloy::primitives::{Address, B256, Bytes, U256};
 use alloy::sol_types::SolType;
 use serde_json::{Value, json};
@@ -29,4 +29,11 @@ pub(crate) fn page(items: Vec<Value>, next: Option<u64>) -> String {
 pub(crate) fn fill(id: B256, received: &str, tx: B256, filled_ms: u64) -> String {
     json!({"intent_hash": format!("{id:?}"), "tx_hash": format!("{tx:?}"), "platform": "agentswap", "chain": "base",
         "filled_ms": filled_ms, "output_amount": received, "output_usd": 1.5, "surplus_bps": 0}).to_string()
+}
+
+pub(crate) fn view(filled: bool, cancelled: bool, in_window: bool) -> IntentLensV3::IntentView {
+    IntentLensV3::IntentView { id: B256::ZERO, cancelled, filled, nonceSpent: false, killedByOwner: false, proxyDeployed: true,
+        inWindow: in_window, exclusiveWindow: false, decayComplete: false, floorNow: U256::ZERO, feeNow: U256::ZERO,
+        requiredNow: U256::ZERO, floorForOutsider: U256::ZERO, requiredForOutsider: U256::ZERO, ownerBalance: U256::ZERO,
+        ownerProxyAllowance: U256::ZERO, proxy: Address::ZERO, observedAt: U256::ZERO, observedBlock: U256::ZERO }
 }

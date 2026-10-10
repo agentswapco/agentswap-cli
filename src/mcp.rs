@@ -187,7 +187,7 @@ impl AgentSwapMcp {
         confirmed(outcome, failure)
     }
 
-    #[tool(description = "List announced V6 intents on chain_id. Either owner or agent is required; a call with neither is refused.")]
+    #[tool(description = "List V6 intents on chain_id. Either owner or agent is required; a call with neither is refused. By owner, intents come from the intentscan.net intent index, which also holds intents published only to the off-chain stream; by agent, or when the index does not answer, from IntentAnnounced logs within the lookback.")]
     async fn intent_list(
         &self,
         Parameters(input): Parameters<intent::ListInput>,
@@ -198,7 +198,7 @@ impl AgentSwapMcp {
         intent::list(input).await.map(|intents| Json(IntentListOutput { intents })).map_err(tool_error)
     }
 
-    #[tool(description = "Inspect one V6 intent by bytes32 id on chain_id.")]
+    #[tool(description = "Inspect one V6 intent by bytes32 id on chain_id: its order from the intentscan.net intent index, which also holds intents published only to the off-chain stream, else from an IntentAnnounced log, with live state from IntentLensV3; with neither, the settler's filled or cancelled state.")]
     async fn intent_status(
         &self,
         Parameters(input): Parameters<intent::StatusInput>,

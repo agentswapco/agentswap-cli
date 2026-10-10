@@ -42,8 +42,8 @@ pub enum IntentCommands {
         /// numbers named.
         #[arg(long)]
         deadline_secs: Option<u64>,
-        /// Have the AgentSwap relay announce the signed intent; it always posts to
-        /// https://app.agentswap.co, not to --url. Mutually exclusive with --self-submit, and a
+        /// Have the AgentSwap relay publish the signed intent, to the off-chain stream or with an
+        /// on-chain announce; it always posts to https://app.agentswap.co, not to --url. Mutually exclusive with --self-submit, and a
         /// live placement needs exactly one of the two.
         #[arg(long)]
         relay: bool,
@@ -59,7 +59,8 @@ pub enum IntentCommands {
         #[arg(long)]
         dry_run: bool,
     },
-    /// List announced intents by owner or agent
+    /// List intents by owner from the intent index, including intents published only to the
+    /// off-chain stream; by agent, or when the index does not answer, from IntentAnnounced logs
     #[command(after_help = V6_CHAINS_NOTE)]
     List {
         #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
@@ -70,21 +71,22 @@ pub enum IntentCommands {
         /// Agent wallet that placed the intents; required unless --owner is given
         #[arg(long, conflicts_with = "owner", required_unless_present = "owner")]
         agent: Option<String>,
-        /// Blocks scanned for IntentAnnounced events; defaults to 200,000, or 9,000 on BNB Smart
-        /// Chain with the built-in public RPC
+        /// Blocks scanned for IntentAnnounced events when logs are read; defaults to 200,000, or
+        /// 9,000 on BNB Smart Chain with the built-in public RPC
         #[arg(long)]
         lookback_blocks: Option<u64>,
     },
-    /// Inspect an announced intent by bytes32 id
+    /// Inspect an intent by bytes32 id: the intent index first, so intents published only to the
+    /// off-chain stream resolve, then IntentAnnounced logs, then the settler's filled or cancelled state
     #[command(after_help = V6_CHAINS_NOTE)]
     Status {
         #[arg(short, long = "chainid", help = CHAIN_ID_HELP)]
         chain_id: String,
-        /// Intent id (bytes32) as announced
+        /// Intent id (bytes32), the order hash
         #[arg(long)]
         id: String,
-        /// Blocks scanned for the IntentAnnounced event; defaults to 200,000, or 9,000 on BNB
-        /// Smart Chain with the built-in public RPC
+        /// Blocks scanned for the IntentAnnounced event when the index does not hold the intent;
+        /// defaults to 200,000, or 9,000 on BNB Smart Chain with the built-in public RPC
         #[arg(long)]
         lookback_blocks: Option<u64>,
     },

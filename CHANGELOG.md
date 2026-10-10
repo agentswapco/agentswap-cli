@@ -23,7 +23,12 @@
   read in one batched `IntentLensV3.previewMany` call. The wait no longer scans `IntentAnnounced`
   logs.
 - Intent proceeds in `batch-sell run` come from the intent index's fill records, net of the
-  protocol fee, with `IntentFilled` logs as the fallback.
+  protocol fee, with `IntentFilled` logs from the placement block as the fallback.
+- `intent status`, `intent list --owner` and MCP `intent_status` and `intent_list` read orders from
+  the intent index first, so intents the relay published only to the off-chain stream, with no
+  `IntentAnnounced` log, resolve. Log reads remain the fallback, and `intent status` then reports
+  the settler's filled or cancelled state by id. A relay answer of `{id, mode: "broadcast"}` is
+  accepted like the on-chain announce answer.
 
 ## 0.11.2
 

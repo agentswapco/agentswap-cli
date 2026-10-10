@@ -15,6 +15,7 @@ use eyre::{eyre, Result};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod indexed;
 mod models;
 mod read;
 #[cfg(test)]

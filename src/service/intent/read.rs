@@ -1,4 +1,4 @@
-// V6 intent discovery, status, and policy reads with RPC-compatible log windows.
+// V6 intent discovery, status, and policy reads: the intent index first, then bounded log windows.
 // Exports: list, status, policy, preview_statuses, agent_authorization.
 // Deps: parent intent models, crate::{evm, order_types}, alloy providers.
 
@@ -7,24 +7,32 @@ use crate::evm::{self, ChainConfig};
 use crate::order_types::{
     self, IntentAbiCodec, IntentLensV3, IntentSettlerV3, Order, UserProxyV6,
 };
+use crate::service::intentscan::Origins;
 use alloy::primitives::U256;
-use alloy::providers::Provider;
+use alloy::providers::{DynProvider, Provider};
 use alloy::sol_types::SolType;
 use std::collections::BTreeSet;
 
 pub async fn list(input: ListInput) -> Result<Vec<IntentRecord>> {
     let config = evm::chain_config(&input.chain_id)?;
+    let provider = evm::read_provider(&evm::rpc_url(config))?;
+    list_from(&Origins::public(), &provider, config, &input).await
+}
+
+/// By owner from the intent index, which also holds intents published only to the off-chain
+/// stream; by agent, or when the index does not answer, from IntentAnnounced logs.
+pub(super) async fn list_from(origins: &Origins<'_>, provider: &DynProvider, config: ChainConfig, input: &ListInput) -> Result<Vec<IntentRecord>> {
     let owner = input.owner.as_deref().map(order_types::parse_address).transpose()?;
     let agent = input.agent.as_deref().map(order_types::parse_address).transpose()?;
-    let provider = evm::read_provider(&evm::rpc_url(config))?;
-    let lens = IntentLensV3::new(config.lens, provider.clone());
-    let layout = lens.PREVIEW_LAYOUT().call().await?;
-    if layout != U256::from(3) {
-        return Err(eyre!("IntentLensV3 PREVIEW_LAYOUT is {layout}, expected 3"));
+    check_layout(provider, config).await?;
+    if let Some(owner) = owner
+        && let Ok(records) = super::indexed::list(origins, provider, config, owner, agent).await
+    {
+        return Ok(records);
     }
     let settler = IntentSettlerV3::new(config.settler, provider.clone());
     let lookback = evm::event_lookback_blocks(config, input.lookback_blocks);
-    let first_block = evm::event_start_block(&provider, lookback).await?;
+    let first_block = evm::event_start_block(provider, lookback).await?;
     let latest = provider.get_block_number().await?;
     let mut out = Vec::new();
     let mut block = first_block;
@@ -33,14 +41,10 @@ pub async fn list(input: ListInput) -> Result<Vec<IntentRecord>> {
         let mut filter = settler.IntentAnnounced_filter();
         if let Some(owner) = owner { filter.filter = filter.filter.topic2(owner); }
         filter.filter = filter.filter.from_block(block).to_block(end);
-        for (event, _) in filter
-            .query()
-            .await
-            .map_err(|error| evm::event_query_error(config, block, end, error))?
-        {
+        for (event, _) in filter.query().await.map_err(|error| evm::event_query_error(config, block, end, error))? {
             let (order, auth_agent) = decode_event(&event)?;
             if agent.is_some() && auth_agent != agent { continue; }
-            out.push(record(&provider, config, order, auth_agent).await?);
+            out.push(record(provider, config, order, auth_agent).await?);
         }
         if end == latest { break; }
         block = end.saturating_add(1);
@@ -50,36 +54,46 @@ pub async fn list(input: ListInput) -> Result<Vec<IntentRecord>> {
 
 pub async fn status(input: StatusInput) -> Result<IntentRecord> {
     let config = evm::chain_config(&input.chain_id)?;
-    let id = parse_b256(&input.id)?;
     let provider = evm::read_provider(&evm::rpc_url(config))?;
-    let lens = IntentLensV3::new(config.lens, provider.clone());
-    let layout = lens.PREVIEW_LAYOUT().call().await?;
+    status_from(&Origins::public(), &provider, config, &input).await
+}
+
+/// The intent index first, so an intent published only to the off-chain stream resolves; then an
+/// IntentAnnounced log; then the settler's filled or cancelled state by id.
+pub(super) async fn status_from(origins: &Origins<'_>, provider: &DynProvider, config: ChainConfig, input: &StatusInput) -> Result<IntentRecord> {
+    let id = parse_b256(&input.id)?;
+    check_layout(provider, config).await?;
+    if let Ok(Some(record)) = super::indexed::status(origins, provider, config, id).await { return Ok(record); }
+    match announced(provider, config, id, input.lookback_blocks).await {
+        Ok(Some((order, agent))) => record(provider, config, order, agent).await,
+        Ok(None) => super::indexed::settled(provider, config, id).await,
+        Err(error) => super::indexed::settled(provider, config, id).await.map_err(|_| error),
+    }
+}
+
+async fn check_layout(provider: &DynProvider, config: ChainConfig) -> Result<()> {
+    let layout = IntentLensV3::new(config.lens, provider.clone()).PREVIEW_LAYOUT().call().await?;
     if layout != U256::from(3) {
         return Err(eyre!("IntentLensV3 PREVIEW_LAYOUT is {layout}, expected 3"));
     }
+    Ok(())
+}
+
+async fn announced(provider: &DynProvider, config: ChainConfig, id: B256, lookback: Option<u64>) -> Result<Option<(Order, Option<Address>)>> {
     let settler = IntentSettlerV3::new(config.settler, provider.clone());
-    let lookback = evm::event_lookback_blocks(config, input.lookback_blocks);
-    let first_block = evm::event_start_block(&provider, lookback).await?;
+    let first_block = evm::event_start_block(provider, evm::event_lookback_blocks(config, lookback)).await?;
     let latest = provider.get_block_number().await?;
     let mut block = first_block;
     while block <= latest {
         let end = block.saturating_add(evm::EVENT_CHUNK_SIZE - 1).min(latest);
         let mut filter = settler.IntentAnnounced_filter();
         filter.filter = filter.filter.topic1(id).from_block(block).to_block(end);
-        if let Some((event, _)) = filter
-            .query()
-            .await
-            .map_err(|error| evm::event_query_error(config, block, end, error))?
-            .into_iter()
-            .next()
-        {
-            let (order, auth_agent) = decode_event(&event)?;
-            return record(&provider, config, order, auth_agent).await;
-        }
+        let events = filter.query().await.map_err(|error| evm::event_query_error(config, block, end, error))?;
+        if let Some((event, _)) = events.into_iter().next() { return decode_event(&event).map(Some); }
         if end == latest { break; }
         block = end.saturating_add(1);
     }
-    Err(eyre!("intent {id:?} was not found in IntentAnnounced logs"))
+    Ok(None)
 }
 
 pub async fn policy(input: PolicyInput) -> Result<PolicyOutput> {
@@ -128,10 +142,14 @@ pub async fn policy(input: PolicyInput) -> Result<PolicyOutput> {
     Ok(PolicyOutput { owner: format!("{owner:?}"), agent: format!("{agent:?}"), proxy: format!("{proxy_address:?}"), expiry: policy.expiry.to_string(), epoch_len: policy.epochLen.to_string(), action_mask: policy.actionMask.to_string(), generation: generation.to_string(), tokens: token_out, note })
 }
 
-async fn record(provider: &alloy::providers::DynProvider, config: ChainConfig, order: Order, agent: Option<Address>) -> Result<IntentRecord> {
+pub(super) async fn record(provider: &DynProvider, config: ChainConfig, order: Order, agent: Option<Address>) -> Result<IntentRecord> {
     let view = IntentLensV3::new(config.lens, provider.clone()).preview(order.clone()).call().await?;
-    let (status, reason) = status_word(&view, agent.is_none());
-    Ok(IntentRecord {
+    Ok(record_from(&view, &order, agent))
+}
+
+pub(super) fn record_from(view: &IntentLensV3::IntentView, order: &Order, agent: Option<Address>) -> IntentRecord {
+    let (status, reason) = status_word(view, agent.is_none());
+    IntentRecord {
         id: format!("{:?}", view.id),
         placed_by: agent.map(|a| format!("{a:?}")).unwrap_or_else(|| format!("{:?}", order.owner)),
         owner: format!("{:?}", order.owner),
@@ -149,7 +167,7 @@ async fn record(provider: &alloy::providers::DynProvider, config: ChainConfig, o
         required_for_outsider: view.requiredForOutsider.to_string(),
         status,
         reason,
-    })
+    }
 }
 
 fn status_word(view: &IntentLensV3::IntentView, owner_order: bool) -> (String, String) {
@@ -183,13 +201,9 @@ pub(crate) fn agent_authorization(envelope: &[u8]) -> Result<Option<(Address, u6
 
 /// Status of each order from one `IntentLensV3.previewMany` read; works for intents published
 /// without an on-chain announce, because the lens reads the order itself.
-pub(crate) async fn preview_statuses(provider: &alloy::providers::DynProvider, config: ChainConfig, orders: Vec<Order>) -> Result<Vec<String>> {
-    let lens = IntentLensV3::new(config.lens, provider.clone());
-    let layout = lens.PREVIEW_LAYOUT().call().await?;
-    if layout != U256::from(3) {
-        return Err(eyre!("IntentLensV3 PREVIEW_LAYOUT is {layout}, expected 3"));
-    }
-    let views = lens.previewMany(orders).call().await?;
+pub(crate) async fn preview_statuses(provider: &DynProvider, config: ChainConfig, orders: Vec<Order>) -> Result<Vec<String>> {
+    check_layout(provider, config).await?;
+    let views = IntentLensV3::new(config.lens, provider.clone()).previewMany(orders).call().await?;
     Ok(views.iter().map(|view| status_word(view, false).0).collect())
 }
 

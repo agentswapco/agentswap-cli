@@ -89,6 +89,20 @@ pub async fn history(origins: &Origins<'_>, owner: Address, chain: u64, since_ms
     Ok(out)
 }
 
+#[derive(Deserialize)]
+struct ById {
+    intents: Vec<decode::Item>,
+}
+
+/// Intent `id` on `chain` with its signed order, or None when the index does not hold it.
+pub async fn intent(origins: &Origins<'_>, chain: u64, id: B256) -> Result<Option<Intent>> {
+    let response = client()?.get(format!("{}/v1/intent/{id:?}", origins.stream)).send().await?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND { return Ok(None); }
+    ensure!(response.status().is_success(), "intent record HTTP {}", response.status());
+    let found: ById = response.json().await?;
+    Ok(found.intents.into_iter().filter_map(|item| decode::intent(item, chain)).find(|intent| intent.id == id))
+}
+
 /// The fill record of intent `id`, or None while the index holds no fill for it.
 pub async fn fill(origins: &Origins<'_>, id: B256) -> Result<Option<Fill>> {
     let response = client()?.get(format!("{}/v1/intent/{id:?}", origins.data)).send().await?;

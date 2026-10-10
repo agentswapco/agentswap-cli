@@ -130,7 +130,14 @@ intent_list, intent_status, policy, portfolio, grant_link, batch_sell_plan, batc
 intent_place; without it those three run as dry-runs. Intent listing requires an owner or agent filter. MCP `trade` defaults `dry_run` to true, while the
 CLI defaults to a live trade once `--allow-trade` is set.
 
-Intent and policy reads inspect the latest 200,000 blocks on Base, Arbitrum One, BNB Smart Chain
+`intent status` and `intent list --owner` read orders from the public intent index first
+(`broadcast.intentscan.net`), which also holds intents the relay published only to the off-chain
+stream, with no IntentAnnounced log; live state comes from IntentLensV3. `intent list --agent`,
+and either command when the index does not answer, read IntentAnnounced logs; `intent status`
+then falls back to the settler's filled or cancelled state by id. Relay responses are recorded as
+returned: `{id, mode: "broadcast"}` for a stream publication or the on-chain announce response.
+
+Intent log and policy reads inspect the latest 200,000 blocks on Base, Arbitrum One, BNB Smart Chain
 and Robinhood Chain. BNB Smart Chain uses 9,000 blocks with the built-in public RPC; set
 `AGENTSWAP_RPC_URL_56` or `AGENTSWAP_RPC_URL` for a keyed endpoint to use the full lookback, or
 pass `--lookback-blocks`.

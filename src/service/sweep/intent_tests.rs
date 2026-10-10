@@ -2,7 +2,7 @@
 // JSON inputs keep these regressions executable against the market-only implementation.
 use super::*;
 use crate::{order_types::{IntentSettlerV3, UserProxyFactoryV6}, service::test_rpc::{TestRpc, ok}};
-use alloy::{primitives::U256, sol_types::{SolCall, SolValue, SolEvent}};
+use alloy::{primitives::{B256, U256}, sol_types::{SolCall, SolValue, SolEvent}};
 use serde_json::{Value, json};
 #[path = "../../client/test_server.rs"]
 mod relay_server;
@@ -16,7 +16,11 @@ fn input(via: Option<&str>, dry: bool) -> Input {
 }
 
 pub(super) fn rpc(mask: u8, status: &'static str) -> TestRpc {
-    let mut orders = Vec::<order_types::Order>::new();
+    rpc_sharing(mask, status, Arc::default())
+}
+
+/// The sweep RPC fixture; every order whose hash the signer checks is appended to `orders`.
+fn rpc_sharing(mask: u8, status: &'static str, orders: Arc<std::sync::Mutex<Vec<order_types::Order>>>) -> TestRpc {
     TestRpc::start(move |body| {
         let result = match body["method"].as_str().unwrap() {
             "eth_getBlockByNumber" => {
@@ -36,6 +40,7 @@ pub(super) fn rpc(mask: u8, status: &'static str) -> TestRpc {
                 }
                 assert_eq!(body["params"][0]["topics"][0], json!(IntentSettlerV3::IntentFilled::SIGNATURE_HASH), "only fill logs, never announce scans");
                 let id = body["params"][0]["topics"][1].as_str().unwrap();
+                let orders = orders.lock().unwrap();
                 let order = orders.iter().find(|o| format!("{:?}", order_types::order_id(o)) == id).unwrap();
                 let event = IntentSettlerV3::IntentFilled { id:order_types::order_id(order),owner:order.owner,solver:Address::repeat_byte(5),
                     recipient:order.owner,caller:Address::repeat_byte(5),amountIn:order.amountIn,requiredOut:order.endAmountOut + U256::from(10),
@@ -47,7 +52,7 @@ pub(super) fn rpc(mask: u8, status: &'static str) -> TestRpc {
                 let tx = &body["params"][0];
                 let data = hex::decode(tx["input"].as_str().or(tx["data"].as_str()).unwrap().trim_start_matches("0x")).unwrap();
                 if data.starts_with(&IntentSettlerV3::orderHashCall::SELECTOR) {
-                    orders.push(IntentSettlerV3::orderHashCall::abi_decode(&data).unwrap().o);
+                    orders.lock().unwrap().push(IntentSettlerV3::orderHashCall::abi_decode(&data).unwrap().o);
                 }
                 if let Some(reply) = lens(body, &data, status) { return Some(reply); }
                 json!(format!("0x{}", hex::encode(call(&data, mask, tx["to"].as_str().unwrap().parse().unwrap()))))
@@ -64,7 +69,7 @@ fn lens(body: &Value, data: &[u8], status: &str) -> Option<Value> {
     if !data.starts_with(&order_types::IntentLensV3::previewManyCall::SELECTOR) { return None; }
     if status == "missing" { return Some(crate::service::test_rpc::failure(body, "lens unavailable")); }
     let count = order_types::IntentLensV3::previewManyCall::abi_decode(data).unwrap().o.len();
-    let views = vec![super::status::tests::view(status == "filled", status == "cancelled", status != "expired"); count];
+    let views = vec![crate::service::intentscan::fixture::view(status == "filled", status == "cancelled", status != "expired"); count];
     Some(ok(body, json!(format!("0x{}", hex::encode(order_types::IntentLensV3::previewManyCall::abi_encode_returns(&views))))))
 }
 
@@ -224,6 +229,66 @@ fn gasless_sweep_wait_reports_terminal_and_timeout_states() {
         assert!(output.status.success(), "{status}: {}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
         assert_eq!(rpc.called("eth_sendRawTransaction"), 0);
     }
+}
+
+/// Stream-only intents: the relay answers `{id, mode: "broadcast"}` and no IntentAnnounced log
+/// exists; the intent index alone settles status and proceeds, and no log is scanned.
+#[test]
+fn stream_only_intents_settle_from_the_index_without_announce_logs() {
+    const NAME: &str = "service::sweep::intent_tests::stream_only_intents_settle_from_the_index_without_announce_logs";
+    let signer = || Arc::new(crate::signer::local::LocalKey::from_private_key(&"01".repeat(32)).unwrap());
+    if let Ok(app) = std::env::var("STREAM_APP") {
+        crate::routes::TEST_APP_ORIGIN.set(app).unwrap();
+        crate::routes::TEST_INTENTSCAN_ORIGIN.set(std::env::var("STREAM_INDEX").unwrap()).unwrap();
+        tokio::runtime::Runtime::new().unwrap().block_on(stream_only_run(signer())); return;
+    }
+    let weth = token::from_registry("WETH", 8453).unwrap().address;
+    for status in ["filled", "expired"] {
+        let orders = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (rpc, index) = (rpc_sharing(5, "missing", orders.clone()), stream_index(orders, status, signer().address()));
+        let relay = relay_server::Server::start(vec![(200, String::new(), json!({"id": format!("{:?}", B256::repeat_byte(1)), "mode": "broadcast"}).to_string())]);
+        let record = json!({"id": "abcdefghijklmnopqrstuv", "status": "confirmed", "confirmed": {"proxy": Address::repeat_byte(6), "generation": "1", "maxLossBps": 100},
+            "request": {"v": 1, "chainId": 8453, "agent": signer().address(), "owner": Address::repeat_byte(4), "purpose": "batch-sell", "maxLossBps": 500,
+            "tokens": [{"address": Address::repeat_byte(1), "cap": "1"}, {"address": weth, "cap": "0"}]}});
+        let prices = json!({"prices": {Address::repeat_byte(1).to_string(): {"priceUsd": 2, "source": "defillama"}, weth.clone(): {"priceUsd": 4, "source": "defillama"}}});
+        let app = relay_server::Server::start(vec![(200, String::new(), record.to_string()), (200, String::new(), prices.to_string())]);
+        let output = std::process::Command::new(std::env::current_exe().unwrap()).args(["--exact", NAME, "--nocapture"])
+            .env("STREAM_APP", &app.url).env("STREAM_INDEX", &index.url).env("STREAM_RELAY", &relay.url).env("STREAM_STATUS", status)
+            .env("AGENTSWAP_RPC_URL_8453", &rpc.url).output().unwrap();
+        assert!(output.status.success(), "{status}: {}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        assert_eq!(rpc.called("eth_getLogs"), 0, "{status}: no IntentAnnounced or IntentFilled scan");
+        assert_eq!((relay.requests.lock().unwrap().len(), rpc.called("eth_sendRawTransaction")), (1, 0));
+    }
+}
+
+async fn stream_only_run(signer: Arc<crate::signer::local::LocalKey>) {
+    use crate::service::batch_sell;
+    let input: batch_sell::RunInput = serde_json::from_value(json!({"request": "abcdefghijklmnopqrstuv", "wait": 20})).unwrap();
+    let record = batch_sell::load(&input).await.unwrap();
+    let relay = Client::new(&std::env::var("STREAM_RELAY").unwrap(), None);
+    let output = batch_sell::run(&relay, signer, input, record, true, None, Wait::MCP).await.unwrap();
+    let row = output.tokens.iter().find(|r| r.intent_id.is_some()).expect("a placed intent");
+    let status = std::env::var("STREAM_STATUS").unwrap();
+    assert_eq!((row.intent_status.as_deref(), row.wait_timed_out, row.relay.as_ref().map(|r| r["mode"].clone())), (Some(status.as_str()), false, Some(json!("broadcast"))));
+    let expected = if status == "filled" { (Some("777"), "sold", None) } else { (None, "skipped", Some("expired")) };
+    assert_eq!((row.received_raw.as_deref(), row.outcome.as_str(), row.reason.as_deref()), expected);
+}
+
+/// Intent index fixture: history rows for every signed order in `status`, and a fill record
+/// for each when filled.
+fn stream_index(orders: Arc<std::sync::Mutex<Vec<order_types::Order>>>, status: &'static str, agent: Address) -> crate::service::test_http::TestHttp {
+    use crate::service::intentscan::fixture;
+    crate::service::test_http::TestHttp::start(move |target| {
+        let orders = orders.lock().unwrap().clone();
+        if target.starts_with("/v1/intents?") {
+            let items = orders.iter().map(|o| fixture::item(8453, o, agent, 1, status, super::now_ms(), u64::MAX / 2)).collect();
+            return (200, fixture::page(items, None));
+        }
+        match orders.iter().map(order_types::order_id).find(|id| target == format!("/v1/intent/{id:?}")) {
+            Some(id) if status == "filled" => (200, fixture::fill(id, "777", B256::repeat_byte(7), 1_000)),
+            _ => (404, "{}".into()),
+        }
+    })
 }
 
 #[path = "gas_floor/flow_tests.rs"]

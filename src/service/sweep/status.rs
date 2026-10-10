@@ -90,16 +90,9 @@ fn fail(row: &mut Row, error: &str) {
 pub(super) mod tests {
     use super::super::{Input, Output, Row, status};
     use crate::{evm, order_types::{self, IntentLensV3}, service::{intentscan::{Origins, fixture}, test_http::TestHttp, test_rpc::{TestRpc, ok}}};
-    use alloy::{primitives::{Address, B256, U256}, sol_types::{SolCall, SolValue}};
+    use alloy::{primitives::{Address, U256}, sol_types::{SolCall, SolValue}};
     use serde_json::json;
     use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
-
-    pub(crate) fn view(filled: bool, cancelled: bool, in_window: bool) -> IntentLensV3::IntentView {
-        IntentLensV3::IntentView { id: B256::ZERO, cancelled, filled, nonceSpent: false, killedByOwner: false, proxyDeployed: true,
-            inWindow: in_window, exclusiveWindow: false, decayComplete: false, floorNow: U256::ZERO, feeNow: U256::ZERO,
-            requiredNow: U256::ZERO, floorForOutsider: U256::ZERO, requiredForOutsider: U256::ZERO, ownerBalance: U256::ZERO,
-            ownerProxyAllowance: U256::ZERO, proxy: Address::ZERO, observedAt: U256::ZERO, observedBlock: U256::ZERO }
-    }
 
     fn input(wait: u64) -> Input {
         serde_json::from_value(json!({"chain_id":"8453", "proxy":Address::repeat_byte(6), "receive":"WETH", "tokens":[],
@@ -127,7 +120,7 @@ pub(super) mod tests {
             if data.starts_with(&IntentLensV3::PREVIEW_LAYOUTCall::SELECTOR) { return Some(ok(body, json!(format!("0x{}", hex::encode(U256::from(3).abi_encode()))))); }
             reads.fetch_add(1, Ordering::SeqCst);
             let count = IntentLensV3::previewManyCall::abi_decode(&data).unwrap().o.len();
-            let views = vec![view(filled, false, false); count];
+            let views = vec![fixture::view(filled, false, false); count];
             Some(ok(body, json!(format!("0x{}", hex::encode(IntentLensV3::previewManyCall::abi_encode_returns(&views))))))
         })
     }
