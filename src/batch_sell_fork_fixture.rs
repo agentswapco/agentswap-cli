@@ -102,8 +102,15 @@ impl Fork {
     pub async fn send(&self, to: Address, data: Vec<u8>, value: U256) {
         let hash = rpc(&self.rpc, "eth_sendTransaction", json!([{"from":self.owner,"to":to,
             "data":format!("0x{}",hex::encode(data)),"value":format!("0x{value:x}"),"gas":"0x989680"}])).await;
-        let receipt = rpc(&self.rpc,"eth_getTransactionReceipt",json!([hash])).await;
-        assert_eq!(receipt["status"],"0x1","setup transaction reverted");
+        // Anvil may answer with the hash before the block is mined: poll the receipt for at most 60 s.
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let receipt = loop {
+            let receipt = rpc(&self.rpc,"eth_getTransactionReceipt",json!([hash])).await;
+            if !receipt.is_null() { break receipt; }
+            assert!(Instant::now() < deadline, "no receipt for setup transaction {hash} within 60 s");
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        };
+        assert_eq!(receipt["status"],"0x1","setup transaction {hash} reverted");
     }
 
     pub fn cli(&self, app: &str, rpc: &str, args: &[String]) -> Result<Value, String> {
