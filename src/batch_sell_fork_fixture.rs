@@ -48,8 +48,10 @@ impl Fork {
         use std::io::Write;
         let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&key).unwrap();
         file.write_all(hex::encode(secret).as_bytes()).unwrap();
+        // 0.1 of each token: anvil suggests a gas price of at least 1 gwei, far above Base's, so
+        // smaller sales fall under the gas floor on a fork.
         let mut fork = Self { rpc:format!("http://127.0.0.1:{port}"), chain, owner, agent, key, tokens,
-            cap:U256::from(if chain == 56 { 100_000_000_000_000_000u64 } else { 10_000_000_000_000_000u64 }), child };
+            cap:U256::from(100_000_000_000_000_000u64), child };
         // Poll eth_chainId every second, for at most 120 s, until the local node answers.
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let request = json!({"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]});
