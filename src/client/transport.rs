@@ -51,6 +51,9 @@ impl Client {
             resp
         };
         let status = resp.status();
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            return Err(super::RateLimited::read(resp).await.into());
+        }
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
             if status == reqwest::StatusCode::UNAUTHORIZED {

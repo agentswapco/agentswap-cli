@@ -19,6 +19,8 @@ mod policy_tests;
 mod intent_tests;
 #[cfg(test)]
 mod batch_tests;
+#[cfg(test)]
+mod pace_tests;
 pub use models::{Input, Output, Row, Via};
 /// Default and largest Dutch-curve start above independent market value, in basis points.
 pub const DEFAULT_START_PREMIUM_BPS: u16 = 100;
@@ -40,6 +42,8 @@ struct Context<'a> {
     max: alloy::primitives::U256,
     server_cap: Option<alloy::primitives::U256>,
     wait: Wait,
+    /// Paces this owner's relay publishes; one pacer per run.
+    pacer: intent::Pacer,
 }
 
 pub async fn sweep(client: &Client, signer: Arc<dyn Signer>, mut input: Input, allow: bool, cap: Option<&str>, wait: Wait) -> Result<Output> {
@@ -74,7 +78,7 @@ async fn read(client: &Client, signer: Arc<dyn Signer>, input: Input, provider: 
     let prices = prices::prices(config.id, &addresses, app_origin).await;
     // A forced or explicit preview must not sign x402 payments.
     let client = if input.dry_run { client.clone().with_x402(crate::x402::Config::disabled(), None) } else { client.clone() };
-    run(Context { client: &client, signer, input, provider, owner, receive, prices, policy, max, server_cap, wait }).await
+    run(Context { client: &client, signer, input, provider, owner, receive, prices, policy, max, server_cap, wait, pacer: intent::Pacer::system() }).await
 }
 
 async fn read_policy(provider: &DynProvider, input: &Input, owner: Address, agent: Address, receive: Address) -> Result<intent::PolicyOutput> {

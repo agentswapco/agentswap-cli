@@ -180,7 +180,7 @@ impl AgentSwapMcp {
         if !self.allow_trade { input.dry_run = true; }
         bound_intent_cap(&mut input, self.trade_max_amount.as_deref())?;
         let Some(signer) = self.signer.clone() else { return Err("intent_place requires --key-file".to_string()); };
-        let announcer = intent::Announcer { relay: &self.intent_client, wait: Wait::MCP };
+        let announcer = intent::Announcer { relay: &self.intent_client, wait: Wait::MCP, pacer: None };
         let outcome = intent::place(announcer, input, signer, self.allow_trade)
             .await.map_err(tool_error)?;
         let failure = outcome.not_confirmed();

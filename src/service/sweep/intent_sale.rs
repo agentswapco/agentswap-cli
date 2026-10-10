@@ -19,10 +19,11 @@ pub(super) async fn place(context: &Context<'_>, budget: &TokenPolicy, row: &mut
     if !context.input.dry_run {
         row.placement_block = Some(context.provider.get_block_number().await?);
     }
-    let result = match intent::place(intent::Announcer { relay: context.client, wait: context.wait },
+    let result = match intent::place(intent::Announcer { relay: context.client, wait: context.wait, pacer: Some(&context.pacer) },
         input, context.signer.clone(), !context.input.dry_run).await {
         Ok(result) => result,
         Err(error) => {
+            if error.downcast_ref::<crate::client::RateLimited>().is_some() { row.reason = Some("relay_rate_limited".into()); }
             let text = error.to_string();
             if text.starts_with("HTTP 422") {
                 for code in ["floor_below_confirmed_discount", "unpriced_for_confirmed_discount"] {

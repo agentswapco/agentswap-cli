@@ -56,7 +56,7 @@ async fn preview(chain: u64, url: &str) {
         input, provider: evm::read_provider(url).unwrap(), owner: Address::repeat_byte(4),
         receive: token::Token { address: Address::repeat_byte(3).to_string(), symbol: "OUT".into(), decimals: 6 },
         prices: BTreeMap::from([(Address::repeat_byte(1), tests::price("1", true)), (Address::repeat_byte(3), tests::price("1", true))]),
-        policy, max: amount::fixed("1", false).unwrap(), server_cap: None, wait: Wait::MCP };
+        policy, max: amount::fixed("1", false).unwrap(), server_cap: None, wait: Wait::MCP, pacer: intent::Pacer::system() };
     let trade_input = sale::trade_input(&context, &spend, U256::from(1_000_000), U256::from(990000));
     let signer = context.signer.clone();
     let out = run(context).await.unwrap();

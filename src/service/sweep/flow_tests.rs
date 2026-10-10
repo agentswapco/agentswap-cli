@@ -66,7 +66,7 @@ async fn flow_case(url: &str) {
         prices = prices::prices(8453, &[from.address.parse().unwrap(), receive.address.parse().unwrap()], &app.url).await;
     }
     let context = Context { client: &client, signer: signer.clone(), input: input.clone(), provider, owner: Address::repeat_byte(4),
-        receive, prices, policy, max: amount::fixed("1", false).unwrap(), server_cap: (!input.dry_run).then_some(U256::ZERO), wait: Wait::MCP };
+        receive, prices, policy, max: amount::fixed("1", false).unwrap(), server_cap: (!input.dry_run).then_some(U256::ZERO), wait: Wait::MCP, pacer: intent::Pacer::system() };
     if scenario == "pinned_preview" { pinned_sale(context, &spend).await; return; }
     let output = run(context).await.unwrap();
     assert_eq!(output.tokens.len(), 2);

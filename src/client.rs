@@ -3,6 +3,8 @@
 // Deps: reqwest, serde_json, eyre, crate::{routes, signer, x402}.
 mod transport;
 mod quote_backend;
+mod rate_limit;
+pub(crate) use rate_limit::RateLimited;
 pub(crate) use quote_backend::{NoRoute, is_no_route, uses_meta};
 #[cfg(test)]
 mod redirect_tests;

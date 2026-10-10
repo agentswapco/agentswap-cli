@@ -17,6 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod indexed;
 mod models;
+mod pace;
 mod read;
 #[cfg(test)]
 mod tests;
@@ -25,13 +26,19 @@ pub use models::{
     TokenPolicy,
 };
 pub use read::{list, policy, status};
+pub use pace::Pacer;
+#[cfg(test)]
+pub(crate) use pace::Clock;
 pub(crate) use read::{agent_authorization, preview_statuses};
 
 /// Where a live intent goes: the relay client for --relay, the receipt wait for --self-submit.
+/// A pacer, when given, admits each relay publish before the order is built and resends the
+/// identical signed body once after a 429.
 #[derive(Clone, Copy)]
 pub struct Announcer<'a> {
     pub relay: &'a Client,
     pub wait: submit::Wait,
+    pub pacer: Option<&'a Pacer>,
 }
 
 pub async fn place(
@@ -49,6 +56,9 @@ pub async fn place(
         || allow_trade && !input.dry_run && !input.relay && !input.self_submit
     {
         return Err(eyre!("choose exactly one of --relay or --self-submit"));
+    }
+    if let (true, Some(pacer)) = (input.relay && allow_trade && !input.dry_run, announcer.pacer) {
+        pacer.admit().await;
     }
     verify_raw_token_addresses(&provider, config.id, &input).await?;
     let order = build_order(&input, owner, config.id).await?;
@@ -122,7 +132,11 @@ async fn announce_intent(
     envelope: &Bytes,
 ) -> Result<(Option<serde_json::Value>, Option<Submission>)> {
     if input.relay {
-        let result = announcer.relay.announce_intent(&announce_body(config, order, envelope)).await?;
+        let body = announce_body(config, order, envelope);
+        let result = match announcer.pacer {
+            Some(pacer) => pacer.publish(announcer.relay, &body).await?,
+            None => announcer.relay.announce_intent(&body).await?,
+        };
         return Ok((Some(result), None));
     }
     let call = IntentSettlerV3::announceCall { o: order.clone(), auth: envelope.clone() };

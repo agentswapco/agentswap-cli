@@ -22,7 +22,13 @@ pub(super) struct Server {
 }
 
 impl Server {
+    /// Answers the n-th request with `responses[n]`, repeating the last one.
     pub fn start(responses: Vec<(u16, String, String)>) -> Self {
+        Self::start_with(move |_, index| responses[index.min(responses.len() - 1)].clone())
+    }
+
+    /// Answers each request with `handler(request, index)` as (status, extra header lines, body).
+    pub fn start_with(handler: impl Fn(&Request, usize) -> (u16, String, String) + Send + 'static) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -34,9 +40,8 @@ impl Server {
                 let mut stream = stream.unwrap();
                 let request = read_request(&mut stream);
                 let mut recorded = observed.lock().unwrap();
-                let index = recorded.len().min(responses.len() - 1);
+                let (status, headers, body) = handler(&request, recorded.len());
                 recorded.push(request);
-                let (status, headers, body) = &responses[index];
                 write!(stream, "HTTP/1.1 {status} Fixture\r\n{headers}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
             }
         });

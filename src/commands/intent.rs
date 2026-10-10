@@ -15,7 +15,7 @@ pub async fn run_place(
     allow_trade: bool,
     json: bool,
 ) -> Result<()> {
-    let announcer = intent::Announcer { relay: client, wait: crate::service::submit::Wait::CLI };
+    let announcer = intent::Announcer { relay: client, wait: crate::service::submit::Wait::CLI, pacer: None };
     let result = intent::place(announcer, input, signer, allow_trade).await?;
     if json { println!("{}", serde_json::to_string_pretty(&result)?); } else { print_place(&result); }
     // Printed first, so a reverted or unknown announce still leaves its hash on stdout.

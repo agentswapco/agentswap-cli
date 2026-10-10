@@ -212,7 +212,7 @@ fn gasless_sweep_wait_reports_terminal_and_timeout_states() {
             let prices = BTreeMap::from([(Address::repeat_byte(1), tests::price("1", true)), (receive.address.parse().unwrap(), tests::price("1", true))]);
             let signer = Arc::new(crate::signer::local::LocalKey::from_private_key(&"01".repeat(32)).unwrap());
             let output = run(Context { client:&client, signer, input, provider:evm::read_provider(&url).unwrap(), owner:Address::repeat_byte(4),
-                receive, prices, policy, max:amount::fixed("5", false).unwrap(), server_cap:None, wait:Wait::MCP }).await.unwrap();
+                receive, prices, policy, max:amount::fixed("5", false).unwrap(), server_cap:None, wait:Wait::MCP, pacer:intent::Pacer::system() }).await.unwrap();
             output.check().unwrap();
             let rows = serde_json::to_value(output).unwrap();
             let row = &rows["tokens"][1];

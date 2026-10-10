@@ -24,6 +24,12 @@
   logs.
 - Intent proceeds in `batch-sell run` come from the intent index's fill records, net of the
   protocol fee, with `IntentFilled` logs from the placement block as the fallback.
+- `batch-sell run` and MCP `batch_sell_run` pace intent publishes to the relay per owner, below
+  the per-owner publish rate limit of the off-chain intent stream, before each intent is signed. On
+  an HTTP 429 from the relay they wait for `Retry-After` (else the body's `retryAfterSec`), then
+  resend the identical signed intent once; a second 429 marks the token failed with reason
+  `relay_rate_limited` and the run continues with the next token. Other relay errors are not
+  retried.
 - `intent status`, `intent list --owner` and MCP `intent_status` and `intent_list` read orders from
   the intent index first, so intents the relay published only to the off-chain stream, with no
   `IntentAnnounced` log, resolve. Log reads remain the fallback, and `intent status` then reports
