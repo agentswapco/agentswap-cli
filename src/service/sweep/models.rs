@@ -76,6 +76,10 @@ pub struct Row {
     pub tx_hash: Option<String>,
     pub tx_status: Option<TxStatus>,
     pub trade: Option<TradeOutcome>,
+    /// Signed intent order, kept for lens status reads.
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub(crate) order: Option<crate::order_types::Order>,
 }
 
 impl Row {
@@ -83,7 +87,7 @@ impl Row {
         Self { token, received_raw: None, amount_raw: "0".into(), value_usd: None, floor_raw: None,
             quote_out_raw: None, outcome: "skipped".into(), reason: None, error: None,
             tx_hash: None, tx_status: None, trade: None, intent_id: None, start_out_raw: None,
-            announce_status: None, relay: None, intent_status: None, status_error: None, wait_timed_out: false, placement_block: None, warnings: Vec::new() }
+            announce_status: None, relay: None, intent_status: None, status_error: None, wait_timed_out: false, placement_block: None, warnings: Vec::new(), order: None }
     }
 
     pub(super) fn record(&mut self, result: eyre::Result<TradeOutcome>) -> bool {

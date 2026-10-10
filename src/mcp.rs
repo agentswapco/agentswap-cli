@@ -60,7 +60,7 @@ impl AgentSwapMcp {
             route.attr.description = Some(format!("{} {}",
                 route.attr.description.as_deref().unwrap_or_default(), crate::tokens::V6_CHAINS_NOTE).into());
         }
-        for route in tool_router.map.values_mut().filter(|route| matches!(route.attr.name.as_ref(), "portfolio" | "grant_link" | "batch_sell_plan" | "batch_sell_run")) {
+        for route in tool_router.map.values_mut().filter(|route| matches!(route.attr.name.as_ref(), "portfolio" | "grant_link" | "batch_sell_plan" | "batch_sell_run" | "batch_sell_report")) {
             route.attr.description = Some(format!("{} {}", route.attr.description.as_deref().unwrap_or_default(), crate::tokens::HOLDINGS_CHAINS_NOTE).into());
         }
         Self {
@@ -81,7 +81,7 @@ impl AgentSwapMcp {
         batch_sell::plan(&self.client, input).await.map(Json).map_err(tool_error)
     }
 
-    #[tool(description = "Run a confirmed batch-sell request by id or app URL. Uses its tokens, proxy, receive token and owner-confirmed discount. Requires --key-file and --allow-trade for live signing; otherwise returns an unsigned preview. via defaults to intent; market pays gas from the agent wallet. start_premium_bps (0 to 1000, default 100) starts each intent above independent market value and its price falls linearly to the confirmed discount floor at expiry. wait bounds intent status polling. Returns placed/sold tokens, received amounts when known, and not-sold reasons.")]
+    #[tool(description = "Run a confirmed batch-sell request by id or app URL. Uses its tokens, proxy, receive token and owner-confirmed discount. Requires --key-file and --allow-trade for live signing; otherwise returns an unsigned preview. via defaults to intent; market pays gas from the agent wallet. start_premium_bps (0 to 1000, default 100) starts each intent above independent market value and its price falls linearly to the confirmed discount floor at expiry. wait bounds intent status polling. Returns placed/sold tokens, received amounts when known, and not-sold reasons. Afterwards send the owner the batch_sell_report result, and again after open intents close.")]
     async fn batch_sell_run(&self, Parameters(input): Parameters<batch_sell::RunInput>) -> std::result::Result<Json<sweep::Output>, String> {
         let record = batch_sell::load(&input).await.map_err(tool_error)?;
         let signer = self.signer.clone().ok_or("batch_sell_run requires --key-file")?;
@@ -91,6 +91,11 @@ impl AgentSwapMcp {
             return Err(format!("{}\n{}", tool_error(error), serde_json::to_string(&output).map_err(|e| e.to_string())?));
         }
         Ok(Json(output))
+    }
+
+    #[tool(description = "Report a confirmed batch-sell request by id or app URL for its owner; needs no key. Per token: status (sold, partly_sold, open, expired, not_placed or unsold), cap, amount sold from the grant budget, net proceeds from fill records, value at independent prices, discount versus market in percent, and fill transaction and time; then totals, average and worst discount, unsold value, grant expiry and next steps. Reads the request, one batched chain read and the intentscan.net intent index; no log scans. Send the owner this report after every batch_sell_run, and again after open intents close.")]
+    async fn batch_sell_report(&self, Parameters(input): Parameters<batch_sell::ReportInput>) -> std::result::Result<Json<batch_sell::ReportOutput>, String> {
+        batch_sell::report(&input).await.map(Json).map_err(tool_error)
     }
 
     #[tool(description = "Discover ERC-20 holdings from wallet-tokens and explicit addresses without scanning logs. Indexed holdings include balances and metadata; service catalog and registry reads are used only when indexing is unavailable. App prices include provenance and floor_eligible; Alchemy fallback prices are display-only and never floor-eligible. max_usd is an unsigned USD decimal, quotes full eligible balances and unpriced tokens. Quotes never sign payments. Discovery may be incomplete.")]
@@ -214,7 +219,7 @@ impl AgentSwapMcp {
 impl ServerHandler for AgentSwapMcp {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_instructions("AgentSwap tools: quote, batch_quote, tokens, pools, trade, intent_place, intent_list, intent_status, policy, portfolio, grant_link, batch_sell_plan, batch_sell_run. Use batch_sell_plan, give the owner the returned URL, then batch_sell_run after confirmation. Signing requires --allow-trade. Portfolio and grant_link are read-only; grant links require owner review in the app.")
+            .with_instructions("AgentSwap tools: quote, batch_quote, tokens, pools, trade, intent_place, intent_list, intent_status, policy, portfolio, grant_link, batch_sell_plan, batch_sell_run, batch_sell_report. Use batch_sell_plan, give the owner the returned URL, then batch_sell_run after confirmation; send the owner the batch_sell_report result after each run and again after open intents close. Signing requires --allow-trade. Portfolio and grant_link are read-only; grant links require owner review in the app.")
     }
 }
 

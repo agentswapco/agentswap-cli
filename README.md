@@ -125,8 +125,8 @@ registry is accepted by `quote`, `trade` and `buy-quota` on the chains `trade` s
 must answer `decimals()`; it is read on chain before any quote or order, and displays label it
 with its shortened address.
 
-`agentswap mcp` exposes thirteen tools: quote, batch_quote, tokens, pools, trade, intent_place,
-intent_list, intent_status, policy, portfolio, grant_link, batch_sell_plan and batch_sell_run. `--allow-trade` permits live execution by trade, batch_sell_run and
+`agentswap mcp` exposes fourteen tools: quote, batch_quote, tokens, pools, trade, intent_place,
+intent_list, intent_status, policy, portfolio, grant_link, batch_sell_plan, batch_sell_run and batch_sell_report. `--allow-trade` permits live execution by trade, batch_sell_run and
 intent_place; without it those three run as dry-runs. Intent listing requires an owner or agent filter. MCP `trade` defaults `dry_run` to true, while the
 CLI defaults to a live trade once `--allow-trade` is set.
 
@@ -143,11 +143,14 @@ agentswap batch-sell plan --chainid 8453 --owner "$OWNER" --agent "$AGENT" \
   --receive USDC --max-loss-bps 500 --json
 # Give the returned review URL to the owner. After confirmation:
 agentswap --allow-trade batch-sell run --request "$REQUEST_URL" --key-file agent.key --wait 60 --json
+# Send the owner the report; again after open intents close:
+agentswap batch-sell report --request "$REQUEST_URL"
 ```
 
 Agents use `plan`, give the owner the returned URL, then use `run` after the owner confirms.
-MCP `batch_sell_plan` and `batch_sell_run` expose the same inputs in snake_case, with `tokens`
-for repeatable `--token`.
+After every run, send the owner the `report` output; when intents were still open, send it again
+after they close. MCP `batch_sell_plan`, `batch_sell_run` and `batch_sell_report` expose the same
+inputs in snake_case, with `tokens` for repeatable `--token`.
 
 Always pass `--name`, a short agent name the owner will recognise; the review page shows it beside
 the agent address. `--note` gives the owner the reason for the sale. The request carries them as
@@ -180,7 +183,11 @@ Intent mode is the default: the agent signs against the owner's V6 proxy and rel
 the solver pays fill gas. `--via market` submits market trades from the agent wallet and needs
 native gas. The selected action and receive token must be allowed by the live grant.
 Without `--allow-trade`, execution returns unsigned previews. `--wait <secs>` applies to intent
-mode and shares a bounded status wait across placements.
+mode and shares a bounded status wait across placements. Each status round makes one read of the
+owner's intent history from the intent index, which also holds intents published without an
+on-chain announce; intents the index cannot settle, or every intent when the index is
+unreachable, are read in one batched `IntentLensV3.previewMany` call. The wait scans no logs and
+ends once every intent is filled, expired or cancelled.
 
 Each intent is a 10-minute Dutch auction. It starts `--start-premium-bps` above independent market
 value (default 100, that is 1%; 0 to 1000) and its price falls linearly to the owner-confirmed
@@ -191,12 +198,29 @@ nothing sold or lost. `start_out_raw` reports the start and `floor_raw` the floo
 check behind `below_gas_floor` uses the discount budget, market value minus floor, whatever the
 start. MCP `batch_sell_run` takes `start_premium_bps`; market mode ignores it.
 
-Per-token results distinguish `placed` from `sold`, report `received_raw` from confirmed execution
-events when known, and retain not-sold reasons. Intent proceeds exclude the protocol fee.
+Per-token results distinguish `placed` from `sold`, report `received_raw` from the intent index's
+fill records or confirmed execution events when known, and retain not-sold reasons. Intent proceeds
+exclude the protocol fee.
 `floor_below_confirmed_discount` and `unpriced_for_confirmed_discount` relay refusals are reported
 per token and execution continues. Unknown received amounts remain null. Placement timeouts do
 not imply a fill or trigger resubmission. Reverted or unknown market broadcasts stop later sales;
 MCP failures carry all token rows. Market exit status is the worst result (0, 1, 3 or 4).
+
+`report` accepts a request ID or app review URL, refuses requests that were never confirmed, and
+needs no key file. Per token it gives the status (`sold`, `partly_sold`, `open`, `expired`,
+`not_placed` or `unsold`), the cap, the amount sold (the grant budget spent on the token), net
+proceeds from fill records, the sold amount's value at independent prices, the discount versus
+market in percent, and the fill transaction and time. The summary gives tokens sold, total
+proceeds, the market value of what sold, the average and worst discount, the value still unsold
+(capped at the owner's balance), the grant expiry, and next steps: report again after open
+intents close, or rerun while the grant is valid. Values and discounts use the independent prices
+read with the report, not prices at fill time, and only floor-eligible prices count. The report
+reads the request, makes one Multicall3 call for the grant budgets, token metadata and owner
+balances, and reads the public intent index: the owner's intent history from
+`broadcast.intentscan.net` and fill records from `data.intentscan.net`. It scans no logs. Intents
+count when the requested agent signed them under the confirmed grant generation for a request token
+and the receive token. Without the index, sold amounts come from the grant budgets and proceeds are
+unknown. The human output is a Markdown table; `--json` returns the same fields with raw amounts.
 
 ## Exit status
 

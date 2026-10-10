@@ -34,20 +34,14 @@ pub(super) fn rpc(mask: u8, status: &'static str) -> TestRpc {
                 if status == "bounded" && body["params"][0]["fromBlock"] != "0x30d40" {
                     return Some(crate::service::test_rpc::failure(body, "scan predates placement"));
                 }
+                assert_eq!(body["params"][0]["topics"][0], json!(IntentSettlerV3::IntentFilled::SIGNATURE_HASH), "only fill logs, never announce scans");
                 let id = body["params"][0]["topics"][1].as_str().unwrap();
                 let order = orders.iter().find(|o| format!("{:?}", order_types::order_id(o)) == id).unwrap();
-                if body["params"][0]["topics"][0] == json!(IntentSettlerV3::IntentFilled::SIGNATURE_HASH) {
-                    let event = IntentSettlerV3::IntentFilled { id:order_types::order_id(order),owner:order.owner,solver:Address::repeat_byte(5),
-                        recipient:order.owner,caller:Address::repeat_byte(5),amountIn:order.amountIn,requiredOut:order.endAmountOut + U256::from(10),
-                        fee:U256::from(10),receivedOut:order.endAmountOut + U256::from(10),aboveFloor:U256::ZERO }.encode_log_data();
-                    return Some(ok(body,json!([{"address":evm::chain_config("8453").unwrap().settler,"topics":event.topics(),"data":event.data,
-                        "blockNumber":"0x30d40","logIndex":"0x0","transactionIndex":"0x0"}])));
-                }
-                let event = IntentSettlerV3::IntentAnnounced { id: order_types::order_id(order), owner: order.owner,
-                    appData: order.appData, order: order.abi_encode().into(), ownerSig: (U256::ZERO, alloy::primitives::Bytes::new()).abi_encode().into() };
-                let log = event.encode_log_data();
-                if status == "missing" { json!([]) } else { json!([{"address":evm::chain_config("8453").unwrap().settler,
-                    "topics":log.topics(), "data":log.data, "blockNumber":"0x1", "logIndex":"0x0", "transactionIndex":"0x0"}]) }
+                let event = IntentSettlerV3::IntentFilled { id:order_types::order_id(order),owner:order.owner,solver:Address::repeat_byte(5),
+                    recipient:order.owner,caller:Address::repeat_byte(5),amountIn:order.amountIn,requiredOut:order.endAmountOut + U256::from(10),
+                    fee:U256::from(10),receivedOut:order.endAmountOut + U256::from(10),aboveFloor:U256::ZERO }.encode_log_data();
+                json!([{"address":evm::chain_config("8453").unwrap().settler,"topics":event.topics(),"data":event.data,
+                    "blockNumber":"0x30d40","logIndex":"0x0","transactionIndex":"0x0"}])
             }
             "eth_call" => {
                 let tx = &body["params"][0];
@@ -55,19 +49,23 @@ pub(super) fn rpc(mask: u8, status: &'static str) -> TestRpc {
                 if data.starts_with(&IntentSettlerV3::orderHashCall::SELECTOR) {
                     orders.push(IntentSettlerV3::orderHashCall::abi_decode(&data).unwrap().o);
                 }
-                if data.starts_with(&order_types::IntentLensV3::PREVIEW_LAYOUTCall::SELECTOR) { return Some(ok(body, json!(format!("0x{}", hex::encode(U256::from(3).abi_encode()))))); }
-                if data.starts_with(&order_types::IntentLensV3::previewCall::SELECTOR) {
-                    let mut words = [U256::ZERO; 19];
-                    words[1] = U256::from(u8::from(status == "cancelled")); words[2] = U256::from(u8::from(status == "filled"));
-                    words[5] = U256::from(1); words[6] = U256::from(u8::from(status != "expired"));
-                    return Some(ok(body, json!(format!("0x{}", hex::encode(words.abi_encode())))));
-                }
+                if let Some(reply) = lens(body, &data, status) { return Some(reply); }
                 json!(format!("0x{}", hex::encode(call(&data, mask, tx["to"].as_str().unwrap().parse().unwrap()))))
             }
             method => panic!("unexpected RPC {method}"),
         };
         Some(ok(body, result))
     })
+}
+
+/// IntentLensV3 answers: layout 3 and one view per order for the batched status read.
+fn lens(body: &Value, data: &[u8], status: &str) -> Option<Value> {
+    if data.starts_with(&order_types::IntentLensV3::PREVIEW_LAYOUTCall::SELECTOR) { return Some(ok(body, json!(format!("0x{}", hex::encode(U256::from(3).abi_encode()))))); }
+    if !data.starts_with(&order_types::IntentLensV3::previewManyCall::SELECTOR) { return None; }
+    if status == "missing" { return Some(crate::service::test_rpc::failure(body, "lens unavailable")); }
+    let count = order_types::IntentLensV3::previewManyCall::abi_decode(data).unwrap().o.len();
+    let views = vec![super::status::tests::view(status == "filled", status == "cancelled", status != "expired"); count];
+    Some(ok(body, json!(format!("0x{}", hex::encode(order_types::IntentLensV3::previewManyCall::abi_encode_returns(&views))))))
 }
 
 fn call(data: &[u8], mask: u8, proxy: Address) -> Vec<u8> {

@@ -1,0 +1,124 @@
+{
+  "agent": "0x0202020202020202020202020202020202020202",
+  "as_of": "2027-01-15T08:00:00Z",
+  "chain_id": 8453,
+  "grant": {
+    "active": true,
+    "expires_at": "2027-01-15T09:00:00Z",
+    "expiry": 1800003600,
+    "generation_matches": true
+  },
+  "max_loss_bps": 300,
+  "next": [
+    "Run `batch-sell run --request abcdefghijklmnopqrstuv` (MCP `batch_sell_run`) before the grant expires at 2027-01-15T09:00:00Z to offer the unsold amount again."
+  ],
+  "owner": "0x0404040404040404040404040404040404040404",
+  "receive": {
+    "address": "{USDC}",
+    "decimals": 6,
+    "symbol": "USDC"
+  },
+  "request": "abcdefghijklmnopqrstuv",
+  "summary": {
+    "average_discount_pct": "1.85",
+    "open_intents": 0,
+    "received": "206.1",
+    "received_raw": "206100000",
+    "received_usd": "206.1",
+    "sold_value_usd": "210",
+    "tokens_sold": 2,
+    "tokens_total": 4,
+    "unsold_value_usd": "25",
+    "worst_discount_pct": "2.00",
+    "worst_discount_token": "AAA (0x1111...1111)"
+  },
+  "tokens": [
+    {
+      "cap": "100",
+      "cap_raw": "100000000000000000000",
+      "discount_pct": "2.00",
+      "fills": [
+        {
+          "amount_in_raw": "100000000000000000000",
+          "filled_at": "2027-01-15T07:26:40Z",
+          "intent_id": "0xbb20b7a9d0a4dc96fd0fe2c9dafed50b90880ac93bdf8446475c8c09dab2f348",
+          "received_raw": "196000000",
+          "tx_hash": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        }
+      ],
+      "open_until": null,
+      "received": "196",
+      "received_raw": "196000000",
+      "sold": "100",
+      "sold_raw": "100000000000000000000",
+      "status": "sold",
+      "symbol": "AAA (0x1111...1111)",
+      "token": "0x1111111111111111111111111111111111111111",
+      "unsold_raw": "0",
+      "unsold_value_usd": "0",
+      "value_usd": "200"
+    },
+    {
+      "cap": "50",
+      "cap_raw": "50000000000000000000",
+      "discount_pct": "-1.00",
+      "fills": [
+        {
+          "amount_in_raw": "20000000000000000000",
+          "filled_at": "2027-01-15T07:28:20Z",
+          "intent_id": "0x1e61b7aa782f95d9d5074cb1f40116c513a6b0e207ec42aa5d9c0fbea705b637",
+          "received_raw": "10100000",
+          "tx_hash": "0xb1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1"
+        }
+      ],
+      "open_until": null,
+      "received": "10.1",
+      "received_raw": "10100000",
+      "sold": "20",
+      "sold_raw": "20000000000000000000",
+      "status": "partly_sold",
+      "symbol": "BBB (0x2222...2222)",
+      "token": "0x2222222222222222222222222222222222222222",
+      "unsold_raw": "30000000000000000000",
+      "unsold_value_usd": "15",
+      "value_usd": "10"
+    },
+    {
+      "cap": "10",
+      "cap_raw": "10000000000000000000",
+      "discount_pct": null,
+      "fills": [],
+      "open_until": null,
+      "received": null,
+      "received_raw": null,
+      "sold": "0",
+      "sold_raw": "0",
+      "status": "expired",
+      "symbol": "CCC (0x3333...3333)",
+      "token": "0x3333333333333333333333333333333333333333",
+      "unsold_raw": "10000000000000000000",
+      "unsold_value_usd": "10",
+      "value_usd": "0"
+    },
+    {
+      "cap": "5",
+      "cap_raw": "5000000000000000000",
+      "discount_pct": null,
+      "fills": [],
+      "open_until": null,
+      "received": null,
+      "received_raw": null,
+      "sold": "0",
+      "sold_raw": "0",
+      "status": "not_placed",
+      "symbol": "DDD (0x4444...4444)",
+      "token": "0x4444444444444444444444444444444444444444",
+      "unsold_raw": "5000000000000000000",
+      "unsold_value_usd": null,
+      "value_usd": null
+    }
+  ],
+  "warnings": [
+    "DDD (0x4444...4444): no independent price; its USD values are not counted"
+  ]
+}

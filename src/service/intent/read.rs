@@ -1,5 +1,5 @@
 // V6 intent discovery, status, and policy reads with RPC-compatible log windows.
-// Exports: list, status, policy.
+// Exports: list, status, policy, preview_statuses, agent_authorization.
 // Deps: parent intent models, crate::{evm, order_types}, alloy providers.
 
 use super::*;
@@ -49,10 +49,6 @@ pub async fn list(input: ListInput) -> Result<Vec<IntentRecord>> {
 }
 
 pub async fn status(input: StatusInput) -> Result<IntentRecord> {
-    status_since(input, None).await
-}
-
-pub(crate) async fn status_since(input: StatusInput, placement_block: Option<u64>) -> Result<IntentRecord> {
     let config = evm::chain_config(&input.chain_id)?;
     let id = parse_b256(&input.id)?;
     let provider = evm::read_provider(&evm::rpc_url(config))?;
@@ -63,10 +59,7 @@ pub(crate) async fn status_since(input: StatusInput, placement_block: Option<u64
     }
     let settler = IntentSettlerV3::new(config.settler, provider.clone());
     let lookback = evm::event_lookback_blocks(config, input.lookback_blocks);
-    let first_block = match placement_block {
-        Some(block) => block,
-        None => evm::event_start_block(&provider, lookback).await?,
-    };
+    let first_block = evm::event_start_block(&provider, lookback).await?;
     let latest = provider.get_block_number().await?;
     let mut block = first_block;
     while block <= latest {
@@ -177,10 +170,27 @@ fn status_word(view: &IntentLensV3::IntentView, owner_order: bool) -> (String, S
 
 fn decode_event(event: &IntentSettlerV3::IntentAnnounced) -> Result<(Order, Option<Address>)> {
     let order = Order::abi_decode(&event.order)?;
-    let outer = IntentAbiCodec::encodeEnvelopeCall::abi_decode_raw(&event.ownerSig)?;
-    if outer.kind != 1 { return Ok((order, None)); }
+    Ok((order, agent_authorization(&event.ownerSig)?.map(|(agent, _)| agent)))
+}
+
+/// Agent and policy generation of an agent-authorization envelope; None for an owner signature.
+pub(crate) fn agent_authorization(envelope: &[u8]) -> Result<Option<(Address, u64)>> {
+    let outer = IntentAbiCodec::encodeEnvelopeCall::abi_decode_raw(envelope)?;
+    if outer.kind != 1 { return Ok(None); }
     let inner = IntentAbiCodec::encodeAuthorizationCall::abi_decode_raw(&outer.payload)?;
-    Ok((order, Some(inner.agent)))
+    Ok(Some((inner.agent, inner.generation)))
+}
+
+/// Status of each order from one `IntentLensV3.previewMany` read; works for intents published
+/// without an on-chain announce, because the lens reads the order itself.
+pub(crate) async fn preview_statuses(provider: &alloy::providers::DynProvider, config: ChainConfig, orders: Vec<Order>) -> Result<Vec<String>> {
+    let lens = IntentLensV3::new(config.lens, provider.clone());
+    let layout = lens.PREVIEW_LAYOUT().call().await?;
+    if layout != U256::from(3) {
+        return Err(eyre!("IntentLensV3 PREVIEW_LAYOUT is {layout}, expected 3"));
+    }
+    let views = lens.previewMany(orders).call().await?;
+    Ok(views.iter().map(|view| status_word(view, false).0).collect())
 }
 
 fn parse_b256(value: &str) -> Result<B256> {

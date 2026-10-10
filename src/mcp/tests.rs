@@ -145,10 +145,13 @@ fn batch_sell_mcp_schemas_replace_sweep() {
     let server = AgentSwapMcp::new(Config { client:client.clone(), intent_client:client, signer:None, allow_trade:false, trade_max_amount:None });
     let tools = server.tool_router.list_all();
     assert!(!tools.iter().any(|t| t.name == "sweep"));
-    for name in ["batch_sell_plan", "batch_sell_run"] {
+    for name in ["batch_sell_plan", "batch_sell_run", "batch_sell_report"] {
         let tool = tools.iter().find(|t| t.name == name).unwrap();
         let schema = serde_json::to_value(&tool.input_schema).unwrap();
-        if name.ends_with("plan") {
+        if name.ends_with("report") {
+            assert_eq!(schema["required"], serde_json::json!(["request"]));
+            assert!(tool.description.as_deref().unwrap_or_default().contains("after every batch_sell_run"));
+        } else if name.ends_with("plan") {
             for field in ["chain_id","owner","agent","receive","max_loss_bps"] { assert!(schema["required"].as_array().unwrap().contains(&serde_json::json!(field))); }
             for field in ["min_usd","max_usd","tokens","exclude"] { assert!(!schema["required"].as_array().unwrap().contains(&serde_json::json!(field))); }
             assert_eq!(schema["properties"]["max_loss_bps"]["maximum"], 5000);
@@ -156,6 +159,7 @@ fn batch_sell_mcp_schemas_replace_sweep() {
             assert_eq!(schema["properties"]["via"]["default"], "intent");
             assert!(schema["properties"].get("max_loss_bps").is_none());
             assert!(schema["properties"].get("wait").is_some());
+            assert!(tool.description.as_deref().unwrap_or_default().contains("batch_sell_report"));
         }
     }
 }

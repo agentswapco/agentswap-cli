@@ -6,12 +6,14 @@ use std::process::Command;
 fn batch_sell_executable_surface() {
     let binary = env!("CARGO_BIN_EXE_agentswap");
     for (sub, flags) in [("plan", vec!["--min-usd", "--max-usd", "--max-loss-bps", "--receive", "--owner", "--agent", "--token", "--exclude", "--name", "--note"]),
-        ("run", vec!["--request", "--via", "--wait", "--key-file"])] {
+        ("run", vec!["--request", "--via", "--wait", "--key-file"]), ("report", vec!["--request", "--json"])] {
         let help = Command::new(binary).args(["batch-sell", sub, "--help"]).output().unwrap();
         assert!(help.status.success());
         let help = String::from_utf8(help.stdout).unwrap();
         for flag in flags { assert!(help.contains(flag), "missing {flag}"); }
     }
+    let missing = Command::new(binary).args(["batch-sell", "report"]).output().unwrap();
+    assert_eq!(missing.status.code(), Some(2), "report requires --request");
     let removed = Command::new(binary).args(["sweep", "--help"]).output().unwrap();
     assert_eq!(removed.status.code(), Some(2));
     for name in ["portfolio", "grant-link"] {

@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.11.3
+
+### Added
+
+- `batch-sell report --request <id|url> [--json]` and MCP `batch_sell_report` report a confirmed
+  request for its owner without a key file: per token status (`sold`, `partly_sold`, `open`,
+  `expired`, `not_placed` or `unsold`), cap, amount sold from the grant budget, net proceeds from
+  fill records, value at independent prices, discount versus market in percent, and fill
+  transaction and time; then tokens sold, total proceeds, market value sold, average and worst
+  discount, unsold value, grant expiry and next steps. It reads the request, one Multicall3 call
+  and the public intent index at intentscan.net, and scans no logs. The human output is a Markdown
+  table.
+- The README batch-sell section and the MCP descriptions tell agents to send the owner the report
+  after every run, and again after open intents close.
+
+### Changed
+
+- `batch-sell run --wait` and MCP `batch_sell_run` read intent status from the owner's intent
+  history in the intent index, once per round, which includes intents published without an
+  on-chain announce. Intents the index cannot settle, or all of them when it is unreachable, are
+  read in one batched `IntentLensV3.previewMany` call. The wait no longer scans `IntentAnnounced`
+  logs.
+- Intent proceeds in `batch-sell run` come from the intent index's fill records, net of the
+  protocol fee, with `IntentFilled` logs as the fallback.
+
 ## 0.11.2
 
 ### Changed

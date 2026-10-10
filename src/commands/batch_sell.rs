@@ -31,5 +31,11 @@ pub async fn dispatch(cli: &Cli, command: &BatchSellCommands) -> Result<()> {
             else { for row in &output.tokens { println!("{}", serde_json::to_string(row)?); } }
             output.check()
         }
+        BatchSellCommands::Report(input) => {
+            let output = batch_sell::report(input).await?;
+            if cli.json { println!("{}", serde_json::to_string_pretty(&output)?); }
+            else { print!("{}", batch_sell::report_text(&output)); }
+            Ok(())
+        }
     }
 }

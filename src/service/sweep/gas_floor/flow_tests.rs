@@ -1,4 +1,4 @@
-// Intent gas admission and placement-bounded log regressions using loopback RPCs.
+// Intent gas admission and log-free status wait regressions using loopback RPCs.
 // Runs entrypoint-dependent reads in child processes to isolate chain environment variables.
 use super::*;
 
@@ -46,11 +46,11 @@ async fn gas_case(url: &str) {
 }
 
 #[test]
-fn fix_wait_scans_only_blocks_since_placement() {
+fn fix_wait_reads_status_without_log_scans() {
     const NAME: &str = "service::sweep::intent_tests::gasless_sweep_wait_reports_terminal_and_timeout_states";
     let rpc = rpc(5, "bounded");
     let output = std::process::Command::new(std::env::current_exe().unwrap()).args(["--exact", NAME, "--nocapture"])
         .env("SWEEP_INTENT_RPC", &rpc.url).env("AGENTSWAP_RPC_URL_8453", &rpc.url).env("SWEEP_WAIT_STATUS", "open").output().unwrap();
     assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-    assert!(rpc.called("eth_getLogs") > 0);
+    assert_eq!(rpc.called("eth_getLogs"), 0, "status rounds read the lens, never logs");
 }

@@ -52,12 +52,21 @@ pub(crate) async fn read_metadata(provider: &DynProvider, address: Address, chai
     let decimals = token.decimals().call().await.map_err(|error| {
         eyre!("token {address} does not answer decimals() on {}: {error}", chain_id_to_name(chain_id))
     })?;
+    let symbol = token.symbol().call().await.ok();
+    Ok(Token { address: address.to_string(), symbol: off_registry_label(address, symbol.as_deref()), decimals })
+}
+
+/// The registry symbol, else an on-chain symbol beside the shortened address, else the address.
+pub(crate) fn label(address: Address, chain_id: u64, symbol: Option<&str>) -> String {
+    from_registry(&address.to_string(), chain_id).map_or_else(|| off_registry_label(address, symbol), |token| token.symbol)
+}
+
+fn off_registry_label(address: Address, symbol: Option<&str>) -> String {
     let short = crate::display::short_addr(&address.to_string());
-    let symbol = match token.symbol().call().await {
-        Ok(symbol) if is_display_symbol(&symbol) => format!("{symbol} ({short})"),
+    match symbol {
+        Some(symbol) if is_display_symbol(symbol) => format!("{symbol} ({short})"),
         _ => short,
-    };
-    Ok(Token { address: address.to_string(), symbol, decimals })
+    }
 }
 
 fn is_display_symbol(symbol: &str) -> bool {

@@ -1,10 +1,9 @@
-// Sweep relayed placements and bounded status reads reuse the existing intent service.
-// Price math and spend limits are checked by sale before reaching this signing boundary.
-use super::{Context, Input, Output, Row};
-use crate::service::intent::{self, PlaceInput, TokenPolicy};
+// Sweep relayed placements reuse the existing intent service and keep each signed order for
+// status reads. Price math and spend limits are checked by sale before this signing boundary.
+use super::{Context, Row};
+use crate::{order_types::{Order, OrderDto, parse_address, parse_u256}, service::intent::{self, PlaceInput, TokenPolicy}};
 use alloy::{primitives::U256, providers::Provider};
 use eyre::Result;
-use std::time::{Duration, Instant};
 
 pub(super) async fn place(context: &Context<'_>, budget: &TokenPolicy, row: &mut Row,
     raw: U256, start: U256, floor: U256) -> Result<()> {
@@ -33,6 +32,7 @@ pub(super) async fn place(context: &Context<'_>, budget: &TokenPolicy, row: &mut
             return Err(error);
         }
     };
+    row.order = Some(order(&result.order)?);
     row.intent_id = Some(result.id);
     row.relay = result.relay;
     row.announce_status = Some(if result.dry_run { "dry_run" } else { "accepted" }.into());
@@ -41,34 +41,12 @@ pub(super) async fn place(context: &Context<'_>, budget: &TokenPolicy, row: &mut
     Ok(())
 }
 
-pub(super) async fn wait(input: &Input, output: &mut Output) {
-    let duration = Duration::from_secs(input.wait.unwrap_or(0));
-    if duration.is_zero() { return; }
-    let start = Instant::now();
-    for row in &mut output.tokens {
-        if row.announce_status.as_deref() == Some("accepted") { row.wait_timed_out = true; }
-    }
-    while start.elapsed() < duration {
-        for row in output.tokens.iter_mut().filter(|r| r.wait_timed_out) {
-            let Some(id) = row.intent_id.clone() else { continue; };
-            let request = intent::StatusInput { chain_id: input.chain_id.clone(), id, lookback_blocks: None };
-            match tokio::time::timeout(duration.saturating_sub(start.elapsed()), intent::status_since(request, row.placement_block)).await {
-                Ok(Ok(record)) => {
-                    row.wait_timed_out = !matches!(record.status.as_str(), "filled" | "expired" | "cancelled" | "dead");
-                    row.intent_status = Some(record.status);
-                    row.status_error = None;
-                }
-                Ok(Err(error)) => {
-                    row.intent_status = Some("unknown".into());
-                    row.status_error = Some(crate::redact::urls(&error.to_string()));
-                }
-                Err(_) => {
-                    row.intent_status.get_or_insert_with(|| "unknown".into());
-                    row.status_error = Some("status read exceeded --wait".into());
-                }
-            }
-        }
-        if !output.tokens.iter().any(|r| r.wait_timed_out) { break; }
-        tokio::time::sleep(Duration::from_secs(1).min(duration.saturating_sub(start.elapsed()))).await;
-    }
+/// The signed order back from its DTO, for lens status reads.
+pub(super) fn order(dto: &OrderDto) -> Result<Order> {
+    Ok(Order { owner: parse_address(&dto.owner)?, recipient: parse_address(&dto.recipient)?,
+        tokenIn: parse_address(&dto.token_in)?, amountIn: parse_u256(&dto.amount_in)?,
+        tokenOut: parse_address(&dto.token_out)?, startAmountOut: parse_u256(&dto.start_amount_out)?,
+        endAmountOut: parse_u256(&dto.end_amount_out)?, startTime: parse_u256(&dto.start_time)?,
+        decayEndTime: parse_u256(&dto.decay_end_time)?, endTime: parse_u256(&dto.end_time)?,
+        appData: dto.app_data.parse()?, nonce: parse_u256(&dto.nonce)? })
 }

@@ -1,10 +1,12 @@
 // Sequential grant-bounded sales with independent app-price floors.
 // Uses existing intent and trade services; market mode stops after unconfirmed broadcasts.
-mod math;
+pub(crate) mod math;
 pub(crate) mod gas_floor;
 mod models;
 mod sale;
 mod intent_sale;
+mod status;
+pub(crate) use status::now_ms;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -108,6 +110,7 @@ async fn now(provider: &DynProvider) -> Result<u64> {
 }
 
 async fn run(context: Context<'_>) -> Result<Output> {
+    let started_ms = now_ms();
     let mut output = Output { dry_run: context.input.dry_run, owner: format!("{:?}", context.owner), note: context.policy.note.clone(), tokens: Vec::new() };
     let mut stopped = false;
     for budget in &context.policy.tokens {
@@ -123,7 +126,9 @@ async fn run(context: Context<'_>) -> Result<Output> {
         output.tokens.push(row);
     }
     if context.input.via == Via::Intent && !context.input.dry_run {
-        intent_sale::wait(&context.input, &mut output).await;
+        // Clock slack: the index stamps intents with its own time.
+        let since = started_ms.saturating_sub(600_000);
+        status::wait(&context.input, context.owner, &context.provider, &crate::service::intentscan::Origins::public(), since, &mut output).await;
     }
     Ok(output)
 }

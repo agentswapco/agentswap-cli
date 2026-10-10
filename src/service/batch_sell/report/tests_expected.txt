@@ -1,0 +1,16 @@
+Batch sale abcdefghijklmnopqrstuv on Base (8453): receive USDC, discount floor 3.00%
+| Token               | Status      | Sold / cap | Received (USDC) | Value   | Discount | Last fill                          |
+|---------------------|-------------|------------|-----------------|---------|----------|------------------------------------|
+| AAA (0x1111...1111) | sold        | 100 / 100  | 196             | $200.00 | 2.00%    | 0xa1a1...a1a1 2027-01-15T07:26:40Z |
+| BBB (0x2222...2222) | partly sold | 20 / 50    | 10.1            | $10.00  | -1.00%   | 0xb1b1...b1b1 2027-01-15T07:28:20Z |
+| CCC (0x3333...3333) | expired     | 0 / 10     | -               | $0.00   | -        | -                                  |
+| DDD (0x4444...4444) | not placed  | 0 / 5      | -               | -       | -        | -                                  |
+
+Sold 2/4 tokens: 206.1 USDC received ($206.10) for $210.00 at independent prices.
+Discount vs market: average 1.85%, worst 2.00% on AAA (0x1111...1111).
+Unsold value: $25.00. Grant expires 2027-01-15T09:00:00Z.
+Values use independent prices as of 2027-01-15T08:00:00Z, not prices at fill time.
+Next:
+- Run `batch-sell run --request abcdefghijklmnopqrstuv` (MCP `batch_sell_run`) before the grant expires at 2027-01-15T09:00:00Z to offer the unsold amount again.
+Warnings:
+- DDD (0x4444...4444): no independent price; its USD values are not counted

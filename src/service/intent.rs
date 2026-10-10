@@ -24,7 +24,7 @@ pub use models::{
     TokenPolicy,
 };
 pub use read::{list, policy, status};
-pub(crate) use read::status_since;
+pub(crate) use read::{agent_authorization, preview_statuses};
 
 /// Where a live intent goes: the relay client for --relay, the receipt wait for --self-submit.
 #[derive(Clone, Copy)]

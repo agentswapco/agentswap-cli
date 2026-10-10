@@ -101,6 +101,8 @@ pub struct Confirmation {
     pub proxy: String,
     pub generation: String,
     pub max_loss_bps: u16,
+    #[serde(default)]
+    pub confirmed_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -109,6 +111,8 @@ pub struct Record {
     pub status: String,
     pub request: GrantRequest,
     pub confirmed: Option<Confirmation>,
+    #[serde(default, rename = "createdAt")]
+    pub created_at: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]

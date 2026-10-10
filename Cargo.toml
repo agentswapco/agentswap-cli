@@ -1,6 +1,6 @@
 [package]
 name = "agentswap"
-version = "0.11.2"
+version = "0.11.3"
 edition = "2024"
 description = "AgentSwap CLI for requesting quotes, inspecting tokens and pools, managing intents, and registering an API key against the AgentSwap service."
 license = "MIT"

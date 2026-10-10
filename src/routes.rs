@@ -23,6 +23,19 @@ pub fn app_origin() -> &'static str {
     { TEST_APP_ORIGIN.get().expect("set a loopback app origin before calling the entrypoint") }
 }
 
+/// Public intent index: an owner's intent history (stream) and fill records (data).
+pub const INTENTSCAN_STREAM_ORIGIN: &str = "https://broadcast.intentscan.net";
+pub const INTENTSCAN_DATA_ORIGIN: &str = "https://data.intentscan.net";
+
+/// Stream and data origins. Tests get an unreachable loopback, so they exercise the chain fallback
+/// unless they pass their own origins.
+pub fn intentscan_origins() -> (&'static str, &'static str) {
+    #[cfg(not(test))]
+    { (INTENTSCAN_STREAM_ORIGIN, INTENTSCAN_DATA_ORIGIN) }
+    #[cfg(test)]
+    { ("http://127.0.0.1:1", "http://127.0.0.1:1") }
+}
+
 pub const QUOTE: &str = "/quote";
 pub const QUOTE_LOOKUP: &str = "/quote/:hash";
 pub const HEALTH: &str = "/health";
@@ -75,6 +88,8 @@ mod tests {
         assert_eq!(X402_VERIFY, "/x402/verify");
         assert_eq!(X402_SETTLE, "/x402/settle");
         assert_eq!(X402_DISCOVERY, "/.well-known/x402");
+        assert_eq!((INTENTSCAN_STREAM_ORIGIN, INTENTSCAN_DATA_ORIGIN), ("https://broadcast.intentscan.net", "https://data.intentscan.net"));
+        assert_eq!(intentscan_origins(), ("http://127.0.0.1:1", "http://127.0.0.1:1"));
     }
 
     #[test]

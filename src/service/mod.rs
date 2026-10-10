@@ -6,10 +6,13 @@ pub mod market;
 pub mod portfolio;
 pub mod grant_link;
 pub mod intent;
+pub mod intentscan;
 pub mod quote;
 pub mod submit;
 #[cfg(test)]
 mod test_rpc;
+#[cfg(test)]
+mod test_http;
 pub mod token;
 pub mod trade;
 pub mod sweep;

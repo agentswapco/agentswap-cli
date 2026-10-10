@@ -13,7 +13,7 @@ pub(super) fn spendable(balance: U256, budget: U256, allowance: U256) -> U256 {
     balance.min(budget).min(allowance)
 }
 
-pub(super) fn floor(raw: U256, input: &Price, output: &Price, dec_in: u8, dec_out: u8, loss: u16) -> Result<U256> {
+pub(crate) fn floor(raw: U256, input: &Price, output: &Price, dec_in: u8, dec_out: u8, loss: u16) -> Result<U256> {
     eyre::ensure!(loss <= 10_000, "invalid floor parameters");
     scaled(raw, input, output, (dec_in, dec_out), 10_000 - u32::from(loss), "batch-sell floor")
 }

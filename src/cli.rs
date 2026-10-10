@@ -198,8 +198,8 @@ pub enum Commands {
         #[arg(long)]
         hash: String,
     },
-    /// Run an MCP server over stdio exposing thirteen tools: quote, batch_quote, tokens, pools,
-    /// trade, intent_place, intent_list, intent_status, policy, portfolio, grant_link, batch_sell_plan and batch_sell_run
+    /// Run an MCP server over stdio exposing fourteen tools: quote, batch_quote, tokens, pools, trade, intent_place,
+    /// intent_list, intent_status, policy, portfolio, grant_link, batch_sell_plan, batch_sell_run and batch_sell_report
     Mcp,
     /// Place, list, or inspect V6 open intents
     Intent {
@@ -295,4 +295,6 @@ pub enum BatchSellCommands {
     Plan(crate::service::batch_sell::PlanInput),
     /// Execute a confirmed request. Requires --key-file; live signing requires --allow-trade.
     Run(crate::service::batch_sell::RunInput),
+    /// Report a confirmed request for its owner; no key file. Send it after every run and after open intents close.
+    Report(crate::service::batch_sell::ReportInput),
 }

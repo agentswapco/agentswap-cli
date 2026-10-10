@@ -33,3 +33,19 @@ async fn batch_sell_received_decodes_net_fill_and_market_receipt() {
     assert_eq!(market_received(&provider, proxy, receive, &row).await.unwrap(), "97");
     assert!(market_received(&provider, Address::ZERO, receive, &row).await.is_err());
 }
+
+#[tokio::test]
+async fn batch_sell_received_prefers_the_index_fill_record_over_logs() {
+    let id = B256::repeat_byte(1);
+    let fill = crate::service::intentscan::fixture::fill(id, "95", B256::repeat_byte(2), 7_000);
+    let index = crate::service::test_http::TestHttp::start(move |target| {
+        if target == format!("/v1/intent/{id:?}") { (200, fill.clone()) } else { (404, "{}".into()) }
+    });
+    let mut row = Row::new(Address::repeat_byte(1).to_string());
+    row.intent_id = Some(format!("{id:?}")); row.intent_status = Some("filled".into());
+    let mut output = Output { dry_run: false, owner: Address::repeat_byte(4).to_string(), note: None, tokens: vec![row] };
+    let origins = Origins { stream: "http://127.0.0.1:1", data: &index.url };
+    report("8453", &Address::repeat_byte(6).to_string(), &Address::repeat_byte(3).to_string(), &origins, &mut output).await.unwrap();
+    assert_eq!((output.tokens[0].received_raw.as_deref(), output.tokens[0].outcome.as_str()), (Some("95"), "sold"));
+    assert!(output.tokens[0].warnings.is_empty(), "no log fallback was needed");
+}

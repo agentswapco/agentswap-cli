@@ -97,7 +97,7 @@ fn mcp_portfolio_and_grant_link_over_stdio() {
     assert!(init["result"]["instructions"].as_str().unwrap().contains("grant_link"));
     writeln!(stdin, "{}", json!({"jsonrpc":"2.0","method":"notifications/initialized"})).unwrap();
     let list = exchange(&mut stdin, &mut stdout, json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}));
-    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 13);
+    assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 14);
     for (id, tool) in [(3, "portfolio"), (4, "grant_link")] {
         let mut arguments = json!({"chain_id":"4663","owner":Address::repeat_byte(4).to_string(),"tokens":[Address::repeat_byte(1).to_string()]});
         if tool == "portfolio" { arguments["max_usd"] = json!("10"); arguments["quote_token"] = json!(Address::repeat_byte(3).to_string()); }
