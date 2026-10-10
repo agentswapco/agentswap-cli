@@ -18,6 +18,9 @@ mod intent_tests;
 #[cfg(test)]
 mod batch_tests;
 pub use models::{Input, Output, Row, Via};
+/// Default and largest Dutch-curve start above independent market value, in basis points.
+pub const DEFAULT_START_PREMIUM_BPS: u16 = 100;
+pub const MAX_START_PREMIUM_BPS: u16 = 1000;
 use crate::{client::Client, evm, order_types::{self, UserProxyV6}, service::{intent, portfolio::{amount, discovery, prices}, token, submit::Wait}, signer::Signer};
 use alloy::{primitives::Address, providers::{DynProvider, Provider}};
 use eyre::{Result, eyre};
@@ -126,3 +129,10 @@ async fn run(context: Context<'_>) -> Result<Output> {
 }
 
 fn default_true() -> bool { true }
+
+pub(crate) fn default_start_premium_bps() -> u16 { DEFAULT_START_PREMIUM_BPS }
+
+pub(crate) fn check_start_premium(bps: u16) -> Result<()> {
+    eyre::ensure!(bps <= MAX_START_PREMIUM_BPS, "start-premium-bps must be 0..{MAX_START_PREMIUM_BPS}");
+    Ok(())
+}

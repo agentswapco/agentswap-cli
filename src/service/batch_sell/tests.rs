@@ -18,9 +18,12 @@ fn batch_sell_request_caps_and_identity_validation() {
         "confirmed":{"proxy":Address::repeat_byte(6),"generation":"1","maxLossBps":100},
         "request":{"v":1,"chainId":8453,"agent":Address::repeat_byte(2),"purpose":"batch-sell","maxLossBps":500,
         "tokens":[{"address":Address::repeat_byte(1),"cap":"1"},{"address":Address::repeat_byte(3),"cap":"0"}]}})).unwrap();
-    let input = RunInput {request:record.id.clone(),via:Via::Market,wait:None};
+    let input = RunInput {request:record.id.clone(),via:Via::Market,wait:None,start_premium_bps:250};
     let sale = execution(&input,&record,Address::repeat_byte(2)).unwrap();
     assert_eq!(sale.max_loss_bps,100); assert!(sale.self_submit); assert_eq!(sale.tokens.len(),1);
+    assert_eq!(sale.start_premium_bps,250);
+    let input: RunInput = serde_json::from_value(json!({"request":record.id})).unwrap();
+    assert_eq!(execution(&input,&record,Address::repeat_byte(2)).unwrap().start_premium_bps,100);
     assert_eq!(raw_cap(&sale.request_caps[&sale.tokens[0]],6).unwrap(),U256::from(1_000_000));
     assert!(execution(&input,&record,Address::repeat_byte(9)).is_err());
     record.confirmed.as_mut().unwrap().max_loss_bps = 501;
@@ -37,6 +40,6 @@ fn batch_sell_run_accepts_one_hundred_tokens() {
     let record: Record = serde_json::from_value(json!({"id":"abcdefghijklmnopqrstuv","status":"confirmed",
         "confirmed":{"proxy":Address::repeat_byte(6),"generation":"1","maxLossBps":100},
         "request":{"v":1,"chainId":8453,"agent":Address::repeat_byte(2),"purpose":"batch-sell","maxLossBps":500,"tokens":tokens}})).unwrap();
-    let input = RunInput {request:record.id.clone(),via:Via::Intent,wait:None};
+    let input = RunInput {request:record.id.clone(),via:Via::Intent,wait:None,start_premium_bps:100};
     assert_eq!(execution(&input,&record,Address::repeat_byte(2)).unwrap().tokens.len(),99);
 }

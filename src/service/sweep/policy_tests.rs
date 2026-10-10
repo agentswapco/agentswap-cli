@@ -8,7 +8,7 @@ use serde_json::json;
 fn input() -> Input {
     Input { chain_id: "8453".into(), proxy: Address::repeat_byte(6).to_string(), receive: "USDC".into(),
         tokens: vec![Address::repeat_byte(1).to_string(), Address::repeat_byte(1).to_string()],
-        max_usd: "5".into(), max_loss_bps: 100, dry_run: true, self_submit: false, via: Via::Market, wait: None, confirmed_generation: None, request_caps: Default::default() }
+        max_usd: "5".into(), max_loss_bps: 100, dry_run: true, self_submit: false, via: Via::Market, wait: None, confirmed_generation: None, request_caps: Default::default(), start_premium_bps: DEFAULT_START_PREMIUM_BPS }
 }
 
 fn fixture(allowed: bool, receive_allowed: bool, cap: u64, expiry: u64, mask: u8, wrong_proxy: bool) -> TestRpc {

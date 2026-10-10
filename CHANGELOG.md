@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.11.2
+
+### Changed
+
+- Intent-mode `batch-sell run` and MCP `batch_sell_run` start each intent 1% (100 bps) above
+  independent market value instead of at it. The price still falls linearly to the
+  owner-confirmed discount floor at expiry, and `below_gas_floor` still compares fill cost with
+  the discount budget, market value minus floor.
+
+### Added
+
+- `batch-sell run --start-premium-bps <n>` and `start_premium_bps` on MCP `batch_sell_run` set the
+  start above market value, 0 to 1000 bps; 0 starts at market value. Larger values are refused
+  before any request is sent. Market mode ignores it.
+
 ## 0.11.1
 
 ### Added

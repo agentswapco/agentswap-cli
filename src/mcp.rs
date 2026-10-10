@@ -81,7 +81,7 @@ impl AgentSwapMcp {
         batch_sell::plan(&self.client, input).await.map(Json).map_err(tool_error)
     }
 
-    #[tool(description = "Run a confirmed batch-sell request by id or app URL. Uses its tokens, proxy, receive token and owner-confirmed discount. Requires --key-file and --allow-trade for live signing; otherwise returns an unsigned preview. via defaults to intent; market pays gas from the agent wallet. wait bounds intent status polling. Returns placed/sold tokens, received amounts when known, and not-sold reasons.")]
+    #[tool(description = "Run a confirmed batch-sell request by id or app URL. Uses its tokens, proxy, receive token and owner-confirmed discount. Requires --key-file and --allow-trade for live signing; otherwise returns an unsigned preview. via defaults to intent; market pays gas from the agent wallet. start_premium_bps (0 to 1000, default 100) starts each intent above independent market value and its price falls linearly to the confirmed discount floor at expiry. wait bounds intent status polling. Returns placed/sold tokens, received amounts when known, and not-sold reasons.")]
     async fn batch_sell_run(&self, Parameters(input): Parameters<batch_sell::RunInput>) -> std::result::Result<Json<sweep::Output>, String> {
         let record = batch_sell::load(&input).await.map_err(tool_error)?;
         let signer = self.signer.clone().ok_or("batch_sell_run requires --key-file")?;

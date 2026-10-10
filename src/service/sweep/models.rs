@@ -44,6 +44,9 @@ pub struct Input {
     /// Market mode only: broadcast from the agent key's wallet, which pays gas.
     #[serde(default)]
     pub self_submit: bool,
+    /// Intent mode only: start each intent this many bps above independent market value.
+    #[serde(default = "super::default_start_premium_bps")]
+    pub start_premium_bps: u16,
     #[serde(default)]
     pub confirmed_generation: Option<String>,
     #[serde(default)]

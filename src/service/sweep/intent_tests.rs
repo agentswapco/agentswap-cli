@@ -26,6 +26,7 @@ pub(super) fn rpc(mask: u8, status: &'static str) -> TestRpc {
             "eth_gasPrice" => match status {
                 "gas_missing" => return Some(crate::service::test_rpc::failure(body, "unavailable")),
                 "gas_high" => json!("0x3b9aca00"),
+                "gas_border" => json!("0xe4e1c0"),
                 _ => json!("0x1"),
             },
             "eth_blockNumber" => json!("0x30d40"),
@@ -147,7 +148,7 @@ fn assert_rows(output: &Output, dry: bool, failed: bool, skip: Option<&str>) {
             continue;
         }
         assert_eq!(row["amount_raw"], "600000");
-        assert_eq!(row["start_out_raw"], if i == 0 { "300000000000000000" } else { "150000000000000000" });
+        assert_eq!(row["start_out_raw"], if i == 0 { "303000000000000000" } else { "151500000000000000" });
         assert_eq!(row["floor_raw"], if i == 0 { "297000000000000000" } else { "148500000000000000" });
         if failed { assert_eq!(row["outcome"], "failed"); }
         else {
@@ -229,3 +230,5 @@ fn gasless_sweep_wait_reports_terminal_and_timeout_states() {
 
 #[path = "gas_floor/flow_tests.rs"]
 mod fix_tests;
+#[path = "premium_tests.rs"]
+mod premium_tests;

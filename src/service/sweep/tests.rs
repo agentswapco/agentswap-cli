@@ -44,6 +44,26 @@ fn independent_floor_six_eighteen_decimals_and_rounding() {
 }
 
 #[test]
+fn start_premium_rounds_down_once_and_never_below_market() {
+    let (input, output) = (price("3.7", true), price("3", true));
+    let raw = U256::from(1_234_567);
+    let market = math::floor(raw, &input, &output, 6, 18, 0).unwrap();
+    assert_eq!(market.to_string(), "1522632633333333333");
+    assert_eq!(math::start(raw, &input, &output, 6, 18, 100).unwrap().to_string(), "1537858959666666666");
+    assert_eq!(math::start(raw, &input, &output, 6, 18, 0).unwrap(), market);
+    // Exact value x 1.1 is ...571.4; rounding market value first would give ...570.
+    let (input, output) = (price("1.37", true), price("7", true));
+    assert_eq!(math::start(U256::from(600_000), &input, &output, 6, 18, 1000).unwrap().to_string(), "129171428571428571");
+    for raw in 1..200u64 {
+        let market = math::floor(U256::from(raw), &input, &output, 6, 6, 0).unwrap();
+        for premium in [1, 99, 100, 1000] {
+            assert!(math::start(U256::from(raw), &input, &output, 6, 6, premium).unwrap() >= market);
+        }
+    }
+    assert!(math::start(raw, &input, &output, 6, 18, 1001).unwrap_err().to_string().contains("start-premium-bps"));
+}
+
+#[test]
 fn every_price_and_route_skip_reason() {
     let one = price("1", true);
     let bad = price("1", false);

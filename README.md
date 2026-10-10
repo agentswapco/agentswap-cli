@@ -182,6 +182,15 @@ native gas. The selected action and receive token must be allowed by the live gr
 Without `--allow-trade`, execution returns unsigned previews. `--wait <secs>` applies to intent
 mode and shares a bounded status wait across placements.
 
+Each intent is a 10-minute Dutch auction. It starts `--start-premium-bps` above independent market
+value (default 100, that is 1%; 0 to 1000) and its price falls linearly to the owner-confirmed
+discount floor at expiry; `--start-premium-bps 0` starts at market value. A solver fills once the
+falling price reaches one it can pay, so when the market trades above the independent price the
+sale can complete above market value. An intent that is not filled before expiry lapses with
+nothing sold or lost. `start_out_raw` reports the start and `floor_raw` the floor. The fill-cost
+check behind `below_gas_floor` uses the discount budget, market value minus floor, whatever the
+start. MCP `batch_sell_run` takes `start_premium_bps`; market mode ignores it.
+
 Per-token results distinguish `placed` from `sold`, report `received_raw` from confirmed execution
 events when known, and retain not-sold reasons. Intent proceeds exclude the protocol fee.
 `floor_below_confirmed_discount` and `unpriced_for_confirmed_discount` relay refusals are reported

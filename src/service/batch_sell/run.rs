@@ -6,6 +6,7 @@ use eyre::{Result, ensure, eyre};
 use std::sync::Arc;
 
 pub async fn load(input: &RunInput) -> Result<Record> {
+    sweep::check_start_premium(input.start_premium_bps)?;
     let record = request::get(&input.request).await?;
     ensure!(record.status == "confirmed" && record.confirmed.is_some(), "grant request must be confirmed before run");
     Ok(record)
@@ -46,6 +47,7 @@ pub(super) fn execution(input: &RunInput, record: &Record, agent: alloy::primiti
         receive: receive.ok_or_else(|| eyre!("request has no zero-cap receive token"))?,
         max_usd: amount::render(&alloy::primitives::U256::MAX.to_string(), 18), max_loss_bps: confirmed.max_loss_bps,
         tokens, dry_run: false, via: input.via, wait: input.wait, self_submit: input.via == Via::Market,
+        start_premium_bps: input.start_premium_bps,
         confirmed_generation: Some(confirmed.generation.clone()), request_caps: caps })
 }
 

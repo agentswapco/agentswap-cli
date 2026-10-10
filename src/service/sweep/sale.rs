@@ -1,7 +1,7 @@
 // One sweep token: read spend limits and independent prices, then place an intent or trade.
 // Signing and submission stay in the existing intent and trade services.
 use super::{Context, Row, Via, math, now, intent_sale};
-use crate::{order_types::{self, UserProxyV6}, service::{intent::TokenPolicy, portfolio::{amount, discovery}, quote, token, trade}};
+use crate::{order_types::{self, UserProxyV6}, service::{intent::TokenPolicy, portfolio::{amount, discovery, prices::Price}, quote, token, trade}};
 use alloy::primitives::{Address, U256};
 use eyre::Result;
 
@@ -34,21 +34,28 @@ pub(super) async fn sell(context: &Context<'_>, budget: &TokenPolicy, row: &mut 
     if let Some(reason) = math::price_skip(balance, from.decimals, input_price, output_price, context.max) {
         row.reason = Some(reason.into()); return Ok(false);
     }
-    let floor = math::floor(raw, input_price.ok_or_else(|| eyre::eyre!("unpriced"))?, output_price.ok_or_else(|| eyre::eyre!("unpriced"))?,
-        from.decimals, context.receive.decimals, context.input.max_loss_bps)?;
+    let prices = (input_price.ok_or_else(|| eyre::eyre!("unpriced"))?, output_price.ok_or_else(|| eyre::eyre!("unpriced"))?);
+    let floor = math::floor(raw, prices.0, prices.1, from.decimals, context.receive.decimals, context.input.max_loss_bps)?;
     row.floor_raw = Some(floor.to_string());
     if floor == U256::ZERO { row.reason = Some("below_floor".into()); return Ok(false); }
     if context.input.via == Via::Intent {
-        let start = math::floor(raw, input_price.ok_or_else(|| eyre::eyre!("unpriced"))?, output_price.ok_or_else(|| eyre::eyre!("unpriced"))?,
-            from.decimals, context.receive.decimals, 0)?;
-        row.start_out_raw = Some(start.to_string());
-        if super::gas_floor::skip(context, row, start - floor).await? {
-            row.reason = Some("below_gas_floor".into()); return Ok(false);
-        }
-        intent_sale::place(context, budget, row, raw, start, floor).await?;
+        intent(context, budget, row, raw, prices, (from.decimals, floor)).await?;
         return Ok(false);
     }
     market(context, budget, row, raw, floor).await
+}
+
+/// The start premium moves only the curve's opening price; the fill-cost check keeps the owner's
+/// discount budget, market value minus floor.
+async fn intent(context: &Context<'_>, budget: &TokenPolicy, row: &mut Row, raw: U256,
+    (input, output): (&Price, &Price), (decimals, floor): (u8, U256)) -> Result<()> {
+    let market = math::floor(raw, input, output, decimals, context.receive.decimals, 0)?;
+    let start = math::start(raw, input, output, decimals, context.receive.decimals, context.input.start_premium_bps)?;
+    row.start_out_raw = Some(start.to_string());
+    if super::gas_floor::skip(context, row, market - floor).await? {
+        row.reason = Some("below_gas_floor".into()); return Ok(());
+    }
+    intent_sale::place(context, budget, row, raw, start, floor).await
 }
 
 async fn market(context: &Context<'_>, budget: &TokenPolicy, row: &mut Row, raw: U256, floor: U256) -> Result<bool> {

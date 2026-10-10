@@ -124,6 +124,20 @@ fn batch_sell_cli_contract_and_grant_purpose() {
 }
 
 #[test]
+fn batch_sell_run_cli_start_premium_defaults_to_100_within_0_to_1000() {
+    use clap::CommandFactory;
+    let command = Cli::command();
+    let run = command.find_subcommand("batch-sell").and_then(|c| c.find_subcommand("run")).unwrap();
+    let flag = run.get_arguments().find(|a| a.get_long() == Some("start-premium-bps")).expect("--start-premium-bps");
+    assert_eq!(flag.get_default_values(), ["100"]);
+    let args = |value: &'static str| ["agentswap", "batch-sell", "run", "--request", "abcdefghijklmnopqrstuv", "--start-premium-bps", value];
+    for value in ["0", "1000"] { assert!(Cli::try_parse_from(args(value)).is_ok(), "{value}"); }
+    for value in ["1001", "1.5"] {
+        assert_eq!(Cli::try_parse_from(args(value)).err().unwrap().kind(), clap::error::ErrorKind::ValueValidation, "{value}");
+    }
+}
+
+#[test]
 fn batch_sell_plan_filters_and_economic_floor() {
     if enter() { return; }
     for (flag, value, reason) in [("--min-usd","3","under_min_usd"),("--max-usd","2","over_max_usd"),("gas","0","below_gas_floor"),("large","0",""),("fraction","0","over_max_usd")] {

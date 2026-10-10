@@ -58,6 +58,14 @@ pub struct RunInput {
     /// Wait up to this many seconds for intent settlement; only available in intent mode.
     #[arg(long)]
     pub wait: Option<u64>,
+    /// Intent mode: start each intent this many basis points above independent market value,
+    /// 0 to 1000; its price then falls linearly to the owner-confirmed discount floor at expiry.
+    /// 0 starts at market value. Market mode ignores it.
+    #[arg(long, default_value_t = crate::service::sweep::DEFAULT_START_PREMIUM_BPS,
+        value_parser = clap::value_parser!(u16).range(0..=1000))]
+    #[serde(default = "crate::service::sweep::default_start_premium_bps")]
+    #[schemars(range(min = 0, max = 1000))]
+    pub start_premium_bps: u16,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
