@@ -105,16 +105,24 @@ fn has_rpc_override(chain_id: u64) -> bool {
     std::env::var_os(chain_key).is_some() || std::env::var_os("AGENTSWAP_RPC_URL").is_some()
 }
 
+/// Headroom over eth_estimateGas. The estimate runs against the latest block, while the transaction
+/// executes in a later one where pool state and timestamps differ; an exact limit reverts on drift.
+const GAS_HEADROOM_PERCENT: u64 = 25;
+
 /// Fill nonce, gas, fees and chain id from the RPC and sign with the signer's wallet, without
 /// sending: the hash is known before the broadcast. Returns a provider for the same RPC.
 pub async fn sign_transaction(
     url: &str,
     signer: Arc<dyn Signer>,
-    request: TransactionRequest,
+    mut request: TransactionRequest,
 ) -> Result<(DynProvider, TxEnvelope)> {
     let url = url.parse().map_err(|e| eyre!("invalid RPC URL: {e}"))?;
     let wallet = EthereumWallet::new(WalletSigner(signer));
     let provider = ProviderBuilder::new().wallet(wallet).connect_http(url);
+    if request.gas.is_none() {
+        let estimate = provider.estimate_gas(request.clone()).await?;
+        request.gas = Some(estimate.saturating_add(estimate / 100 * GAS_HEADROOM_PERCENT));
+    }
     let envelope = provider
         .fill(request)
         .await?

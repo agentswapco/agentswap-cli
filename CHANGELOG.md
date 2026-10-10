@@ -20,6 +20,11 @@
 - BNB Smart Chain quotes come from the meta-aggregator and need the owner's V6 proxy as taker:
   use `--taker <0x>` on `quote` and `batch-quote`, or `taker` on MCP `quote` and `batch_quote`.
 
+### Fixed
+
+- Self-submitted transactions set their gas limit 25% above `eth_estimateGas`. A limit equal to
+  the estimate could run out of gas once the swap executed in a later block.
+
 ## 0.10.1
 
 ### Added

@@ -98,6 +98,38 @@ async fn a_mined_receipt_with_status_one_is_confirmed() {
 }
 
 #[tokio::test]
+async fn the_gas_limit_adds_headroom_to_one_estimate() {
+    use alloy::consensus::{Transaction, TxEnvelope};
+    use alloy::network::eip2718::Decodable2718;
+    let raw = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::clone(&raw);
+    let rpc = TestRpc::start(move |body| match body["method"].as_str().unwrap_or_default() {
+        "eth_sendRawTransaction" => {
+            let bytes = hex::decode(body["params"][0].as_str().unwrap().trim_start_matches("0x")).unwrap();
+            *seen.lock().unwrap() = bytes.clone();
+            Some(ok(body, json!(keccak256(&bytes))))
+        }
+        "eth_getTransactionReceipt" => Some(receipt_reply(body, Receipt::Status(1))),
+        method => Some(fill_reply(body, method)),
+    });
+    assert_eq!(submit(&rpc).await.expect("sent").status, TxStatus::Confirmed);
+    let envelope = TxEnvelope::decode_2718(&mut raw.lock().unwrap().as_slice()).unwrap();
+    assert_eq!(envelope.gas_limit(), 0x30000 + 0x30000 / 100 * 25);
+    assert_eq!(rpc.called("eth_estimateGas"), 1);
+}
+
+#[tokio::test]
+async fn a_failed_estimate_is_an_error_and_nothing_is_broadcast() {
+    let rpc = TestRpc::start(|body| match body["method"].as_str().unwrap_or_default() {
+        "eth_estimateGas" => Some(failure(body, "execution reverted")),
+        method => Some(fill_reply(body, method)),
+    });
+    let error = submit(&rpc).await.expect_err("the estimate failed");
+    assert!(format!("{error}").contains("execution reverted"), "{error}");
+    assert_eq!(rpc.called("eth_sendRawTransaction"), 0);
+}
+
+#[tokio::test]
 async fn a_mined_receipt_with_status_zero_is_reverted_and_keeps_the_hash() {
     let (rpc, sent) = chain(Broadcast::Accept, vec![Receipt::Status(0)]);
     let submission = submit(&rpc).await.expect("sent");
